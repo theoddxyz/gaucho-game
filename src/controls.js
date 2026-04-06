@@ -11,7 +11,12 @@ export class IsoControls {
     this.mouseWorld = new THREE.Vector3();
     this.keys = { w: false, a: false, s: false, d: false };
     this.onEPress = null; // callback for E key
-    this._lastMoveAngle = 0; // horse facing direction
+    this._lastMoveAngle = 0; // movement facing angle
+    this._isAiming = false;  // right-click held = aim mode
+
+    document.addEventListener('mousedown', (e) => { if (e.button === 2) this._isAiming = true; });
+    document.addEventListener('mouseup',   (e) => { if (e.button === 2) this._isAiming = false; });
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.mouseNDC = new THREE.Vector2();
@@ -42,7 +47,8 @@ export class IsoControls {
 
     if (dir.length() > 0) {
       dir.normalize();
-      this._lastMoveAngle = Math.atan2(dir.x, -dir.z); // angle horse should face
+      // atan2(dx, dz): player model has +Z front, so this gives correct facing angle
+      this._lastMoveAngle = Math.atan2(dir.x, dir.z);
     }
     this.position.x += dir.x * SPEED * speedMult * dt;
     this.position.z += dir.z * SPEED * speedMult * dt;
@@ -97,9 +103,8 @@ export class IsoControls {
     return { x: 0, y: this.aimAngle };
   }
 
-  getMovementAngle() {
-    return this._lastMoveAngle;
-  }
+  getMovementAngle() { return this._lastMoveAngle; }
+  isAiming()         { return this._isAiming; }
 
   getAimDirection() {
     return new THREE.Vector3(

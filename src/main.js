@@ -197,20 +197,22 @@ function gameLoop() {
     }
 
     // Update local model (snap directly, no lerp lag)
+    // Facing: mouse aim only when right-click held; otherwise movement direction
+    const facingAngle = controls.isAiming() ? rot.y : controls.getMovementAngle();
     if (localPlayerModel) {
       const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
       localPlayerModel.group.position.set(pos.x, riderY, pos.z);
-      localPlayerModel.group.rotation.y = rot.y;
+      localPlayerModel.group.rotation.y = facingAngle;
     }
 
     // Update coords display
     UI.updateCoords(pos.x, pos.z);
 
-    // Send position
+    // Send position (send actual facing angle so remote players see correct orientation)
     sendTimer += dt;
     if (sendTimer >= SEND_RATE) {
       sendTimer = 0;
-      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: rot.y });
+      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: facingAngle });
     }
   }
 

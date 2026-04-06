@@ -132,7 +132,8 @@ export class HorseManager {
     horse.x = x;
     horse.z = z;
     horse.mesh.position.set(x, 0, z);
-    horse.mesh.rotation.y = moveAngle; // horse faces movement direction (WASD), not mouse aim
+    // Horse GLB has front at -Z; player model has front at +Z → 180° difference
+    horse.mesh.rotation.y = moveAngle + Math.PI;
   }
 
   // Remote player mounted/dismounted
