@@ -38,7 +38,7 @@ export class PlayerModel {
     this.name = data.name;
     this.color = data.color || '#ff4444';
     this.hp = data.hp;
-    this.targetPos = new THREE.Vector3(data.x, 0, data.z);
+    this.targetPos = new THREE.Vector3(data.x, data.y ?? 1.0, data.z);
     this.targetRY = data.ry || 0;
     this._hitboxes = [];
 
@@ -98,16 +98,13 @@ export class PlayerModel {
   }
 
   update(dt) {
-    this.group.position.lerp(
-      new THREE.Vector3(this.targetPos.x, 0, this.targetPos.z),
-      8 * dt
-    );
+    this.group.position.lerp(this.targetPos, 8 * dt);
     const diff = this.targetRY - this.group.rotation.y;
     this.group.rotation.y += diff * 8 * dt;
   }
 
   setTarget(x, y, z, ry) {
-    this.targetPos.set(x, 0, z);
+    this.targetPos.set(x, y, z);
     this.targetRY = ry;
   }
 

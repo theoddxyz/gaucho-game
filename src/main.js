@@ -188,11 +188,11 @@ function gameLoop() {
       }
     }
 
-    // Update local model (elevated when mounted)
+    // Update local model (snap directly, no lerp lag)
     if (localPlayerModel) {
       const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
-      localPlayerModel.setTarget(pos.x, riderY, pos.z, rot.y);
-      localPlayerModel.update(dt);
+      localPlayerModel.group.position.set(pos.x, riderY, pos.z);
+      localPlayerModel.group.rotation.y = rot.y;
     }
 
     // Update coords display
