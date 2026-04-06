@@ -146,13 +146,15 @@ export class HorseManager {
     if (horse) horse.riderId = null;
   }
 
-  onRemoteHorseMoved(horseId, x, z, ry) {
+  onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
     const horse = this.horses.get(horseId);
     if (!horse) return;
     horse.x = x;
     horse.z = z;
     horse.mesh.position.set(x, 0, z);
     horse.mesh.rotation.y = ry + Math.PI;
+    // Elevate the rider model
+    if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
   }
 
   isMounted() { return this.myHorseId !== null; }

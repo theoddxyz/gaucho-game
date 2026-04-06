@@ -155,7 +155,7 @@ io.on('connection', (socket) => {
 
   socket.on('horseMoved', (data) => {
     if (!currentRoom) return;
-    socket.to(currentRoom).volatile.emit('horsePositionUpdate', data);
+    socket.to(currentRoom).volatile.emit('horsePositionUpdate', { ...data, riderId: socket.id });
   });
 
   socket.on('disconnect', () => {

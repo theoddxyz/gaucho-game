@@ -76,7 +76,10 @@ Network.onJoined((data) => {
 
   Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
   Network.onPlayerDismountedHorse((d) => horseManager?.onRemoteDismount(d.horseId));
-  Network.onHorsePositionUpdate((d) => horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry));
+  Network.onHorsePositionUpdate((d) => {
+    const riderModel = remotePlayers.get(d.riderId);
+    horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry, riderModel);
+  });
 
   UI.showGame();
   UI.updateHP(myData.hp);
@@ -185,9 +188,10 @@ function gameLoop() {
       }
     }
 
-    // Update local model
+    // Update local model (elevated when mounted)
     if (localPlayerModel) {
-      localPlayerModel.setTarget(pos.x, pos.y, pos.z, rot.y);
+      const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+      localPlayerModel.setTarget(pos.x, riderY, pos.z, rot.y);
       localPlayerModel.update(dt);
     }
 
