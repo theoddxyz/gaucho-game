@@ -6,6 +6,11 @@ import { PlayerModel } from './player.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI from './ui.js';
+
+// --- Crosshair follows mouse ---
+document.addEventListener('mousemove', (e) => {
+  UI.moveCrosshair(e.clientX, e.clientY);
+});
 import { HorseManager } from './horses.js';
 
 // --- Renderer ---
@@ -156,7 +161,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
   const pos = controls.getPosition();
   const dir = controls.getAimDirection();
-  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000);
+  const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+  const gunY   = riderY + 0.55; // gun height above player group base
+  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY);
   if (!result) return;
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);

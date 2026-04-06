@@ -28,8 +28,15 @@ export function hideLobby() {
   els.lobby.style.display = 'none';
 }
 
+export function moveCrosshair(x, y) {
+  if (!els.crosshair) return;
+  els.crosshair.style.left = x + 'px';
+  els.crosshair.style.top  = y + 'px';
+}
+
 export function showGame() {
   els.crosshair.style.display = 'block';
+  document.body.classList.add('game-active');
   els.hud.style.display = 'block';
   els.score.style.display = 'block';
   els.killfeed.style.display = 'block';
