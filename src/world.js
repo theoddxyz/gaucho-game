@@ -75,7 +75,7 @@ export async function createWorld(scene) {
         }
       });
       // Random slight scale & rotation variation
-      const scale = 0.8 + Math.random() * 0.5;
+      const scale = 0.7 + Math.random() * 0.3; // 0.7–1.0 × 1.68 = 1.18–1.68 units
       tree.scale.set(scale, scale, scale);
       tree.rotation.y = Math.random() * Math.PI * 2;
       scene.add(tree);

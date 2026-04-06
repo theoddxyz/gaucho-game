@@ -234,28 +234,29 @@ function buildBox(w, h, d) {
   const buf = doc.createBuffer();
   const scene = doc.createScene('Scene');
 
-  // Player is ~1.9 units tall. Trees: max ~2.2, average ~1.4
-  // Trunk: radius 0.12, height 0.85
+  // Player = 1.68 units tall (body 1.2 + head 0.48)
+  // Tree max height = 1.68 units exactly
+  // Trunk: radius 0.11, height 0.70
   addMesh(doc, scene, buf, 'trunk',
-    buildCylinder(0.12, 0.10, 0.85, 8),
+    buildCylinder(0.11, 0.09, 0.70, 8),
     solidMat(doc, 'bark', 0.38, 0.22, 0.08)
   );
 
-  // Foliage layer 1 (bottom, widest): radius 0.75, height 0.85, starts at y=0.45
+  // Foliage layer 1 (bottom): radius 0.65, height 0.70, starts at y=0.38
   addMesh(doc, scene, buf, 'foliage1',
-    offsetY(buildCone(0.75, 0.85, 10), 0.45),
+    offsetY(buildCone(0.65, 0.70, 10), 0.38),
     solidMat(doc, 'leaves', 0.15, 0.55, 0.12)
   );
 
-  // Foliage layer 2 (middle): radius 0.58, height 0.75, starts at y=0.85
+  // Foliage layer 2 (middle): radius 0.50, height 0.62, starts at y=0.70
   addMesh(doc, scene, buf, 'foliage2',
-    offsetY(buildCone(0.58, 0.75, 10), 0.85),
+    offsetY(buildCone(0.50, 0.62, 10), 0.70),
     solidMat(doc, 'leaves2', 0.18, 0.60, 0.14)
   );
 
-  // Foliage layer 3 (top): radius 0.38, height 0.60, starts at y=1.30
+  // Foliage layer 3 (top): radius 0.32, height 0.52, starts at y=1.16
   addMesh(doc, scene, buf, 'foliage3',
-    offsetY(buildCone(0.38, 0.60, 10), 1.30),
+    offsetY(buildCone(0.32, 0.52, 10), 1.16),
     solidMat(doc, 'leaves3', 0.20, 0.65, 0.16)
   );
 
