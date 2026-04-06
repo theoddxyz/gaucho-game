@@ -10,6 +10,7 @@ export class IsoControls {
     this.aimAngle = 0; // radians, where the player faces
     this.mouseWorld = new THREE.Vector3();
     this.keys = { w: false, a: false, s: false, d: false };
+    this.onEPress = null; // callback for E key
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.mouseNDC = new THREE.Vector2();
@@ -17,6 +18,7 @@ export class IsoControls {
     document.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
       if (k in this.keys) this.keys[k] = true;
+      if (k === 'e' && this.onEPress) this.onEPress();
     });
     document.addEventListener('keyup', (e) => {
       const k = e.key.toLowerCase();
@@ -28,7 +30,7 @@ export class IsoControls {
     });
   }
 
-  update(dt, colliders) {
+  update(dt, colliders, speedMult = 1.0) {
     // --- Movement (WASD in world-axis-aligned directions for isometric) ---
     const dir = new THREE.Vector3();
     // In isometric, "up" on screen = forward (-Z), "right" = +X
@@ -38,8 +40,8 @@ export class IsoControls {
     if (this.keys.d) dir.x += 1;
 
     if (dir.length() > 0) dir.normalize();
-    this.position.x += dir.x * SPEED * dt;
-    this.position.z += dir.z * SPEED * dt;
+    this.position.x += dir.x * SPEED * speedMult * dt;
+    this.position.z += dir.z * SPEED * speedMult * dt;
 
     // World boundary
     const BOUND = 95;

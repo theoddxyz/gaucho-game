@@ -6,6 +6,7 @@ import { PlayerModel } from './player.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI from './ui.js';
+import { HorseManager } from './horses.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -46,6 +47,7 @@ const remotePlayers = new Map();
 let myId = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
+let horseManager = null;
 
 // --- Network ---
 Network.connect();
@@ -68,6 +70,13 @@ Network.onJoined((data) => {
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '' });
+
+  horseManager = new HorseManager(scene, Network);
+  controls.onEPress = () => horseManager?.tryMount(myId);
+
+  Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
+  Network.onPlayerDismountedHorse((d) => horseManager?.onRemoteDismount(d.horseId));
+  Network.onHorsePositionUpdate((d) => horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry));
 
   UI.showGame();
   UI.updateHP(myData.hp);
@@ -161,10 +170,20 @@ function gameLoop() {
   const dt = Math.min(clock.getDelta(), 0.1);
 
   if (!isDead && myId) {
-    controls.update(dt, colliders);
+    const speedMult = horseManager?.speedMultiplier() ?? 1.0;
+    controls.update(dt, colliders, speedMult);
 
     const pos = controls.getPosition();
     const rot = controls.getRotation();
+
+    // Sync horse position when mounted
+    if (horseManager) {
+      horseManager.update(pos, dt);
+      if (horseManager.isMounted()) {
+        horseManager.syncRiderPosition(pos.x, pos.z, rot.y);
+        Network.sendHorseMoved({ horseId: horseManager.myHorseId, x: pos.x, z: pos.z, ry: rot.y });
+      }
+    }
 
     // Update local model
     if (localPlayerModel) {

@@ -29,6 +29,14 @@ export function onPlayerHit(cb) { socket.on('playerHit', cb); }
 export function onPlayerKilled(cb) { socket.on('playerKilled', cb); }
 export function onPlayerRespawned(cb) { socket.on('playerRespawned', cb); }
 
+export function sendMount(horseId)   { socket.emit('mountHorse', { horseId }); }
+export function sendDismount(horseId){ socket.emit('dismountHorse', { horseId }); }
+export function sendHorseMoved(data) { socket.volatile.emit('horseMoved', data); }
+
+export function onPlayerMountedHorse(cb)   { socket.on('playerMountedHorse', cb); }
+export function onPlayerDismountedHorse(cb){ socket.on('playerDismountedHorse', cb); }
+export function onHorsePositionUpdate(cb)  { socket.on('horsePositionUpdate', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

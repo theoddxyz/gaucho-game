@@ -143,6 +143,21 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('mountHorse', ({ horseId }) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('playerMountedHorse', { playerId: socket.id, horseId });
+  });
+
+  socket.on('dismountHorse', ({ horseId }) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('playerDismountedHorse', { playerId: socket.id, horseId });
+  });
+
+  socket.on('horseMoved', (data) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).volatile.emit('horsePositionUpdate', data);
+  });
+
   socket.on('disconnect', () => {
     if (currentRoom) {
       const room = getRoom(currentRoom);
