@@ -125,14 +125,14 @@ export class HorseManager {
   }
 
   // Move horse when player is riding it
-  syncRiderPosition(x, z, ry) {
+  syncRiderPosition(x, z, moveAngle) {
     if (this.myHorseId === null) return;
     const horse = this.horses.get(this.myHorseId);
     if (!horse) return;
     horse.x = x;
     horse.z = z;
     horse.mesh.position.set(x, 0, z);
-    horse.mesh.rotation.y = ry + Math.PI; // horse faces movement direction
+    horse.mesh.rotation.y = moveAngle; // horse faces movement direction (WASD), not mouse aim
   }
 
   // Remote player mounted/dismounted

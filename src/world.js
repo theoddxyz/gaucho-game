@@ -74,8 +74,8 @@ export async function createWorld(scene) {
           obj.receiveShadow = true;
         }
       });
-      // Random slight scale & rotation variation
-      const scale = 0.7 + Math.random() * 0.3; // 0.7–1.0 × 1.68 = 1.18–1.68 units
+      // 50% smaller than before
+      const scale = 0.35 + Math.random() * 0.15; // 0.35–0.50 × 1.68 = 0.59–0.84 units
       tree.scale.set(scale, scale, scale);
       tree.rotation.y = Math.random() * Math.PI * 2;
       scene.add(tree);
@@ -85,6 +85,31 @@ export async function createWorld(scene) {
     }
   } catch (e) {
     console.warn('tree.glb not found:', e.message);
+  }
+
+  // --- Rocks GLB ---
+  const ROCK_POSITIONS = [
+    [10, 18], [-18, 8], [32, -12], [-28, 22], [42, 40],
+    [-42, -8], [18, -38], [-8, 48], [58, 20], [-52, -30],
+    [25, 65], [-65, 18], [12, -68], [-35, 55], [70, -40],
+  ];
+  try {
+    const rockTemplate = await loadGLB('/models/rock.glb');
+    for (const [rx, rz] of ROCK_POSITIONS) {
+      const rock = rockTemplate.clone(true);
+      rock.position.set(rx, 0, rz);
+      rock.traverse(obj => {
+        if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; }
+      });
+      const rs = 0.6 + Math.random() * 0.8; // varied sizes
+      const rsY = 0.5 + Math.random() * 0.5;
+      rock.scale.set(rs, rsY, rs);
+      rock.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(rock);
+      colliders.push({ x: rx, z: rz, sx: rs * 1.5, sy: 2, sz: rs * 1.5, mesh: null });
+    }
+  } catch (e) {
+    console.warn('rock.glb not found:', e.message);
   }
 
   // --- Buildings (kept until replaced by GLBs) ---

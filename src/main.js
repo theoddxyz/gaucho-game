@@ -183,8 +183,9 @@ function gameLoop() {
     if (horseManager) {
       horseManager.update(pos, dt);
       if (horseManager.isMounted()) {
-        horseManager.syncRiderPosition(pos.x, pos.z, rot.y);
-        Network.sendHorseMoved({ horseId: horseManager.myHorseId, x: pos.x, z: pos.z, ry: rot.y });
+        const moveAngle = controls.getMovementAngle();
+        horseManager.syncRiderPosition(pos.x, pos.z, moveAngle);
+        Network.sendHorseMoved({ horseId: horseManager.myHorseId, x: pos.x, z: pos.z, ry: moveAngle });
       }
     }
 

@@ -11,6 +11,7 @@ export class IsoControls {
     this.mouseWorld = new THREE.Vector3();
     this.keys = { w: false, a: false, s: false, d: false };
     this.onEPress = null; // callback for E key
+    this._lastMoveAngle = 0; // horse facing direction
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.mouseNDC = new THREE.Vector2();
@@ -39,7 +40,10 @@ export class IsoControls {
     if (this.keys.a) dir.x -= 1;
     if (this.keys.d) dir.x += 1;
 
-    if (dir.length() > 0) dir.normalize();
+    if (dir.length() > 0) {
+      dir.normalize();
+      this._lastMoveAngle = Math.atan2(dir.x, -dir.z); // angle horse should face
+    }
     this.position.x += dir.x * SPEED * speedMult * dt;
     this.position.z += dir.z * SPEED * speedMult * dt;
 
@@ -91,6 +95,10 @@ export class IsoControls {
 
   getRotation() {
     return { x: 0, y: this.aimAngle };
+  }
+
+  getMovementAngle() {
+    return this._lastMoveAngle;
   }
 
   getAimDirection() {

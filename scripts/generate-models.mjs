@@ -219,7 +219,7 @@ function buildBox(w, h, d) {
 
   addMesh(doc, scene, buf, 'terrain',
     buildPlane(200, 200, 20, 20),
-    solidMat(doc, 'grass', 0.22, 0.45, 0.18)
+    solidMat(doc, 'sand', 0.800, 0.643, 0.396)  // #cca465
   );
 
   await writeGLB('terrain.glb', doc);
@@ -291,6 +291,131 @@ function buildBox(w, h, d) {
   );
 
   await writeGLB('player.glb', doc);
+}
+
+// ============================================================
+// HORSE.GLB  — blocky horse, base at Y=0
+// Torso sits at y=1.3, legs go from y=0 to y=1.3
+// Total height ~2.8 (taller than player for readability)
+// ============================================================
+{
+  const doc = new Document();
+  const buf = doc.createBuffer();
+  const scene = doc.createScene('Scene');
+
+  const brown  = solidMat(doc, 'coat',  0.55, 0.30, 0.10);
+  const dark   = solidMat(doc, 'dark',  0.25, 0.13, 0.05);
+  const mane   = solidMat(doc, 'mane',  0.18, 0.09, 0.03);
+
+  // --- Torso: 1.3 wide × 0.9 tall × 2.6 long, base at y=1.3
+  addMesh(doc, scene, buf, 'torso',
+    offsetY(buildBox(1.3, 0.9, 2.6), 1.3), brown);
+
+  // --- Neck: 0.4 wide × 0.9 tall × 0.4 deep, front-top of torso (z=-1.0, y=1.8)
+  {
+    const g = offsetY(buildBox(0.4, 0.9, 0.4), 1.8);
+    // shift forward (z = -1.1)
+    for (let i = 2; i < g.positions.length; i += 3) g.positions[i] -= 1.1;
+    addMesh(doc, scene, buf, 'neck', g, brown);
+  }
+
+  // --- Head: 0.45 wide × 0.55 tall × 0.85 long, at top of neck (y=2.55, z=-1.3)
+  {
+    const g = offsetY(buildBox(0.45, 0.55, 0.85), 2.55);
+    for (let i = 2; i < g.positions.length; i += 3) g.positions[i] -= 1.3;
+    addMesh(doc, scene, buf, 'head', g, brown);
+  }
+
+  // --- Muzzle: 0.3 wide × 0.3 tall × 0.3 deep at nose tip
+  {
+    const g = offsetY(buildBox(0.3, 0.3, 0.3), 2.45);
+    for (let i = 2; i < g.positions.length; i += 3) g.positions[i] -= 1.75;
+    addMesh(doc, scene, buf, 'muzzle', g, dark);
+  }
+
+  // --- Mane: thin tall strip on top of neck+head
+  {
+    const g = offsetY(buildBox(0.15, 0.55, 1.1), 2.65);
+    for (let i = 2; i < g.positions.length; i += 3) g.positions[i] -= 1.1;
+    addMesh(doc, scene, buf, 'mane_mesh', g, mane);
+  }
+
+  // --- Tail: tapered box at back
+  {
+    const g = offsetY(buildBox(0.18, 0.7, 0.18), 1.5);
+    for (let i = 2; i < g.positions.length; i += 3) g.positions[i] += 1.35;
+    addMesh(doc, scene, buf, 'tail', g, mane);
+  }
+
+  // --- 4 Legs: cylinders, radius 0.18, height 1.3
+  const legPositions = [
+    [ 0.42, -0.9],  // front-left  [x-offset, z-offset]
+    [-0.42, -0.9],  // front-right
+    [ 0.42,  0.9],  // back-left
+    [-0.42,  0.9],  // back-right
+  ];
+  legPositions.forEach(([lx, lz], i) => {
+    const g = buildCylinder(0.18, 0.16, 1.3, 7);
+    for (let j = 0; j < g.positions.length; j += 3) {
+      g.positions[j]   += lx;
+      g.positions[j+2] += lz;
+    }
+    addMesh(doc, scene, buf, `leg${i}`, g, dark);
+  });
+
+  // --- Ears: two small boxes on top of head
+  [-0.15, 0.15].forEach((ex, i) => {
+    const g = offsetY(buildBox(0.12, 0.25, 0.10), 3.05);
+    for (let j = 0; j < g.positions.length; j += 3) {
+      g.positions[j]   += ex;
+      g.positions[j+2] -= 1.3;
+    }
+    addMesh(doc, scene, buf, `ear${i}`, g, brown);
+  });
+
+  // --- Saddle: flat box on top of torso center
+  addMesh(doc, scene, buf, 'saddle',
+    offsetY(buildBox(0.9, 0.18, 1.0), 2.22), dark);
+
+  await writeGLB('horse.glb', doc);
+}
+
+// ============================================================
+// ROCK.GLB  — lumpy boulder from multiple boxes, base at Y=0
+// ============================================================
+{
+  const doc = new Document();
+  const buf = doc.createBuffer();
+  const scene = doc.createScene('Scene');
+
+  // #cca465-adjacent stone colors
+  const stone  = solidMat(doc, 'stone',  0.600, 0.510, 0.380);
+  const dark   = solidMat(doc, 'dark',   0.450, 0.380, 0.280);
+  const light  = solidMat(doc, 'light',  0.700, 0.620, 0.480);
+
+  // Main boulder body
+  addMesh(doc, scene, buf, 'body',
+    offsetY(buildBox(1.4, 0.9, 1.2), 0.0), stone);
+
+  // Top bump
+  addMesh(doc, scene, buf, 'top',
+    offsetY(buildBox(0.85, 0.55, 0.80), 0.7), light);
+
+  // Side protrusion left
+  {
+    const g = offsetY(buildBox(0.5, 0.6, 0.7), 0.1);
+    for (let i = 0; i < g.positions.length; i += 3) g.positions[i] -= 0.75;
+    addMesh(doc, scene, buf, 'sideL', g, dark);
+  }
+
+  // Side protrusion right
+  {
+    const g = offsetY(buildBox(0.45, 0.5, 0.65), 0.2);
+    for (let i = 0; i < g.positions.length; i += 3) g.positions[i] += 0.70;
+    addMesh(doc, scene, buf, 'sideR', g, stone);
+  }
+
+  await writeGLB('rock.glb', doc);
 }
 
 console.log('\nModelos generados en public/models/');
