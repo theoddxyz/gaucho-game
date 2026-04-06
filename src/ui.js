@@ -111,3 +111,44 @@ export function onPlay(callback) {
     if (e.key === 'Enter') callback();
   });
 }
+
+// --- Coords display ---
+let coordsEl = null;
+let lastCoords = { x: 0, z: 0 };
+
+export function initCoords() {
+  coordsEl = document.createElement('div');
+  coordsEl.style.cssText = `
+    position: fixed; bottom: 60px; left: 20px; z-index: 100;
+    display: none; background: rgba(0,0,0,0.55);
+    padding: 5px 12px; border-radius: 6px; font-size: 12px;
+    font-family: monospace; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #aef; transition: background 0.15s;
+  `;
+  coordsEl.title = 'Click para copiar coordenadas';
+  coordsEl.addEventListener('mouseenter', () => {
+    coordsEl.style.background = 'rgba(80,120,255,0.4)';
+  });
+  coordsEl.addEventListener('mouseleave', () => {
+    coordsEl.style.background = 'rgba(0,0,0,0.55)';
+  });
+  coordsEl.addEventListener('click', () => {
+    const txt = `X: ${lastCoords.x.toFixed(1)}, Z: ${lastCoords.z.toFixed(1)}`;
+    navigator.clipboard.writeText(txt);
+    const prev = coordsEl.textContent;
+    coordsEl.textContent = '¡Copiado!';
+    setTimeout(() => { coordsEl.textContent = prev; }, 1200);
+  });
+  document.body.appendChild(coordsEl);
+}
+
+export function updateCoords(x, z) {
+  if (!coordsEl) return;
+  lastCoords = { x, z };
+  coordsEl.textContent = `X: ${x.toFixed(1)}  Z: ${z.toFixed(1)}  📋`;
+}
+
+export function showCoords() {
+  if (coordsEl) coordsEl.style.display = 'block';
+}

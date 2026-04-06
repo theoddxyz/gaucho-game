@@ -1,25 +1,26 @@
-// --- World: terrain + buildings/cover ---
+// --- World: terrain + trees + buildings ---
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-export function createWorld(scene) {
-  const colliders = []; // { x, z, sx, sy, sz } for collision
+const loader = new GLTFLoader();
 
-  // --- Ground ---
-  const groundGeo = new THREE.PlaneGeometry(200, 200);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x3a5f3a, roughness: 0.9 });
-  const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
+function loadGLB(url) {
+  return new Promise((resolve, reject) => {
+    loader.load(url, (gltf) => resolve(gltf.scene), undefined, reject);
+  });
+}
 
-  // --- Grid lines on ground ---
-  const gridHelper = new THREE.GridHelper(200, 40, 0x2a4f2a, 0x2a4f2a);
-  gridHelper.position.y = 0.01;
-  scene.add(gridHelper);
+// Tree positions [x, z]
+const TREE_POSITIONS = [
+  [20, 30], [-25, 35], [40, -20], [-40, 15], [30, -40],
+  [-35, -30], [15, 45], [-20, -45], [45, 25], [-45, -20],
+  [60, 5],  [-60, 10], [5, 60],   [10, -60], [-55, 40],
+  [55, -35],[35, 55],  [-30, -55], [70, 30],  [-70, -25],
+  [25, -15],[-15, 25], [50, 50],  [-50, -50], [80, -10],
+];
 
-  // --- Sky ---
-  scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.Fog(0x87ceeb, 60, 150);
+export async function createWorld(scene) {
+  const colliders = [];
 
   // --- Lighting ---
   const ambient = new THREE.AmbientLight(0xffffff, 0.5);
@@ -30,44 +31,79 @@ export function createWorld(scene) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 150;
-  sun.shadow.camera.left = -60;
-  sun.shadow.camera.right = 60;
-  sun.shadow.camera.top = 60;
-  sun.shadow.camera.bottom = -60;
+  sun.shadow.camera.far = 200;
+  sun.shadow.camera.left = -100;
+  sun.shadow.camera.right = 100;
+  sun.shadow.camera.top = 100;
+  sun.shadow.camera.bottom = -100;
   scene.add(sun);
 
-  // --- Buildings/boxes ---
-  const boxMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.7 });
+  // --- Sky & fog ---
+  scene.background = new THREE.Color(0x87ceeb);
+  scene.fog = new THREE.Fog(0x87ceeb, 80, 160);
+
+  // --- Terrain GLB ---
+  try {
+    const terrain = await loadGLB('/models/terrain.glb');
+    terrain.traverse(obj => {
+      if (obj.isMesh) {
+        obj.receiveShadow = true;
+      }
+    });
+    scene.add(terrain);
+  } catch (e) {
+    console.warn('terrain.glb not found, using fallback plane');
+    const geo = new THREE.PlaneGeometry(200, 200);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x3a5f3a, roughness: 0.9 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  }
+
+  // --- Trees GLB ---
+  try {
+    const treeTemplate = await loadGLB('/models/tree.glb');
+
+    for (const [tx, tz] of TREE_POSITIONS) {
+      const tree = treeTemplate.clone(true);
+      tree.position.set(tx, 0, tz);
+      tree.traverse(obj => {
+        if (obj.isMesh) {
+          obj.castShadow = true;
+          obj.receiveShadow = true;
+        }
+      });
+      // Random slight scale & rotation variation
+      const scale = 0.8 + Math.random() * 0.5;
+      tree.scale.set(scale, scale, scale);
+      tree.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(tree);
+
+      // Add trunk as collider (radius ~0.5)
+      colliders.push({ x: tx, z: tz, sx: 1, sy: 5, sz: 1, mesh: null });
+    }
+  } catch (e) {
+    console.warn('tree.glb not found:', e.message);
+  }
+
+  // --- Buildings (kept until replaced by GLBs) ---
+  const boxMat     = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.7 });
   const boxDarkMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.8 });
-  const boxRedMat = new THREE.MeshStandardMaterial({ color: 0x884444, roughness: 0.7 });
+  const boxRedMat  = new THREE.MeshStandardMaterial({ color: 0x884444, roughness: 0.7 });
 
   const buildings = [
-    // Central structures
-    { x: 0, z: 0, sx: 6, sy: 8, sz: 6, mat: boxDarkMat },
-    { x: 15, z: 10, sx: 10, sy: 5, sz: 8, mat: boxMat },
-    { x: -20, z: -15, sx: 8, sy: 6, sz: 10, mat: boxRedMat },
-    { x: -10, z: 20, sx: 4, sy: 3, sz: 4, mat: boxMat },
-    { x: 25, z: -20, sx: 12, sy: 4, sz: 6, mat: boxDarkMat },
-
-    // Outer structures
-    { x: -40, z: 30, sx: 8, sy: 7, sz: 8, mat: boxMat },
-    { x: 40, z: -35, sx: 6, sy: 10, sz: 6, mat: boxRedMat },
-    { x: -35, z: -40, sx: 10, sy: 4, sz: 10, mat: boxDarkMat },
-    { x: 35, z: 35, sx: 14, sy: 3, sz: 4, mat: boxMat },
-    { x: 50, z: 10, sx: 4, sy: 6, sz: 12, mat: boxMat },
-    { x: -50, z: 5, sx: 6, sy: 5, sz: 6, mat: boxRedMat },
-
-    // Small cover
-    { x: 8, z: -8, sx: 2, sy: 1.5, sz: 2, mat: boxMat },
-    { x: -5, z: 8, sx: 3, sy: 1.2, sz: 1.5, mat: boxDarkMat },
-    { x: 20, z: 25, sx: 2, sy: 2, sz: 2, mat: boxMat },
-    { x: -25, z: 10, sx: 1.5, sy: 1.8, sz: 3, mat: boxMat },
-    { x: 30, z: -5, sx: 3, sy: 1.5, sz: 3, mat: boxDarkMat },
-
-    // Walls
-    { x: -15, z: 0, sx: 1, sy: 3, sz: 12, mat: boxDarkMat },
-    { x: 10, z: -25, sx: 16, sy: 2.5, sz: 1, mat: boxMat },
+    { x: 0,   z: 0,   sx: 6,  sy: 8,  sz: 6,  mat: boxDarkMat },
+    { x: 15,  z: 10,  sx: 10, sy: 5,  sz: 8,  mat: boxMat     },
+    { x: -20, z: -15, sx: 8,  sy: 6,  sz: 10, mat: boxRedMat  },
+    { x: -10, z: 20,  sx: 4,  sy: 3,  sz: 4,  mat: boxMat     },
+    { x: 25,  z: -20, sx: 12, sy: 4,  sz: 6,  mat: boxDarkMat },
+    { x: -40, z: 30,  sx: 8,  sy: 7,  sz: 8,  mat: boxMat     },
+    { x: 40,  z: -35, sx: 6,  sy: 10, sz: 6,  mat: boxRedMat  },
+    { x: -35, z: -40, sx: 10, sy: 4,  sz: 10, mat: boxDarkMat },
+    { x: 35,  z: 35,  sx: 14, sy: 3,  sz: 4,  mat: boxMat     },
+    { x: -15, z: 0,   sx: 1,  sy: 3,  sz: 12, mat: boxDarkMat },
+    { x: 10,  z: -25, sx: 16, sy: 2.5,sz: 1,  mat: boxMat     },
   ];
 
   for (const b of buildings) {

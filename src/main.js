@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { IsoControls } from './controls.js';
 import { createWorld } from './world.js';
-import { PlayerModel, createMuzzleFlash } from './player.js';
+import { PlayerModel } from './player.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI from './ui.js';
@@ -28,11 +28,15 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// --- World ---
-const colliders = createWorld(scene);
+// --- World (async: loads GLBs) ---
+let colliders = [];
+createWorld(scene).then(c => { colliders = c; });
 
 // --- Controls ---
 const controls = new IsoControls(camera);
+
+// --- Coords display ---
+UI.initCoords();
 
 // --- Local player model ---
 let localPlayerModel = null;
@@ -42,14 +46,14 @@ const remotePlayers = new Map();
 let myId = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
-let roomId = null;
 
 // --- Network ---
-const socket = Network.connect();
+Network.connect();
 
 function startGame(name) {
-  roomId = Network.getRoomId() || Network.generateRoomId();
+  const roomId = Network.getRoomId() || Network.generateRoomId();
   UI.hideLobby();
+  UI.showCoords();
 
   const url = new URL(window.location);
   url.searchParams.set('room', roomId);
@@ -63,8 +67,6 @@ Network.onJoined((data) => {
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
-
-  // Create local player model (visible in isometric)
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '' });
 
   UI.showGame();
@@ -73,9 +75,7 @@ Network.onJoined((data) => {
   UI.setRoomLink(data.roomId);
 
   for (const [id, pd] of Object.entries(data.players)) {
-    if (id !== myId) {
-      remotePlayers.set(id, new PlayerModel(scene, pd));
-    }
+    if (id !== myId) remotePlayers.set(id, new PlayerModel(scene, pd));
   }
   UI.updatePlayersCount(remotePlayers.size + 1);
 });
@@ -108,9 +108,7 @@ Network.onPlayerHit((data) => {
     UI.updateHP(myData.hp);
     UI.showDamageFlash();
   }
-  if (data.attackerId === myId) {
-    UI.showHitmarker();
-  }
+  if (data.attackerId === myId) UI.showHitmarker();
 });
 
 Network.onPlayerKilled((data) => {
@@ -148,18 +146,15 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const dir = controls.getAimDirection();
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000);
   if (!result) return;
-
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
 });
 
-// --- Send position ---
-const SEND_RATE = 1 / 20;
-let sendTimer = 0;
-
 // --- Game loop ---
 const clock = new THREE.Clock();
+const SEND_RATE = 1 / 20;
+let sendTimer = 0;
 
 function gameLoop() {
   requestAnimationFrame(gameLoop);
@@ -168,40 +163,33 @@ function gameLoop() {
   if (!isDead && myId) {
     controls.update(dt, colliders);
 
-    // Update local player model position & rotation
+    const pos = controls.getPosition();
+    const rot = controls.getRotation();
+
+    // Update local model
     if (localPlayerModel) {
-      const pos = controls.getPosition();
-      const rot = controls.getRotation();
       localPlayerModel.setTarget(pos.x, pos.y, pos.z, rot.y);
       localPlayerModel.update(dt);
     }
+
+    // Update coords display
+    UI.updateCoords(pos.x, pos.z);
+
+    // Send position
+    sendTimer += dt;
+    if (sendTimer >= SEND_RATE) {
+      sendTimer = 0;
+      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: rot.y });
+    }
   }
 
-  // Update remote players
-  for (const [, pm] of remotePlayers) {
-    pm.update(dt);
-  }
-
-  // Update bullets
+  for (const [, pm] of remotePlayers) pm.update(dt);
   updateBullets(scene, dt);
-
-  // Send position
-  sendTimer += dt;
-  if (sendTimer >= SEND_RATE && myId && !isDead) {
-    sendTimer = 0;
-    const pos = controls.getPosition();
-    const rot = controls.getRotation();
-    Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: rot.y });
-  }
-
   renderer.render(scene, camera);
 }
 
 // --- Lobby ---
-UI.onPlay(() => {
-  const name = UI.getNameInput() || 'Gaucho';
-  startGame(name);
-});
+UI.onPlay(() => startGame(UI.getNameInput() || 'Gaucho'));
 
 if (Network.getRoomId()) {
   document.getElementById('lobby').querySelector('.hint').textContent =
