@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GAUCHO</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+    canvas { display: block; }
+
+    /* --- Crosshair --- */
+    #crosshair {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 50; pointer-events: none; display: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute; background: rgba(255,255,255,0.85);
+    }
+    #crosshair::before { width: 2px; height: 20px; left: -1px; top: -10px; }
+    #crosshair::after { width: 20px; height: 2px; left: -10px; top: -1px; }
+
+    /* --- HUD --- */
+    #hud {
+      position: fixed; bottom: 20px; left: 20px;
+      z-index: 100; display: none;
+      font-size: 14px;
+    }
+    #hp-bar-outer {
+      width: 200px; height: 8px; background: rgba(255,255,255,0.1);
+      border-radius: 4px; overflow: hidden; margin-bottom: 6px;
+    }
+    #hp-bar {
+      height: 100%; width: 100%; background: #44ff44;
+      border-radius: 4px; transition: width 0.3s, background 0.3s;
+    }
+    #hp-text { font-size: 12px; opacity: 0.8; }
+    #score {
+      position: fixed; top: 20px; right: 20px;
+      z-index: 100; display: none;
+      font-size: 13px; text-align: right;
+      background: rgba(0,0,0,0.4); padding: 10px 14px;
+      border-radius: 8px; backdrop-filter: blur(6px);
+    }
+
+    /* --- Kill feed --- */
+    #killfeed {
+      position: fixed; top: 20px; left: 20px;
+      z-index: 100; display: none;
+      font-size: 12px;
+    }
+    .kill-msg {
+      background: rgba(0,0,0,0.5); padding: 4px 10px;
+      border-radius: 4px; margin-bottom: 4px;
+      animation: fadeOut 4s forwards;
+    }
+    @keyframes fadeOut { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
+
+    /* --- Room link --- */
+    #room-link {
+      position: fixed; top: 20px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 100; display: none;
+      background: rgba(0,0,0,0.6); padding: 8px 16px;
+      border-radius: 8px; font-size: 12px;
+      backdrop-filter: blur(6px); cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.15);
+      transition: background 0.2s;
+    }
+    #room-link:hover { background: rgba(255,255,255,0.15); }
+
+    /* --- Hit marker --- */
+    #hitmarker {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 60; pointer-events: none; display: none;
+      font-size: 24px; color: #ff4444; font-weight: bold;
+    }
+
+    /* --- Damage overlay --- */
+    #damage-overlay {
+      position: fixed; inset: 0; z-index: 40;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 50%, rgba(255,0,0,0.4) 100%);
+      opacity: 0; transition: opacity 0.15s;
+    }
+
+    /* --- Death screen --- */
+    #death-screen {
+      position: fixed; inset: 0; z-index: 200;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.7); flex-direction: column; gap: 12px;
+    }
+    #death-screen h2 { font-size: 36px; color: #ff4444; }
+    #death-screen p { font-size: 14px; opacity: 0.7; }
+
+    /* --- Lobby --- */
+    #lobby {
+      position: fixed; inset: 0; z-index: 999;
+      display: flex; align-items: center; justify-content: center;
+      background: #1a1a2e; flex-direction: column; gap: 20px;
+    }
+    #lobby h1 { font-size: 48px; letter-spacing: 8px; font-weight: 900; }
+    #lobby input {
+      padding: 10px 16px; border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px; background: rgba(255,255,255,0.08);
+      color: #fff; font-size: 16px; width: 240px; text-align: center;
+      outline: none;
+    }
+    #lobby input::placeholder { color: rgba(255,255,255,0.3); }
+    #lobby button {
+      padding: 12px 32px; border: none; border-radius: 8px;
+      background: #5078ff; color: #fff; font-size: 16px;
+      cursor: pointer; font-weight: 600; transition: background 0.2s;
+    }
+    #lobby button:hover { background: #6b8fff; }
+    #lobby .hint { font-size: 12px; opacity: 0.4; }
+
+    /* --- Players list --- */
+    #players-count {
+      position: fixed; bottom: 20px; right: 20px;
+      z-index: 100; display: none;
+      font-size: 11px; opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <!-- Lobby -->
+  <div id="lobby">
+    <h1>GAUCHO</h1>
+    <input id="name-input" type="text" placeholder="Tu nombre" maxlength="16" />
+    <button id="play-btn">JUGAR</button>
+    <div class="hint">WASD moverse &middot; Mouse apuntar &middot; Click disparar &middot; Space saltar</div>
+  </div>
+
+  <!-- Game UI -->
+  <div id="crosshair"></div>
+  <div id="hitmarker">X</div>
+  <div id="damage-overlay"></div>
+  <div id="death-screen">
+    <h2>MUERTO</h2>
+    <p>Respawning...</p>
+  </div>
+
+  <div id="hud">
+    <div id="hp-bar-outer"><div id="hp-bar"></div></div>
+    <div id="hp-text">100 HP</div>
+  </div>
+
+  <div id="score"></div>
+  <div id="killfeed"></div>
+  <div id="room-link" title="Click para copiar"></div>
+  <div id="players-count"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
