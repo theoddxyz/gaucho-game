@@ -4,11 +4,26 @@ import { mkdir } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { existsSync } from 'fs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, '..', 'public', 'models');
 await mkdir(OUT, { recursive: true });
 
 const io = new NodeIO();
+
+// Only write if file doesn't exist (preserve user edits)
+// Pass --force to regenerate everything
+const FORCE = process.argv.includes('--force');
+async function writeGLB(filename, doc) {
+  const dest = path.join(OUT, filename);
+  if (!FORCE && existsSync(dest)) {
+    console.log(`⏭  ${filename} (ya existe, usar --force para reemplazar)`);
+    return;
+  }
+  await io.write(dest, doc);
+  console.log(`✓  ${filename}`);
+}
 
 // --- Helpers ---
 function acc(doc, buf, array, type) {
@@ -161,6 +176,39 @@ function offsetY(geom, dy) {
   return geom;
 }
 
+// Build a box (width x height x depth), centered on X/Z, base at Y=0
+function buildBox(w, h, d) {
+  const hw = w/2, hh = h/2, hd = d/2;
+  const positions = new Float32Array([
+    // front
+    -hw, 0,  hd,  hw, 0,  hd,  hw, h,  hd, -hw, h,  hd,
+    // back
+     hw, 0, -hd, -hw, 0, -hd, -hw, h, -hd,  hw, h, -hd,
+    // left
+    -hw, 0, -hd, -hw, 0,  hd, -hw, h,  hd, -hw, h, -hd,
+    // right
+     hw, 0,  hd,  hw, 0, -hd,  hw, h, -hd,  hw, h,  hd,
+    // top
+    -hw, h,  hd,  hw, h,  hd,  hw, h, -hd, -hw, h, -hd,
+    // bottom
+    -hw, 0, -hd,  hw, 0, -hd,  hw, 0,  hd, -hw, 0,  hd,
+  ]);
+  const normals = new Float32Array([
+    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+    0,0,-1,0,0,-1,0,0,-1,0,0,-1,
+    -1,0,0,-1,0,0,-1,0,0,-1,0,0,
+    1,0,0, 1,0,0, 1,0,0, 1,0,0,
+    0,1,0, 0,1,0, 0,1,0, 0,1,0,
+    0,-1,0,0,-1,0,0,-1,0,0,-1,0,
+  ]);
+  const indices = new Uint16Array([
+    0,1,2, 0,2,3,   4,5,6, 4,6,7,
+    8,9,10,8,10,11, 12,13,14,12,14,15,
+    16,17,18,16,18,19, 20,21,22,20,22,23,
+  ]);
+  return { positions, normals, indices };
+}
+
 // ============================================================
 // TERRAIN.GLB  — flat 200×200 plane, subdivided 20×20
 // ============================================================
@@ -174,8 +222,7 @@ function offsetY(geom, dy) {
     solidMat(doc, 'grass', 0.22, 0.45, 0.18)
   );
 
-  await io.write(path.join(OUT, 'terrain.glb'), doc);
-  console.log('✓  terrain.glb');
+  await writeGLB('terrain.glb', doc);
 }
 
 // ============================================================
@@ -187,32 +234,62 @@ function offsetY(geom, dy) {
   const buf = doc.createBuffer();
   const scene = doc.createScene('Scene');
 
-  // Trunk: radius 0.22, height 2.0, 8 sides
+  // Player is ~1.9 units tall. Trees: max ~2.2, average ~1.4
+  // Trunk: radius 0.12, height 0.85
   addMesh(doc, scene, buf, 'trunk',
-    buildCylinder(0.22, 0.18, 2.0, 8),
+    buildCylinder(0.12, 0.10, 0.85, 8),
     solidMat(doc, 'bark', 0.38, 0.22, 0.08)
   );
 
-  // Foliage layer 1 (bottom, widest): radius 2.0, height 2.5, starts at y=1.2
+  // Foliage layer 1 (bottom, widest): radius 0.75, height 0.85, starts at y=0.45
   addMesh(doc, scene, buf, 'foliage1',
-    offsetY(buildCone(2.0, 2.5, 10), 1.2),
+    offsetY(buildCone(0.75, 0.85, 10), 0.45),
     solidMat(doc, 'leaves', 0.15, 0.55, 0.12)
   );
 
-  // Foliage layer 2 (middle): radius 1.5, height 2.2, starts at y=2.4
+  // Foliage layer 2 (middle): radius 0.58, height 0.75, starts at y=0.85
   addMesh(doc, scene, buf, 'foliage2',
-    offsetY(buildCone(1.5, 2.2, 10), 2.4),
+    offsetY(buildCone(0.58, 0.75, 10), 0.85),
     solidMat(doc, 'leaves2', 0.18, 0.60, 0.14)
   );
 
-  // Foliage layer 3 (top, narrowest): radius 1.0, height 1.8, starts at y=3.6
+  // Foliage layer 3 (top): radius 0.38, height 0.60, starts at y=1.30
   addMesh(doc, scene, buf, 'foliage3',
-    offsetY(buildCone(1.0, 1.8, 10), 3.6),
+    offsetY(buildCone(0.38, 0.60, 10), 1.30),
     solidMat(doc, 'leaves3', 0.20, 0.65, 0.16)
   );
 
-  await io.write(path.join(OUT, 'tree.glb'), doc);
-  console.log('✓  tree.glb');
+  await writeGLB('tree.glb', doc);
+}
+
+// ============================================================
+// PLAYER.GLB  — body + head + gun, base at Y=0
+// Color neutral (will be tinted by game code per player)
+// ============================================================
+{
+  const doc = new Document();
+  const buf = doc.createBuffer();
+  const scene = doc.createScene('Scene');
+
+  // Body: 0.8 x 1.2 x 0.55, base at y=0
+  addMesh(doc, scene, buf, 'body',
+    buildBox(0.8, 1.2, 0.55),
+    solidMat(doc, 'body_mat', 0.8, 0.2, 0.2)
+  );
+
+  // Head: 0.48 x 0.48 x 0.48, sits on top of body (y=1.2)
+  addMesh(doc, scene, buf, 'head',
+    offsetY(buildBox(0.48, 0.48, 0.48), 1.2),
+    solidMat(doc, 'head_mat', 0.9, 0.75, 0.6)
+  );
+
+  // Gun: small box on right side, at mid-body height
+  addMesh(doc, scene, buf, 'gun',
+    offsetY(buildBox(0.12, 0.12, 0.55), 0.5),
+    solidMat(doc, 'gun_mat', 0.2, 0.2, 0.2)
+  );
+
+  await writeGLB('player.glb', doc);
 }
 
 console.log('\nModelos generados en public/models/');

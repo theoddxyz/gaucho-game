@@ -1,37 +1,86 @@
-// --- Player rendering (remote players) ---
+// --- Player rendering (remote + local players) ---
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const loader = new GLTFLoader();
+let playerTemplate = null;
+
+function loadTemplate() {
+  if (playerTemplate) return playerTemplate;
+  playerTemplate = new Promise((resolve) => {
+    loader.load('/models/player.glb', (gltf) => resolve(gltf.scene), undefined, () => {
+      // Fallback: procedural model
+      resolve(null);
+    });
+  });
+  return playerTemplate;
+}
+
+function buildFallbackModel(color) {
+  const group = new THREE.Group();
+  const c = new THREE.Color(color);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: c });
+  const headMat = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0xffffff), 0.3) });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.55), bodyMat);
+  body.position.y = 0.6;
+  body.castShadow = true;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.48, 0.48), headMat);
+  head.position.y = 1.44;
+  head.castShadow = true;
+  group.add(body, head);
+  group._hitboxes = [body, head];
+  return group;
+}
 
 export class PlayerModel {
   constructor(scene, data) {
     this.id = data.id;
     this.name = data.name;
-    this.color = data.color;
+    this.color = data.color || '#ff4444';
     this.hp = data.hp;
-    this.targetPos = new THREE.Vector3(data.x, data.y, data.z);
+    this.targetPos = new THREE.Vector3(data.x, 0, data.z);
     this.targetRY = data.ry || 0;
+    this._hitboxes = [];
 
-    const color = new THREE.Color(data.color);
+    this.group = new THREE.Group();
+    this.group.position.set(data.x, 0, data.z);
+    scene.add(this.group);
 
-    // Body
-    const bodyGeo = new THREE.BoxGeometry(0.8, 1.4, 0.6);
-    const bodyMat = new THREE.MeshStandardMaterial({ color });
-    this.body = new THREE.Mesh(bodyGeo, bodyMat);
-    this.body.castShadow = true;
+    // Name label
+    if (data.name) this._addNameLabel(data.name);
 
-    // Head
-    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const headMat = new THREE.MeshStandardMaterial({ color: color.clone().lerp(new THREE.Color(0xffffff), 0.3) });
-    this.head = new THREE.Mesh(headGeo, headMat);
-    this.head.position.y = 0.95;
-    this.head.castShadow = true;
+    // Load GLB model async, apply color tint
+    loadTemplate().then((template) => {
+      let model;
+      if (template) {
+        model = template.clone(true);
+        // Apply player color to body mesh
+        model.traverse((obj) => {
+          if (obj.isMesh) {
+            obj.castShadow = true;
+            obj.material = obj.material.clone();
+            if (obj.name === 'body') {
+              obj.material.color.set(this.color);
+            }
+          }
+        });
+        // Collect hitboxes (body + head)
+        model.traverse((obj) => {
+          if (obj.isMesh && (obj.name === 'body' || obj.name === 'head')) {
+            this._hitboxes.push(obj);
+          }
+        });
+      } else {
+        model = buildFallbackModel(this.color);
+        this._hitboxes = model._hitboxes || [];
+      }
+      this.group.add(model);
+    });
 
-    // Gun
-    const gunGeo = new THREE.BoxGeometry(0.12, 0.12, 0.6);
-    const gunMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-    this.gun = new THREE.Mesh(gunGeo, gunMat);
-    this.gun.position.set(0.35, 0.2, -0.3);
+    this._scene = scene;
+  }
 
-    // Name label (sprite)
+  _addNameLabel(name) {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 64;
     const ctx = canvas.getContext('2d');
@@ -41,38 +90,24 @@ export class PlayerModel {
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 28px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(data.name, 128, 42);
-    const tex = new THREE.CanvasTexture(canvas);
-    const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-    this.nameSprite = new THREE.Sprite(spriteMat);
-    this.nameSprite.scale.set(2, 0.5, 1);
-    this.nameSprite.position.y = 1.6;
-
-    // Group
-    this.group = new THREE.Group();
-    this.group.add(this.body);
-    this.group.add(this.head);
-    this.group.add(this.gun);
-    this.group.add(this.nameSprite);
-    this.group.position.set(data.x, 0.7, data.z);
-
-    scene.add(this.group);
+    ctx.fillText(name, 128, 42);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+    sprite.scale.set(2, 0.5, 1);
+    sprite.position.y = 2.2;
+    this.group.add(sprite);
   }
 
   update(dt) {
-    // Smooth interpolation
     this.group.position.lerp(
-      new THREE.Vector3(this.targetPos.x, 0.7, this.targetPos.z),
+      new THREE.Vector3(this.targetPos.x, 0, this.targetPos.z),
       8 * dt
     );
-    // Rotate body to face direction
-    const currentY = this.group.rotation.y;
-    const diff = this.targetRY - currentY;
+    const diff = this.targetRY - this.group.rotation.y;
     this.group.rotation.y += diff * 8 * dt;
   }
 
   setTarget(x, y, z, ry) {
-    this.targetPos.set(x, y, z);
+    this.targetPos.set(x, 0, z);
     this.targetRY = ry;
   }
 
@@ -80,32 +115,7 @@ export class PlayerModel {
     scene.remove(this.group);
   }
 
-  // For raycasting hit detection
   getHitboxes() {
-    return [this.body, this.head];
+    return this._hitboxes;
   }
-}
-
-// Muzzle flash effect
-export function createMuzzleFlash(scene, origin, direction) {
-  const geo = new THREE.SphereGeometry(0.15, 6, 6);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
-  const flash = new THREE.Mesh(geo, mat);
-  flash.position.set(origin.x, origin.y, origin.z);
-  scene.add(flash);
-  setTimeout(() => scene.remove(flash), 80);
-
-  // Tracer line
-  const lineGeo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(origin.x, origin.y, origin.z),
-    new THREE.Vector3(
-      origin.x + direction.x * 50,
-      origin.y + direction.y * 50,
-      origin.z + direction.z * 50,
-    ),
-  ]);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xffff44, transparent: true, opacity: 0.5 });
-  const line = new THREE.Line(lineGeo, lineMat);
-  scene.add(line);
-  setTimeout(() => scene.remove(line), 100);
 }
