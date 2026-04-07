@@ -8,6 +8,7 @@ import { HorseManager } from './horses.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
+import { createLandmarks } from './landmarks.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -40,6 +41,7 @@ const { colliders: worldColliders, sun } = createWorld(scene);
 worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
+createLandmarks(scene);
 
 // --- Controls ---
 const controls = new IsoControls(camera);
