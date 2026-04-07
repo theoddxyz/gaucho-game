@@ -25,6 +25,66 @@ async function writeGLB(filename, doc) {
   console.log(`✓  ${filename}`);
 }
 
+// --- Extra geometry helpers ---
+function translate(g, dx, dy, dz) {
+  for (let i = 0; i < g.positions.length; i += 3) {
+    g.positions[i] += dx; g.positions[i+1] += dy; g.positions[i+2] += dz;
+  }
+  return g;
+}
+function rotateY(g, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  for (let i = 0; i < g.positions.length; i += 3) {
+    const x = g.positions[i], z = g.positions[i+2];
+    g.positions[i] = x*c + z*s; g.positions[i+2] = -x*s + z*c;
+  }
+  for (let i = 0; i < g.normals.length; i += 3) {
+    const x = g.normals[i], z = g.normals[i+2];
+    g.normals[i] = x*c + z*s; g.normals[i+2] = -x*s + z*c;
+  }
+  return g;
+}
+function rotateZ(g, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  for (let i = 0; i < g.positions.length; i += 3) {
+    const x = g.positions[i], y = g.positions[i+1];
+    g.positions[i] = x*c - y*s; g.positions[i+1] = x*s + y*c;
+  }
+  for (let i = 0; i < g.normals.length; i += 3) {
+    const x = g.normals[i], y = g.normals[i+1];
+    g.normals[i] = x*c - y*s; g.normals[i+1] = x*s + y*c;
+  }
+  return g;
+}
+function scaleG(g, sx, sy, sz) {
+  for (let i = 0; i < g.positions.length; i += 3) {
+    g.positions[i] *= sx; g.positions[i+1] *= sy; g.positions[i+2] *= sz;
+  }
+  for (let i = 0; i < g.normals.length; i += 3) {
+    const nx = g.normals[i]/sx, ny = g.normals[i+1]/sy, nz = g.normals[i+2]/sz;
+    const l = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
+    g.normals[i] = nx/l; g.normals[i+1] = ny/l; g.normals[i+2] = nz/l;
+  }
+  return g;
+}
+function buildSphere(radius, wSeg = 8, hSeg = 6) {
+  const pos = [], nor = [], idx = [];
+  for (let iy = 0; iy <= hSeg; iy++) {
+    const phi = (iy / hSeg) * Math.PI;
+    for (let ix = 0; ix <= wSeg; ix++) {
+      const th = (ix / wSeg) * Math.PI * 2;
+      const x = Math.sin(phi)*Math.cos(th), y = Math.cos(phi), z = Math.sin(phi)*Math.sin(th);
+      pos.push(x*radius, y*radius, z*radius); nor.push(x, y, z);
+    }
+  }
+  for (let iy = 0; iy < hSeg; iy++) for (let ix = 0; ix < wSeg; ix++) {
+    const a = iy*(wSeg+1)+ix, b = a+wSeg+1;
+    if (iy !== 0)       idx.push(a, a+1, b);
+    if (iy !== hSeg-1)  idx.push(a+1, b+1, b);
+  }
+  return { positions: new Float32Array(pos), normals: new Float32Array(nor), indices: new Uint16Array(idx) };
+}
+
 // --- Helpers ---
 function acc(doc, buf, array, type) {
   return doc.createAccessor().setBuffer(buf).setArray(array).setType(type);
@@ -416,6 +476,180 @@ function buildBox(w, h, d) {
   }
 
   await writeGLB('rock.glb', doc);
+}
+
+// ============================================================
+// CAMP.GLB  — tienda de campaña + fogón apagado
+// ============================================================
+{
+  const doc = new Document(); const buf = doc.createBuffer(); const scene = doc.createScene('Scene');
+  const mCanvas = solidMat(doc, 'canvas',  0.784, 0.659, 0.294); // khaki #c8a84b
+  const mCloth  = solidMat(doc, 'cloth',   0.691, 0.596, 0.251); // darker khaki
+  const mWood   = solidMat(doc, 'wood',    0.478, 0.345, 0.188);
+  const mStone  = solidMat(doc, 'stone',   0.533, 0.533, 0.502);
+  const mAsh    = solidMat(doc, 'ash',     0.267, 0.267, 0.251);
+  const mChar   = solidMat(doc, 'charcoal',0.133, 0.133, 0.094);
+
+  // Tent: 4-sided pyramid (cone with 4 sides), rotated 45° so faces point N/S/E/W
+  addMesh(doc, scene, buf, 'tent', rotateY(buildCone(3.2, 3.0, 4), Math.PI/4), mCanvas);
+  // Ground cloth
+  addMesh(doc, scene, buf, 'ground_cloth', buildBox(5.5, 0.06, 5.0), mCloth);
+  // Entrance poles
+  addMesh(doc, scene, buf, 'pole_L', translate(buildCylinder(0.07, 0.07, 2.2, 6), -0.6, 0, 2.2), mWood);
+  addMesh(doc, scene, buf, 'pole_R', translate(buildCylinder(0.07, 0.07, 2.2, 6),  0.6, 0, 2.2), mWood);
+  // Corner pegs
+  for (const [px, pz, n] of [[-2.4,2.4,'peg_FL'],[2.4,2.4,'peg_FR'],[-2.4,-2.4,'peg_BL'],[2.4,-2.4,'peg_BR']])
+    addMesh(doc, scene, buf, n, translate(buildCylinder(0.07, 0.07, 0.3, 5), px, 0, pz), mWood);
+
+  // Campfire at local (4.8, 0, 1.5)
+  const [fx, fz] = [4.8, 1.5];
+  for (let i = 0; i < 8; i++) {
+    const a = (i/8)*Math.PI*2;
+    addMesh(doc, scene, buf, `stone${i}`,
+      translate(buildCylinder(0.22, 0.28, 0.22, 5), fx + Math.cos(a)*0.65, 0, fz + Math.sin(a)*0.65), mStone);
+  }
+  addMesh(doc, scene, buf, 'ash',  translate(buildCylinder(0.54, 0.58, 0.07, 10), fx, 0, fz), mAsh);
+  addMesh(doc, scene, buf, 'log_A', translate(rotateY(buildBox(1.1, 0.11, 0.18), 0.4),  fx, 0.09, fz), mChar);
+  addMesh(doc, scene, buf, 'log_B', translate(rotateY(buildBox(0.9, 0.11, 0.18), -0.55), fx, 0.09, fz), mChar);
+
+  await writeGLB('camp.glb', doc);
+}
+
+// ============================================================
+// WELL.GLB  — aljibe / pozo con agua
+// ============================================================
+{
+  const doc = new Document(); const buf = doc.createBuffer(); const scene = doc.createScene('Scene');
+  const mStone  = solidMat(doc, 'stone',   0.604, 0.565, 0.518);
+  const mDark   = solidMat(doc, 'dark',    0.333, 0.314, 0.282);
+  const mWood   = solidMat(doc, 'wood',    0.545, 0.345, 0.157);
+  const mWater  = solidMat(doc, 'water',   0.118, 0.314, 0.376);
+  const mRope   = solidMat(doc, 'rope',    0.831, 0.722, 0.439);
+  const mBucket = solidMat(doc, 'bucket',  0.416, 0.227, 0.094);
+
+  addMesh(doc, scene, buf, 'well_body', buildCylinder(1.55, 1.65, 1.5, 14), mStone);
+  addMesh(doc, scene, buf, 'well_rim',  translate(buildCylinder(1.7, 1.6, 0.18, 14), 0, 1.5, 0), mDark);
+  addMesh(doc, scene, buf, 'water',     translate(buildCylinder(1.18, 1.18, 0.05, 14), 0, 0.82, 0), mWater);
+  addMesh(doc, scene, buf, 'post_L',    translate(buildCylinder(0.11, 0.12, 2.8, 6), -1.45, 0, 0), mWood);
+  addMesh(doc, scene, buf, 'post_R',    translate(buildCylinder(0.11, 0.12, 2.8, 6),  1.45, 0, 0), mWood);
+  // Crossbeam: cylinder rotated horizontal
+  addMesh(doc, scene, buf, 'crossbeam', translate(rotateZ(buildCylinder(0.1, 0.1, 3.2, 6), Math.PI/2), 1.6, 3.3, 0), mWood);
+  addMesh(doc, scene, buf, 'handle',    translate(rotateZ(buildCylinder(0.06, 0.06, 0.7, 6), Math.PI/2), 2.45, 3.3, 0), mWood);
+  addMesh(doc, scene, buf, 'rope',      translate(buildCylinder(0.04, 0.04, 1.3, 5), 0, 2.3, 0), mRope);
+  addMesh(doc, scene, buf, 'bucket',    translate(buildCylinder(0.22, 0.28, 0.35, 10), 0, 1.55, 0), mBucket);
+
+  await writeGLB('well.glb', doc);
+}
+
+// ============================================================
+// SKULLS.GLB  — cráneos de animales muertos
+// ============================================================
+{
+  const doc = new Document(); const buf = doc.createBuffer(); const scene = doc.createScene('Scene');
+  const mBone = solidMat(doc, 'bone', 0.929, 0.910, 0.816);
+  const mHorn = solidMat(doc, 'horn', 0.831, 0.784, 0.596);
+  const mDirt = solidMat(doc, 'dirt', 0.200, 0.180, 0.100);
+
+  const SKULLS = [
+    [0,    0,    0.3 ],
+    [-2.5, 1.8,  1.9 ],
+    [ 3.0,-1.2, -0.5 ],
+    [-0.8,-2.5,  2.8 ],
+    [ 1.8, 3.0,  0.9 ],
+    [ 4.0, 1.5, -1.2 ],
+  ];
+
+  for (let i = 0; i < SKULLS.length; i++) {
+    const [sx, sz, ry] = SKULLS[i];
+    const fw = [Math.sin(ry), Math.cos(ry)]; // forward XZ
+    const ri = [Math.cos(ry),-Math.sin(ry)]; // right XZ
+
+    // Cranium (elongated sphere)
+    const cr = buildSphere(0.45, 6, 4);
+    scaleG(cr, 1.1, 0.85, 1.3); rotateY(cr, ry);
+    addMesh(doc, scene, buf, `skull${i}_cranium`, translate(cr, sx, 0.32, sz), mBone);
+
+    // Snout
+    const sn = buildSphere(0.26, 5, 4);
+    scaleG(sn, 0.8, 0.65, 1.5); rotateY(sn, ry);
+    addMesh(doc, scene, buf, `skull${i}_snout`, translate(sn, sx + fw[0]*0.38, 0.22, sz + fw[1]*0.38), mBone);
+
+    // Lower jaw
+    addMesh(doc, scene, buf, `skull${i}_jaw`,
+      translate(rotateY(buildBox(0.35, 0.08, 0.5), ry), sx + fw[0]*0.32, 0.06, sz + fw[1]*0.32), mBone);
+
+    // Eye socket shadows
+    addMesh(doc, scene, buf, `skull${i}_eye`,
+      translate(rotateY(buildBox(0.22, 0.14, 0.08), ry), sx, 0.38, sz), mDirt);
+
+    // Horn L
+    const hL = buildCone(0.065, 0.65, 5);
+    rotateZ(hL, -0.82); rotateY(hL, ry);
+    addMesh(doc, scene, buf, `skull${i}_hornL`, translate(hL, sx - ri[0]*0.4, 0.42, sz - ri[1]*0.4), mHorn);
+
+    // Horn R
+    const hR = buildCone(0.065, 0.65, 5);
+    rotateZ(hR,  0.82); rotateY(hR, ry);
+    addMesh(doc, scene, buf, `skull${i}_hornR`, translate(hR, sx + ri[0]*0.4, 0.42, sz + ri[1]*0.4), mHorn);
+  }
+
+  // Bone fragments scattered around
+  const mFrag = solidMat(doc, 'bone_frag', 0.878, 0.867, 0.773);
+  for (const [fx, fz, fr] of [[1,-1,0.5],[-2,2,1.2],[3,0.5,-0.3],[-1,3,0.8],[2,-2,1.5]])
+    addMesh(doc, scene, buf, `frag_${fx}`, translate(rotateY(buildBox(0.08, 0.06, 0.52), fr), fx, 0.03, fz), mFrag);
+
+  await writeGLB('skulls.glb', doc);
+}
+
+// ============================================================
+// SHACK.GLB  — construcción precaria frente a una laguna
+// ============================================================
+{
+  const doc = new Document(); const buf = doc.createBuffer(); const scene = doc.createScene('Scene');
+  const mWood   = solidMat(doc, 'wood',   0.478, 0.345, 0.157);
+  const mOld    = solidMat(doc, 'old',    0.353, 0.235, 0.094);
+  const mThatch = solidMat(doc, 'thatch', 0.722, 0.596, 0.220);
+  const mStone  = solidMat(doc, 'stone',  0.545, 0.502, 0.439);
+  const mWater  = solidMat(doc, 'water',  0.102, 0.290, 0.376);
+  const mSand   = solidMat(doc, 'sand',   0.784, 0.722, 0.545);
+
+  // Laguna: large flat disc (center at local 16, 0, 4)
+  addMesh(doc, scene, buf, 'lagoon', translate(buildCylinder(18, 18, 0.06, 24), 16, 0, 4), mWater);
+  // Shore ring around lagoon
+  addMesh(doc, scene, buf, 'shore',  translate(buildCylinder(21, 21, 0.04, 24), 16,-0.01, 4), mSand);
+
+  // Corner posts (4)
+  for (const [px, pz, n] of [[0,0,'post_FL'],[4,0,'post_FR'],[0,5,'post_BL'],[4,5,'post_BR']])
+    addMesh(doc, scene, buf, n, translate(buildCylinder(0.14, 0.18, 3.2, 6), px, 0, pz), mWood);
+
+  // Front wall planks
+  for (let r = 0; r < 3; r++)
+    addMesh(doc, scene, buf, `wall_front_${r}`, translate(buildBox(4.4, 0.13, 0.38), 2, 0.4 + r*0.85, 0), mOld);
+
+  // Back wall (partial)
+  addMesh(doc, scene, buf, 'wall_back_0', translate(buildBox(4.4, 0.13, 0.38), 2, 0.4, 5), mOld);
+  addMesh(doc, scene, buf, 'wall_back_1', translate(buildBox(2.5, 0.13, 0.38), 1, 1.25, 5), mOld);
+
+  // Side wall
+  addMesh(doc, scene, buf, 'wall_side_0', translate(rotateY(buildBox(5.2, 0.13, 0.38), Math.PI/2), 0, 0.4, 2.5), mOld);
+  addMesh(doc, scene, buf, 'wall_side_1', translate(rotateY(buildBox(3.5, 0.13, 0.38), Math.PI/2), 0, 1.25, 2.0), mOld);
+
+  // Doorway lintel
+  addMesh(doc, scene, buf, 'lintel', translate(buildBox(2.2, 0.18, 0.22), 2, 2.2, 0), mWood);
+
+  // Roof (sagging)
+  addMesh(doc, scene, buf, 'roof_main',  translate(buildBox(4.8, 0.14, 3.2), 2, 2.9, 2), mThatch);
+  addMesh(doc, scene, buf, 'roof_patch', translate(buildBox(2.2, 0.14, 2.5), 3, 2.7, 3.5), mThatch);
+
+  // Foundation blocks
+  for (const [px, pz, n] of [[0,0,'found_FL'],[4,0,'found_FR'],[0,5,'found_BL'],[4,5,'found_BR']])
+    addMesh(doc, scene, buf, n, translate(buildBox(0.9, 0.35, 0.9), px, 0, pz), mStone);
+
+  // Debris
+  addMesh(doc, scene, buf, 'debris_0', translate(rotateY(buildBox(1.5, 0.1, 0.35),  0.4), -1.5, 0.05, 1), mOld);
+  addMesh(doc, scene, buf, 'debris_1', translate(rotateY(buildBox(0.9, 0.1, 0.35), -0.6), -1.2, 0.05, 3), mOld);
+
+  await writeGLB('shack.glb', doc);
 }
 
 console.log('\nModelos generados en public/models/');

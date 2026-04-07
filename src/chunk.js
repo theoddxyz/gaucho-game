@@ -13,11 +13,15 @@ const loader = new GLTFLoader();
 let treeTemplate = null;
 let rockTemplate = null;
 
-// ─── Procedural terrain texture ───────────────────────────────────────────────
+// ─── Procedural terrain texture (fully tileable) ─────────────────────────────
 // Blends three colors using FBM noise:
 //   wet  #4a310a  → darker, damp patches
 //   base #cca465  → main sandy colour
 //   dry  #ebd0a0  → lighter, bleached patches
+//
+// Tileability: each noise octave uses hash(ix % period, iy % period) so that
+// the texture wraps seamlessly at every pixel boundary.  Any pixel offset
+// preserves tileability because (SIZE * grids / SIZE) == grids == one period.
 function _makeTerrainTexture() {
   const SIZE = 512;
   const canvas = document.createElement('canvas');
@@ -34,35 +38,43 @@ function _makeTerrainTexture() {
   function lerp(a, b, t) { return a + (b - a) * t; }
   function smoothstep(t) { return t * t * (3 - 2 * t); }
 
-  // Hash-based value noise
-  function hash(ix, iy) {
+  // Tileable hash — wraps at `period` so output is periodic
+  function hash(ix, iy, period) {
+    ix = ((ix % period) + period) % period;
+    iy = ((iy % period) + period) % period;
     const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453;
     return n - Math.floor(n);
   }
-  function vnoise(x, y) {
+  function vnoise(x, y, period) {
     const ix = Math.floor(x), iy = Math.floor(y);
     const ux = smoothstep(x - ix), uy = smoothstep(y - iy);
     return lerp(
-      lerp(hash(ix, iy),   hash(ix + 1, iy),   ux),
-      lerp(hash(ix, iy+1), hash(ix + 1, iy+1), ux),
+      lerp(hash(ix,   iy,   period), hash(ix+1, iy,   period), ux),
+      lerp(hash(ix,   iy+1, period), hash(ix+1, iy+1, period), ux),
       uy
     );
   }
-  // Fractional Brownian Motion (5 octaves)
-  function fbm(x, y) {
-    let v = 0, a = 0.55, f = 1;
+
+  // Tileable FBM — `baseGrids` cells span the full texture at octave 0.
+  // Each higher octave doubles both frequency and period → always tileable.
+  // Any pixel-space offset is fine: at px=0 and px=SIZE the coord differs
+  // by exactly one period, so the hash wraps identically.
+  function fbm(px, py, baseGrids) {
+    let v = 0, a = 0.55;
     for (let o = 0; o < 5; o++) {
-      v += vnoise(x * f, y * f) * a;
-      a *= 0.5; f *= 2.07;
+      const f   = 1 << o;
+      const per = baseGrids * f;
+      v += vnoise(px * per / SIZE, py * per / SIZE, per) * a;
+      a *= 0.5;
     }
     return v;
   }
 
   for (let py = 0; py < SIZE; py++) {
     for (let px = 0; px < SIZE; px++) {
-      // Two noise layers: large patches + fine grit
-      const n1 = fbm(px / 90, py / 90);             // large scale
-      const n2 = fbm(px / 18 + 7.3, py / 18 + 3.9); // fine grain
+      // Large wet/dry patches (6 cells) + fine sandy grain (28 cells, offset phase)
+      const n1 = fbm(px,           py,           6);
+      const n2 = fbm(px + 193,     py + 71,      28);
       const n  = n1 * 0.72 + n2 * 0.28;
 
       let r, g, b;
@@ -89,8 +101,6 @@ function _makeTerrainTexture() {
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  // 8 tiles per chunk (200 / 8 = 25 world-unit tiles).
-  // Integer repeat → seams align perfectly across chunk borders.
   tex.repeat.set(8, 8);
   return tex;
 }
