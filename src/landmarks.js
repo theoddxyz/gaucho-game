@@ -6,10 +6,10 @@ const loader = new GLTFLoader();
 let   _scene  = null;
 
 // ─── Water zones (world-space circles to exclude from tree/rock placement) ───
-// Center = shack origin + lagoon local offset (16, 0, 4), radius 18 + 2 margin
+// Shack scaled 1.3×, so lagoon local offset (16,0,4) → (20.8,0,5.2); r also × 1.3
 export const WATER_ZONES = [
-  { x:  4.8 + 16, z: -52.9 + 4, r: 20 },  // near-spawn shack
-  { x: -6258 + 16, z: 2023.4 + 4, r: 20 }, // far shack
+  { x:  4.8 + 20.8, z: -52.9 + 5.2, r: 26 },   // near-spawn shack
+  { x: -6258 + 20.8, z: 2023.4 + 5.2, r: 26 },  // far shack
 ];
 
 function _inWater(x, z) {
@@ -105,6 +105,40 @@ function _updateRipples(dt) {
   }
 }
 
+// ─── Bottle physics ───────────────────────────────────────────────────────────
+// Each entry: { mesh, falling, t, startPos, startQuat, rotAxis }
+const _bottles = [];
+
+export function getBottleMeshes() {
+  return _bottles.filter(b => !b.fallen).map(b => b.mesh);
+}
+
+export function hitBottle(mesh, aimDir) {
+  const b = _bottles.find(b => b.mesh === mesh);
+  if (!b || b.falling || b.fallen) return;
+  b.falling = true;
+  b.t = 0;
+  // Rotation axis = perpendicular to aim direction (bottle tips in aim direction)
+  const fd = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
+  b.rotAxis = new THREE.Vector3(-fd.z, 0, fd.x); // 90° rot of fd in XZ
+  b.startPos  = b.mesh.position.clone();
+  b.startQuat = b.mesh.quaternion.clone();
+}
+
+function _tickBottles(dt) {
+  for (const b of _bottles) {
+    if (!b.falling || b.fallen) continue;
+    b.t += dt / 0.35;
+    if (b.t >= 1) { b.t = 1; b.fallen = true; }
+    const ease = 1 - Math.pow(1 - b.t, 2); // ease-out
+    const angle = (Math.PI / 2) * ease;
+    const q = new THREE.Quaternion().setFromAxisAngle(b.rotAxis, angle);
+    b.mesh.quaternion.copy(b.startQuat).multiply(q);
+    // Slide forward slightly
+    b.mesh.position.copy(b.startPos).addScaledVector(b.rotAxis.clone().cross(new THREE.Vector3(0,1,0)).negate(), ease * 0.18);
+  }
+}
+
 // ─── Fire + smoke particle effect ────────────────────────────────────────────
 const _fires = [];
 
@@ -192,14 +226,16 @@ export function updateLandmarkEffects(dt, playerPos, mountedHorsePos) {
 
   _updateRipples(dt);
   for (const ef of _fires) _tickFire(ef, dt);
+  _tickBottles(dt);
 }
 
 // ─── GLB loader ──────────────────────────────────────────────────────────────
-function loadAt(url, scene, x, y, z, ry = 0) {
+function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
   loader.load(url, (gltf) => {
     const model = gltf.scene;
     model.position.set(x, y, z);
     model.rotation.y = ry;
+    model.scale.setScalar(scale);
     model.updateMatrixWorld(true, true);
 
     model.traverse(o => {
@@ -216,6 +252,13 @@ function loadAt(url, scene, x, y, z, ry = 0) {
       o.receiveShadow = true;
 
       const nm = o.name.toLowerCase();
+
+      // Shootable bottles — register for physics
+      if (/botel|bottle/i.test(nm)) {
+        _bottles.push({ mesh: o, falling: false, fallen: false, t: 0,
+                        startPos: o.position.clone(), startQuat: o.quaternion.clone(),
+                        rotAxis: new THREE.Vector3(1, 0, 0) });
+      }
 
       if (/water|lagoon|lago|agua/i.test(nm)) {
         // Replace with animated water material
@@ -244,6 +287,6 @@ export function createLandmarks(scene) {
   loadAt('/models/camp.glb',   scene, -7823.3, 0, 5424.2);
   loadAt('/models/well.glb',   scene, -7656.9, 0, 5268.8);
   loadAt('/models/skulls.glb', scene, -7173.3, 0, 2997.3);
-  loadAt('/models/shack.glb',  scene, -6258.0, 0, 2023.4);
-  loadAt('/models/shack.glb',  scene,     4.8, 0,  -52.9);
+  loadAt('/models/shack.glb',  scene, -6258.0, 0, 2023.4, 0, 1.3);
+  loadAt('/models/shack.glb',  scene,     4.8, 0,  -52.9, 0, 1.3);
 }

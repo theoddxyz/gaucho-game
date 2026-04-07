@@ -8,7 +8,7 @@ import { HorseManager } from './horses.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
-import { createLandmarks, updateLandmarkEffects } from './landmarks.js';
+import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
 
 // --- Crosshair follows mouse ---
@@ -182,6 +182,18 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
+
+  // Bottle physics — local only
+  const bottleMeshes = getBottleMeshes();
+  if (bottleMeshes.length > 0) {
+    const bRay = new THREE.Raycaster(
+      new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
+      new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(),
+      0, 80
+    );
+    const bHits = bRay.intersectObjects(bottleMeshes, false);
+    if (bHits.length > 0) hitBottle(bHits[0].object, result.direction);
+  }
 });
 
 // --- Game loop ---
