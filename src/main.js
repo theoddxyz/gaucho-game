@@ -184,21 +184,23 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
 
-  // Bottle physics — cone check (ignores y so bottles at any shelf height are hittable)
+  // Bottle physics — 3D line-distance check (works at any height, very forgiving)
   const bottleMeshes = getBottleMeshes();
   if (bottleMeshes.length > 0) {
-    const gunPos  = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
-    const aimFlat = new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize();
-    let closest = null, closestDist = Infinity;
+    const gunPos = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
+    const lineDir = new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize();
+    let closest = null, closestT = Infinity;
     const bWP = new THREE.Vector3();
     for (const bMesh of bottleMeshes) {
+      bMesh.updateWorldMatrix(true, false);
       bMesh.getWorldPosition(bWP);
-      const toB = new THREE.Vector3(bWP.x - gunPos.x, 0, bWP.z - gunPos.z);
-      const dist = toB.length();
-      if (dist > 80 || dist < 0.1) continue;
-      const dot = aimFlat.dot(toB.clone().normalize());
-      console.log('[bottle] aim check', bMesh.name, 'dot=', dot.toFixed(3), 'dist=', dist.toFixed(1));
-      if (dot > 0.85 && dist < closestDist) { closest = bMesh; closestDist = dist; }
+      const toB = bWP.clone().sub(gunPos);
+      const proj = toB.dot(lineDir);            // how far along bullet path
+      if (proj < 0 || proj > 80) continue;
+      const nearPt = gunPos.clone().addScaledVector(lineDir, proj);
+      const lateralDist = bWP.distanceTo(nearPt); // perp distance from bullet line
+      console.log('[bottle]', bMesh.name, 'proj=', proj.toFixed(1), 'lateral=', lateralDist.toFixed(2));
+      if (lateralDist < 1.5 && proj < closestT) { closest = bMesh; closestT = proj; }
     }
     if (closest) { console.log('[bottle] HIT', closest.name); hitBottle(closest, result.direction); }
   }
