@@ -19,6 +19,7 @@ export function createWorld(scene) {
   sun.shadow.camera.top    =  120;
   sun.shadow.camera.bottom = -120;
   scene.add(sun);
+  scene.add(sun.target); // target must be in scene for updates to work
 
   // --- Sky & fog (extended for large world) ---
   scene.background = new THREE.Color(0x87ceeb);
@@ -52,5 +53,5 @@ export function createWorld(scene) {
     colliders.push({ x: b.x, z: b.z, sx: b.sx, sy: b.sy, sz: b.sz });
   }
 
-  return colliders;
+  return { colliders, sun };
 }

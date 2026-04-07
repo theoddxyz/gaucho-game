@@ -36,7 +36,7 @@ window.addEventListener('resize', () => {
 // --- World setup ---
 // colliders is a shared mutable array — buildings added now, chunks add/remove theirs at runtime
 const colliders = [];
-const worldColliders = createWorld(scene); // synchronous: lighting + buildings
+const { colliders: worldColliders, sun } = createWorld(scene);
 worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
@@ -77,8 +77,7 @@ Network.onJoined((data) => {
 
   horseManager = new HorseManager(scene, Network);
   controls.onEPress = () => {
-    const pos  = controls.getPosition();           // where E was pressed
-    const land = horseManager?.tryMount(myId, pos);
+    const land = horseManager?.tryMount(myId, 0); // 0 = mounting from ground
     if (land) controls.setPosition(land.x, 0, land.z);
   };
 
@@ -197,6 +196,11 @@ function gameLoop() {
     // Chunk streaming
     chunkManager.update(pos);
 
+    // Shadow follows player — directional light moves with camera so frustum covers local area
+    sun.position.set(pos.x + 40, 80, pos.z + 30);
+    sun.target.position.set(pos.x, 0, pos.z);
+    sun.target.updateMatrixWorld();
+
     // Horse sync
     if (horseManager) {
       horseManager.update(pos, dt);
@@ -208,7 +212,8 @@ function gameLoop() {
       }
       // Auto-mount: jump onto a nearby horse while in the air
       if (!horseManager.isMounted() && controls.isInAir()) {
-        const mounted = horseManager.tryAutoMount(pos, myId);
+        const jumpY   = pos.y;  // save height before landOnHorse resets it
+        const mounted = horseManager.tryAutoMount(pos, myId, jumpY);
         if (mounted) controls.landOnHorse();
       }
     }

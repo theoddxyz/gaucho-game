@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const loader             = new GLTFLoader();
 const MOUNT_RADIUS       = 3.0;
 const HORSE_SPEED_MULT   = 2.2;
-const HORSE_SPRINT_EXTRA = 1.7;
+const HORSE_SPRINT_EXTRA = 1.25; // total = 2.2 × 1.25 = 2.75x base
 const WALK_FREQ          = 6.0;
 const WALK_FREQ_SPRINT   = 11.0;  // faster legs when sprinting
 const WALK_AMP           = 0.45;
@@ -194,17 +194,18 @@ export class HorseManager {
 
   // ── Mount / Dismount ────────────────────────────────────────────────────────
 
-  /** playerPos: current controls position (where E was pressed from) */
-  tryMount(playerId, playerPos) {
+  /** startY: vertical height at mount time (0 = ground, >0 = mid-jump) */
+  tryMount(playerId, startY = 0) {
     if (this.myHorseId !== null) return this._dismount(playerId);
     if (this._nearestHorseId !== null) {
-      this._mount(this._nearestHorseId, playerId, playerPos);
+      this._mount(this._nearestHorseId, playerId, startY);
       return null;
     }
     return null;
   }
 
-  _mount(horseId, playerId, playerPos) {
+  /** startY = vertical position when mounting (0 for E-press, jump height for auto-mount) */
+  _mount(horseId, playerId, startY = 0) {
     const horse = this.horses.get(horseId);
     if (!horse) return;
     horse.riderId  = playerId;
@@ -212,11 +213,11 @@ export class HorseManager {
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 
-    // Jump-on arc: XZ goes from player position → horse center
+    // Y eases from startY → 2.5  (short dur when jumping since player is already up)
     this._anim = {
-      type: 'mount', t: 0, dur: MOUNT_DUR,
-      fromX: playerPos?.x ?? horse.x,
-      fromZ: playerPos?.z ?? horse.z,
+      type: 'mount', t: 0,
+      dur: startY > 0.5 ? 0.18 : MOUNT_DUR,
+      startY,
       toX: horse.x, toZ: horse.z,
     };
   }
@@ -250,20 +251,19 @@ export class HorseManager {
     if (!this._anim) return null;
     const t = this._anim.t;
     if (this._anim.type === 'mount') {
-      return t * 2.5 + Math.sin(t * Math.PI) * 0.9;
+      // Smoothstep from startY → 2.5, tiny bounce at end
+      const ease = t * t * (3 - 2 * t);
+      return this._anim.startY + (2.5 - this._anim.startY) * ease + Math.sin(t * Math.PI) * 0.25;
     } else {
-      return (1 - t) * 2.5 + Math.sin(t * Math.PI) * 0.6;
+      // Dismount: arc from 2.5 → 0
+      return (1 - t) * 2.5 + Math.sin(t * Math.PI) * 0.5;
     }
   }
 
-  /** XZ lerp during mount: player model arcs from press position to horse */
+  /** During mount: snap XZ to horse position immediately (no sliding) */
   getMountModelPos() {
     if (!this._anim || this._anim.type !== 'mount') return null;
-    const t = this._anim.t;
-    return {
-      x: this._anim.fromX + (this._anim.toX - this._anim.fromX) * t,
-      z: this._anim.fromZ + (this._anim.toZ - this._anim.fromZ) * t,
-    };
+    return { x: this._anim.toX, z: this._anim.toZ };
   }
 
   /** XZ lerp during dismount: player model arcs from horse to landing spot */
@@ -292,14 +292,14 @@ export class HorseManager {
 
   // ── Auto-mount by jumping ───────────────────────────────────────────────────
 
-  tryAutoMount(pos, playerId) {
+  tryAutoMount(pos, playerId, jumpY = 0) {
     if (this.myHorseId !== null) return false;
     for (const [id, horse] of this.horses) {
       if (horse.riderId !== null) continue;
       const dx = horse.x - pos.x;
       const dz = horse.z - pos.z;
       if (Math.sqrt(dx * dx + dz * dz) < MOUNT_RADIUS) {
-        this._mount(id, playerId, pos);
+        this._mount(id, playerId, jumpY);
         return true;
       }
     }
