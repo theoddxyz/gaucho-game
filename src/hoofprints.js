@@ -13,9 +13,9 @@ const _printMat = new THREE.MeshBasicMaterial({
   side: THREE.DoubleSide,
 });
 
-// Shared geometry: square voxel hoof print
+// Shared geometry: square voxel hoof print — sized to an actual horse hoof
 const _printGeo = (() => {
-  const g = new THREE.PlaneGeometry(0.28, 0.22);
+  const g = new THREE.PlaneGeometry(0.52, 0.42);
   g.rotateX(-Math.PI / 2);
   return g;
 })();

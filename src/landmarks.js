@@ -211,6 +211,121 @@ function _tickBottles(dt) {
   }
 }
 
+// ─── Tumbleweed system ────────────────────────────────────────────────────────
+const _tumbleweeds = [];
+const TUMBLEWEED_MAX  = 6;
+const TUMBLEWEED_LIFE = 22;   // seconds before despawn
+const WIND_DIR = new THREE.Vector3(1, 0, 0.4).normalize();  // roughly E-SE
+const WIND_SPEED = 4.5;        // world units / s
+let   _tweedSpawnTimer    = 0;
+let   _tweedNextSpawn     = 5.0;   // seconds until first spawn
+
+// Pre-built tumbleweed template (reused via clone)
+let _tweedTemplate = null;
+function _ensureTweedTemplate() {
+  if (_tweedTemplate) return;
+  const VS = 0.10;
+  const R  = 0.38;
+  const SEGS = 8;
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9e8840, roughness: 0.98 });
+  _tweedTemplate = new THREE.Group();
+  const planes = [
+    [1, 0, 0, 0, 1, 0],
+    [1, 0, 0, 0, 0, 1],
+    [0, 1, 0, 0, 0, 1],
+  ];
+  for (const [ax, ay, az, bx, by, bz] of planes) {
+    for (let s = 0; s < SEGS; s++) {
+      const a = (s / SEGS) * Math.PI * 2;
+      const x = ax * Math.cos(a) * R + bx * Math.sin(a) * R;
+      const y = ay * Math.cos(a) * R + by * Math.sin(a) * R;
+      const z = az * Math.cos(a) * R + bz * Math.sin(a) * R;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(VS, VS, VS), mat);
+      m.position.set(x, y + R, z);
+      m.castShadow = true;
+      _tweedTemplate.add(m);
+    }
+  }
+  const inter = [
+    [0, R*0.9, 0], [R*0.6, R*0.6, 0], [-R*0.6, R*0.6, 0],
+    [0, R*0.9, R*0.4], [0, R*0.9, -R*0.4],
+  ];
+  for (const [ix, iy, iz] of inter) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(VS*1.2, VS*1.2, VS*1.2), mat);
+    m.position.set(ix, iy, iz);
+    m.castShadow = true;
+    _tweedTemplate.add(m);
+  }
+}
+
+function _spawnTumbleweed(playerPos) {
+  if (!_scene || _tumbleweeds.length >= TUMBLEWEED_MAX) return;
+  _ensureTweedTemplate();
+  // Spawn upwind of player (opposite wind direction), randomized spread
+  const spread = 60 + Math.random() * 80;
+  const perp   = new THREE.Vector3(-WIND_DIR.z, 0, WIND_DIR.x);
+  const side   = (Math.random() - 0.5) * 80;
+  const spawnX = playerPos.x - WIND_DIR.x * spread + perp.x * side;
+  const spawnZ = playerPos.z - WIND_DIR.z * spread + perp.z * side;
+
+  const tw = _tweedTemplate.clone(true);
+  tw.position.set(spawnX, 0, spawnZ);
+  tw.rotation.set(0, Math.random() * Math.PI * 2, 0);
+  _scene.add(tw);
+
+  // Spin axis: perpendicular to wind direction
+  const spinAxis = new THREE.Vector3(-WIND_DIR.z, 0, WIND_DIR.x).normalize();
+  _tumbleweeds.push({
+    mesh: tw,
+    t: 0,
+    spinAxis,
+    // Slight speed variation per tumbleweed
+    speed: WIND_SPEED * (0.7 + Math.random() * 0.7),
+    bounce: Math.random() * Math.PI * 2,  // phase offset for bounce
+  });
+}
+
+function _tickTumbleweeds(dt, playerPos) {
+  _tweedSpawnTimer += dt;
+  // Spawn a new tumbleweed every 4–7 seconds (next spawn time set on each spawn)
+  if (_tweedSpawnTimer >= _tweedNextSpawn && playerPos) {
+    _tweedSpawnTimer  = 0;
+    _tweedNextSpawn   = 4.0 + Math.random() * 3.0;
+    _spawnTumbleweed(playerPos);
+  }
+
+  const _qDelta = new THREE.Quaternion();
+  for (let i = _tumbleweeds.length - 1; i >= 0; i--) {
+    const tw = _tumbleweeds[i];
+    tw.t += dt;
+
+    // Move along wind direction
+    tw.mesh.position.x += WIND_DIR.x * tw.speed * dt;
+    tw.mesh.position.z += WIND_DIR.z * tw.speed * dt;
+
+    // Bounce: sinusoidal Y oscillation (rolling over bumps)
+    tw.mesh.position.y = Math.max(0, Math.abs(Math.sin(tw.t * 3.2 + tw.bounce)) * 0.18);
+
+    // Roll: rotate around axis perpendicular to wind
+    const rollAngle = (tw.speed / 0.38) * dt;  // arc-length / radius
+    _qDelta.setFromAxisAngle(tw.spinAxis, rollAngle);
+    tw.mesh.quaternion.multiply(_qDelta);
+
+    // Despawn when far from player or life exceeded
+    if (tw.t > TUMBLEWEED_LIFE) {
+      _scene.remove(tw.mesh);
+      _tumbleweeds.splice(i, 1);
+    } else if (playerPos) {
+      const dx = tw.mesh.position.x - playerPos.x;
+      const dz = tw.mesh.position.z - playerPos.z;
+      if (dx * dx + dz * dz > 220 * 220) {
+        _scene.remove(tw.mesh);
+        _tumbleweeds.splice(i, 1);
+      }
+    }
+  }
+}
+
 // ─── Fire + smoke particle effect ────────────────────────────────────────────
 const _fires = [];
 
@@ -299,6 +414,7 @@ export function updateLandmarkEffects(dt, playerPos, mountedHorsePos) {
   _updateRipples(dt);
   for (const ef of _fires) _tickFire(ef, dt);
   _tickBottles(dt);
+  _tickTumbleweeds(dt, playerPos);
 }
 
 // ─── GLB loader ──────────────────────────────────────────────────────────────

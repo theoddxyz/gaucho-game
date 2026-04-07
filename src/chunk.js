@@ -22,6 +22,7 @@ const UNLOAD_DIST          = 3;
 const TREES_PER_CHUNK      = 10;
 const ROCKS_PER_CHUNK      = 14;  // more rocks
 const PEBBLES_PER_CHUNK    = 40;  // new: small flat pebbles
+const BUSHES_PER_CHUNK     = 18;  // dry + semi-dry desert shrubs
 
 const loader = new GLTFLoader();
 let treeTemplate = null;
@@ -97,6 +98,67 @@ function _tcolor(wx, wz) {
 }
 
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({ roughness: 0.92, vertexColors: true });
+
+// ─── Voxel bush builder ───────────────────────────────────────────────────────
+// dry=true  → sparse, grey-brown sticks (dead shrub)
+// dry=false → denser, olive-brown cluster (wilting but alive)
+const DRY_MATS = [
+  new THREE.MeshStandardMaterial({ color: 0x6e5030, roughness: 0.99 }),
+  new THREE.MeshStandardMaterial({ color: 0x5a4025, roughness: 0.99 }),
+  new THREE.MeshStandardMaterial({ color: 0x7a6040, roughness: 0.98 }),
+];
+const WET_MATS = [
+  new THREE.MeshStandardMaterial({ color: 0x5a6228, roughness: 0.97 }),
+  new THREE.MeshStandardMaterial({ color: 0x4a5420, roughness: 0.97 }),
+  new THREE.MeshStandardMaterial({ color: 0x687038, roughness: 0.96 }),
+];
+
+function buildBush(rng, dry) {
+  const mats  = dry ? DRY_MATS : WET_MATS;
+  const mat   = mats[Math.floor(rng() * mats.length)];
+  const geos  = [];
+  const VS    = 0.12;
+  // How many branch clusters: dry=2–4, semi-dry=4–7
+  const numBranches = dry
+    ? 2 + Math.floor(rng() * 3)
+    : 4 + Math.floor(rng() * 4);
+
+  for (let b = 0; b < numBranches; b++) {
+    // Random branch direction, mostly up with some lean
+    const angle = rng() * Math.PI * 2;
+    const lean  = (dry ? 0.55 : 0.30) + rng() * 0.35;  // dry leans more
+    const len   = (dry ? 3 : 5) + Math.floor(rng() * (dry ? 4 : 4));
+    let cx = 0, cy = 0, cz = 0;
+    const dx = Math.cos(angle) * lean;
+    const dz = Math.sin(angle) * lean;
+    const dy = 1.0;
+    // Walk voxel segments along this branch
+    for (let s = 0; s < len; s++) {
+      const t = s / len;
+      const g = new THREE.BoxGeometry(VS, VS, VS);
+      g.translate(cx, cy, cz);
+      geos.push(g);
+      cx += dx * VS * 0.9;
+      cy += dy * VS * 0.9;
+      cz += dz * VS * 0.9;
+      // Semi-dry: add small leaf-clump voxels near tip
+      if (!dry && t > 0.55 && rng() > 0.45) {
+        const lg = new THREE.BoxGeometry(VS * 1.6, VS * 1.6, VS * 1.6);
+        lg.translate(cx + (rng()-0.5)*VS, cy, cz + (rng()-0.5)*VS);
+        geos.push(lg);
+      }
+    }
+  }
+  if (geos.length === 0) {
+    const g = new THREE.BoxGeometry(VS, VS, VS); geos.push(g);
+  }
+  const merged = mergeGeometries(geos);
+  geos.forEach(g => g.dispose());
+  const mesh = new THREE.Mesh(merged, mat);
+  mesh.castShadow    = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
 
 // ─── Shared pebble geometry + material palette ────────────────────────────────
 // Slightly varied earth tones close to #cca465
@@ -247,6 +309,21 @@ export class ChunkManager {
       p.castShadow    = true;
       this.scene.add(p);
       objects.push(p);
+    }
+
+    // ── Bushes (dry + semi-dry desert shrubs) ─────────────────────────────────
+    for (let i = 0; i < BUSHES_PER_CHUNK; i++) {
+      const bx  = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
+      const bz  = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
+      if (_inWater(bx, bz)) { rng(); rng(); rng(); continue; }
+      const dry  = rng() > 0.38;           // ~62% dry, 38% semi-dry
+      const bush = buildBush(rng, dry);
+      const bs   = 0.55 + rng() * 0.90;   // size variety
+      bush.position.set(bx, 0, bz);
+      bush.scale.setScalar(bs);
+      bush.rotation.y = rng() * Math.PI * 2;
+      this.scene.add(bush);
+      objects.push(bush);
     }
 
     ownColliders.forEach(c => this.colliders.push(c));
