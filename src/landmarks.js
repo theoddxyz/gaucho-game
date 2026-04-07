@@ -221,13 +221,16 @@ let   _tweedSpawnTimer    = 0;
 let   _tweedNextSpawn     = 5.0;   // seconds until first spawn
 
 // Pre-built tumbleweed template (reused via clone)
+// IMPORTANTE: el template está centrado en su propio origen (y=0 = centro de la esfera)
+// El grupo se eleva a y=R al spawnearse, así el quaternion rota alrededor del centro real.
 let _tweedTemplate = null;
+const TW_R = 0.38;
 function _ensureTweedTemplate() {
   if (_tweedTemplate) return;
-  const VS = 0.10;
-  const R  = 0.38;
+  const VS   = 0.10;
+  const R    = TW_R;
   const SEGS = 8;
-  const mat = new THREE.MeshStandardMaterial({ color: 0x9e8840, roughness: 0.98 });
+  const mat  = new THREE.MeshStandardMaterial({ color: 0x9e8840, roughness: 0.98 });
   _tweedTemplate = new THREE.Group();
   const planes = [
     [1, 0, 0, 0, 1, 0],
@@ -241,7 +244,8 @@ function _ensureTweedTemplate() {
       const y = ay * Math.cos(a) * R + by * Math.sin(a) * R;
       const z = az * Math.cos(a) * R + bz * Math.sin(a) * R;
       const m = new THREE.Mesh(new THREE.BoxGeometry(VS, VS, VS), mat);
-      m.position.set(x, y + R, z);
+      // Sin el offset +R: centrado en el origen del grupo
+      m.position.set(x, y, z);
       m.castShadow = true;
       _tweedTemplate.add(m);
     }
@@ -249,6 +253,7 @@ function _ensureTweedTemplate() {
   const inter = [
     [0, R*0.9, 0], [R*0.6, R*0.6, 0], [-R*0.6, R*0.6, 0],
     [0, R*0.9, R*0.4], [0, R*0.9, -R*0.4],
+    [0, -R*0.9, 0], [R*0.6, -R*0.6, 0], [-R*0.6, -R*0.6, 0],
   ];
   for (const [ix, iy, iz] of inter) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(VS*1.2, VS*1.2, VS*1.2), mat);
@@ -269,7 +274,8 @@ function _spawnTumbleweed(playerPos) {
   const spawnZ = playerPos.z - WIND_DIR.z * spread + perp.z * side;
 
   const tw = _tweedTemplate.clone(true);
-  tw.position.set(spawnX, 0, spawnZ);
+  // Levantar el grupo al radio para que ruede sobre el suelo con el centro correcto
+  tw.position.set(spawnX, TW_R, spawnZ);
   tw.rotation.set(0, Math.random() * Math.PI * 2, 0);
   _scene.add(tw);
 
@@ -317,8 +323,8 @@ function _tickTumbleweeds(dt, playerPos) {
     tw.mesh.position.x += mdx * speed * dt;
     tw.mesh.position.z += mdz * speed * dt;
 
-    // Bounce: abs-sine so it never goes below ground
-    tw.mesh.position.y = Math.abs(Math.sin(tw.t * 3.0 + tw.bounce)) * 0.20;
+    // Bounce: el centro del cardo sube y baja pero nunca baja del radio (suelo)
+    tw.mesh.position.y = TW_R + Math.abs(Math.sin(tw.t * 3.0 + tw.bounce)) * 0.22;
 
     // Roll: rotate around axis perpendicular to current movement direction
     // (rolling in the direction of travel, not a fixed axis)

@@ -62,14 +62,14 @@ function buildCow(rng) {
   b(bodyG, 0.16, 0.70, 0.14, -0.48, 0.35,  0.27);   // leg BR
   b(bodyG, 0.16, 0.70, 0.14, -0.48, 0.35, -0.27);   // leg BL
 
-  // ─ Spots / light parts
-  b(spotG, 0.60, 0.82, 0.69,  0.18, 0.92,  0.00);   // body patch
-  b(spotG, 0.20, 0.19, 0.28,  1.32, 1.38,  0.00);   // snout
-  b(spotG, 0.30, 0.13, 0.24, -0.10, 0.52,  0.00);   // udder
-  b(spotG, 0.17, 0.04, 0.15,  0.48, 0.01,  0.27);   // hoof FR
-  b(spotG, 0.17, 0.04, 0.15,  0.48, 0.01, -0.27);   // hoof FL
-  b(spotG, 0.17, 0.04, 0.15, -0.48, 0.01,  0.27);   // hoof BR
-  b(spotG, 0.17, 0.04, 0.15, -0.48, 0.01, -0.27);   // hoof BL
+  // ─ Spots / light parts (ligeramente desplazados en Z/Y para evitar z-fighting)
+  b(spotG, 0.58, 0.80, 0.71,  0.18, 0.92,  0.001);  // body patch
+  b(spotG, 0.20, 0.19, 0.30,  1.32, 1.38,  0.001);  // snout
+  b(spotG, 0.30, 0.13, 0.26, -0.10, 0.518, 0.001);  // udder
+  b(spotG, 0.17, 0.05, 0.15,  0.48, 0.008, 0.27);   // hoof FR
+  b(spotG, 0.17, 0.05, 0.15,  0.48, 0.008,-0.27);   // hoof FL
+  b(spotG, 0.17, 0.05, 0.15, -0.48, 0.008, 0.27);   // hoof BR
+  b(spotG, 0.17, 0.05, 0.15, -0.48, 0.008,-0.27);   // hoof BL
 
   // ─ Horns
   b(hornG, 0.05, 0.17, 0.04,  0.98, 1.72,  0.18);
@@ -106,7 +106,7 @@ export class CowSystem {
       const z     = SPAWN_Z + Math.sin(angle) * dist;
       mesh.position.set(x, 0, z);
       mesh.rotation.y = rng() * Math.PI * 2;
-      mesh.scale.set(2, 2, 2);
+      mesh.scale.set(1.4, 1.4, 1.4);
       scene.add(mesh);
 
       this._cows.push({
@@ -229,8 +229,14 @@ export class CowSystem {
       } else if (cow.panicTimer > 0) {
         // Stampede: keep running in saved flee direction even without player nearby
         cow.panicTimer -= dt;
-        targetVX = Math.sin(cow.wanderAngle) * FLEE_SPEED * 0.70;
-        targetVZ = Math.cos(cow.wanderAngle) * FLEE_SPEED * 0.70;
+        // Sesgar levemente hacia el establo para facilitar el arreo
+        const toDstX = STABLE_X - cx, toDstZ = STABLE_Z - cz;
+        const toDstLen = Math.sqrt(toDstX * toDstX + toDstZ * toDstZ) || 1;
+        const stableAngle = Math.atan2(toDstX / toDstLen, toDstZ / toDstLen);
+        // Blend 30 % hacia el establo, 70 % en dirección de huida
+        const blendAngle = cow.wanderAngle * 0.70 + stableAngle * 0.30;
+        targetVX = Math.sin(blendAngle) * FLEE_SPEED * 0.75;
+        targetVZ = Math.cos(blendAngle) * FLEE_SPEED * 0.75;
       } else {
         // Normal wander
         cow.wanderTimer -= dt;
