@@ -271,6 +271,22 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
 
+  // Cow hit check
+  if (cowSystem) {
+    const cHitboxes = cowSystem.getCowHitboxes();
+    if (cHitboxes.length > 0) {
+      const cRay = new THREE.Raycaster(
+        new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
+        dir.clone(), 0, 80
+      );
+      const cHits = cRay.intersectObjects(cHitboxes, false);
+      if (cHits.length > 0) {
+        const cowId = cowSystem.getCowIdByHitbox(cHits[0].object);
+        if (cowId >= 0) cowSystem.killCow(cowId);
+      }
+    }
+  }
+
   // Ostrich hit check — usa la dirección 3D completa (incluye Y) para acertar desde caballo
   {
     const oHitboxes = ostrichSystem.getHitboxes();
@@ -437,10 +453,20 @@ function gameLoop() {
   const pickup = ostrichSystem.update(dt, pos);
   if (pickup && myId && !isDead) {
     restoreHunger(pickup.hunger);
-    // HP restore: clamp at 100
     myData.hp = Math.min(100, myData.hp + pickup.hp);
     UI.updateHP(myData.hp);
     UI.showEatEffect();
+  }
+
+  // ── Carne de vaca ─────────────────────────────────────────────────────────
+  if (cowSystem && myId && !isDead && pos) {
+    const meatPickup = cowSystem.updateMeats(dt, pos);
+    if (meatPickup) {
+      restoreHunger(meatPickup.hunger);
+      myData.hp = Math.min(100, myData.hp + meatPickup.hp);
+      UI.updateHP(myData.hp);
+      UI.showEatEffect();
+    }
   }
 
   // ── Vacas ─────────────────────────────────────────────────────────────────

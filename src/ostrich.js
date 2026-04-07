@@ -125,8 +125,9 @@ export class OstrichSystem {
   getHitboxes() {
     const result = [];
     for (const e of this._entities) {
-      if (e.dead || e.dying) continue;
-      e.mesh.updateWorldMatrix(true, true);
+      if (e.dead || e.dying || !e.mesh) continue;
+      // Propagar matrixWorld desde la raíz hasta el hitbox (hijo del grupo)
+      e.mesh._hitbox.updateWorldMatrix(true, false);
       result.push(e.mesh._hitbox);
     }
     return result;

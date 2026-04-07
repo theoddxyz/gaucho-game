@@ -2,6 +2,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
+// Material de hitbox invisible (transparente pero detectable por raycast)
+const M_HIT  = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+// Materiales para los pedazos de carne
+const M_MEAT = new THREE.MeshStandardMaterial({ color: 0x8b2a0a, roughness: 0.88 });
+const M_BONE = new THREE.MeshStandardMaterial({ color: 0xd4c090, roughness: 0.80 });
+
 export const STABLE_X    = 1000;
 export const STABLE_Z    = 1000;
 const CORRAL_RADIUS      = 15;
@@ -15,6 +21,8 @@ const FLEE_SPEED  = 5.0;
 const FLEE_RADIUS = 8;
 
 // ─── Shared materials (5 palettes × 3 mats = 15 total) ───────────────────────
+const PICKUP_RADIUS = 2.5;
+
 const PALETTES = [
   { body: 0x5c2e0a, spot: 0xf0ece0, horn: 0xd4c090 },
   { body: 0x181008, spot: 0xe8e0d0, horn: 0xc8b870 },
@@ -91,11 +99,25 @@ function buildCow(rng) {
 }
 
 // ─── CowSystem ────────────────────────────────────────────────────────────────
+function buildMeatPiece() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.10, 0.22), M_MEAT);
+  body.castShadow = true;
+  g.add(body);
+  const bone = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.28), M_BONE);
+  bone.position.set(0.12, 0.06, 0);
+  bone.castShadow = true;
+  g.add(bone);
+  return g;
+}
+
 export class CowSystem {
   constructor(scene) {
     this._scene     = scene;
     this._cows      = [];
     this._corralled = new Set();
+    this._hitboxMap = new Map();   // hitboxMesh → cowId
+    this._meats     = [];          // { mesh, t, bobPhase }
 
     const rng = _rng(98765);
     for (let i = 0; i < N_COWS; i++) {
@@ -107,11 +129,20 @@ export class CowSystem {
       mesh.position.set(x, 0, z);
       mesh.rotation.y = rng() * Math.PI * 2;
       mesh.scale.set(1.4, 1.4, 1.4);
+
+      // Hitbox en espacio local (antes del scale 1.4×)
+      // Cubre cuerpo + cabeza de la vaca
+      const hb = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 0.85), M_HIT);
+      hb.position.set(0.2, 0.88, 0);
+      mesh.add(hb);
+      this._hitboxMap.set(hb, i);
+
       scene.add(mesh);
 
       this._cows.push({
         id:           i,
         mesh,
+        hitbox:       hb,
         vx:           0,
         vz:           0,
         wanderAngle:  rng() * Math.PI * 2,
@@ -122,6 +153,69 @@ export class CowSystem {
         removed:      false,
       });
     }
+  }
+
+  /** Retorna todos los hitboxes de vacas vivas con matrixWorld actualizado. */
+  getCowHitboxes() {
+    const result = [];
+    for (const cow of this._cows) {
+      if (cow.removed) continue;
+      cow.hitbox.updateWorldMatrix(true, false);
+      result.push(cow.hitbox);
+    }
+    return result;
+  }
+
+  /** Dado un hitbox mesh, retorna el id de la vaca (-1 si no encontrado). */
+  getCowIdByHitbox(hbMesh) {
+    const id = this._hitboxMap.get(hbMesh);
+    return id !== undefined ? id : -1;
+  }
+
+  /** Matar vaca: la saca de la escena y suelta 8 pedazos de carne. */
+  killCow(id) {
+    const cow = this._cows[id];
+    if (!cow || cow.removed) return;
+    const wx = cow.mesh.position.x;
+    const wz = cow.mesh.position.z;
+    // Quitar de la escena
+    cow.removed = true;
+    this._hitboxMap.delete(cow.hitbox);
+    this._scene.remove(cow.mesh);
+    cow.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+    // Soltar 8 pedazos de carne
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2 + Math.random() * 0.5;
+      const r   = 0.5 + Math.random() * 1.2;
+      const m   = buildMeatPiece();
+      m.position.set(wx + Math.cos(ang) * r, 0.12, wz + Math.sin(ang) * r);
+      m.rotation.y = Math.random() * Math.PI * 2;
+      this._scene.add(m);
+      this._meats.push({ mesh: m, t: 0, bobPhase: Math.random() * Math.PI * 2 });
+    }
+  }
+
+  /** Tick de los pedazos de carne flotantes. Retorna pickup si el jugador recoge uno. */
+  updateMeats(dt, playerPos) {
+    let pickup = null;
+    for (let i = this._meats.length - 1; i >= 0; i--) {
+      const c = this._meats[i];
+      c.t += dt;
+      c.mesh.position.y  = 0.12 + Math.sin(c.t * 2.4 + c.bobPhase) * 0.07;
+      c.mesh.rotation.y += dt * 0.9;
+      if (playerPos && !pickup) {
+        const dx = c.mesh.position.x - playerPos.x;
+        const dz = c.mesh.position.z - playerPos.z;
+        if (dx * dx + dz * dz < PICKUP_RADIUS * PICKUP_RADIUS) {
+          this._scene.remove(c.mesh);
+          this._meats.splice(i, 1);
+          pickup = { hp: 8, hunger: 18 };
+          continue;
+        }
+      }
+      if (c.t > 300) { this._scene.remove(c.mesh); this._meats.splice(i, 1); }
+    }
+    return pickup;
   }
 
   // Apply a corralled state (idempotent, safe to call twice)

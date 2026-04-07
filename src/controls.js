@@ -42,8 +42,8 @@ export class IsoControls {
     }, { passive: false });
 
     this.raycaster   = new THREE.Raycaster();
-    // Plano de apuntado a altura del arma (~1.2 m) — alinea la mira con la trayectoria
-    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.2);
+    // Plano de apuntado en y=0 — la dirección incluye componente Y descendente
+    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.mouseNDC    = new THREE.Vector2();
 
     document.addEventListener('keydown', (e) => {
@@ -187,11 +187,13 @@ export class IsoControls {
     this.raycaster.setFromCamera(this.mouseNDC, this.camera);
     const hit = new THREE.Vector3();
     if (this.raycaster.ray.intersectPlane(this.groundPlane, hit)) {
+      // hit.y == 0 (plano del suelo). Dirección desde el arma hacia ese punto en XZ.
+      // El componente Y es siempre negativo (hacia abajo) desde cualquier altura positiva.
       const ox = gunOrigin ? gunOrigin.x : this.position.x;
-      const oy = gunOrigin ? gunOrigin.y : 1.2;
+      const oy = gunOrigin ? gunOrigin.y : 0.55;   // altura típica del arma en suelo
       const oz = gunOrigin ? gunOrigin.z : this.position.z;
       const dx = hit.x - ox;
-      const dy = hit.y - oy;   // inclinación descendente desde la altura del arma
+      const dy = -oy;          // suelo en y=0, arma en y=oy → siempre descendente
       const dz = hit.z - oz;
       if (dx * dx + dz * dz > 0.01) {
         return new THREE.Vector3(dx, dy, dz).normalize();
