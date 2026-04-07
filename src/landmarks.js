@@ -6,10 +6,10 @@ const loader = new GLTFLoader();
 let   _scene  = null;
 
 // ─── Water zones (world-space circles to exclude from tree/rock placement) ───
-// Shack scaled 1.3×, so lagoon local offset (16,0,4) → (20.8,0,5.2); r also × 1.3
+// Shack scaled 1.56×, lagoon local offset (16,0,4) → (24.96,0,6.24); r = 18 × 1.56 ≈ 28
 export const WATER_ZONES = [
-  { x:  4.8 + 20.8, z: -52.9 + 5.2, r: 26 },   // near-spawn shack
-  { x: -6258 + 20.8, z: 2023.4 + 5.2, r: 26 },  // far shack
+  { x:  4.8 + 24.96, z: -52.9 + 6.24, r: 28 },   // near-spawn shack
+  { x: -6258 + 24.96, z: 2023.4 + 6.24, r: 28 },  // far shack
 ];
 
 function _inWater(x, z) {
@@ -163,8 +163,8 @@ function _createFireEffect(wx, wy, wz) {
   const fGeo  = new THREE.BufferGeometry();
   fGeo.setAttribute('position', fAttr);
   _scene.add(new THREE.Points(fGeo, new THREE.PointsMaterial({
-    color: 0xff7700, size: 0.38,
-    transparent: true, depthWrite: false,
+    color: 0xff6600, size: 0.55,
+    transparent: true, opacity: 0.9, depthWrite: false,
     blending: THREE.AdditiveBlending,
   })));
 
@@ -173,8 +173,8 @@ function _createFireEffect(wx, wy, wz) {
   const sGeo  = new THREE.BufferGeometry();
   sGeo.setAttribute('position', sAttr);
   _scene.add(new THREE.Points(sGeo, new THREE.PointsMaterial({
-    color: 0x666666, size: 0.75,
-    transparent: true, opacity: 0.22, depthWrite: false,
+    color: 0x555555, size: 1.1,
+    transparent: true, opacity: 0.28, depthWrite: false,
   })));
 
   return { fd, sd, fAttr, sAttr, wx, wy, wz };
@@ -239,10 +239,11 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
     model.updateMatrixWorld(true, true);
 
     model.traverse(o => {
-      // Fire spawn point — may be a non-mesh empty object
-      if (/firecamppoint/i.test(o.name)) {
+      // Fire spawn point — empty or mesh; catches any firecamp / fogón variant
+      if (/firecamppoint|fogon|hoguera|campfire|firepit|fuego|fogo|brasero|llama|hearth/i.test(o.name)) {
         const wp = new THREE.Vector3();
         o.getWorldPosition(wp);
+        console.log('[fire] spawn at', o.name, wp.x.toFixed(1), wp.y.toFixed(1), wp.z.toFixed(1));
         const ef = _createFireEffect(wp.x, wp.y, wp.z);
         if (ef) _fires.push(ef);
       }
@@ -287,6 +288,6 @@ export function createLandmarks(scene) {
   loadAt('/models/camp.glb',   scene, -7823.3, 0, 5424.2);
   loadAt('/models/well.glb',   scene, -7656.9, 0, 5268.8);
   loadAt('/models/skulls.glb', scene, -7173.3, 0, 2997.3);
-  loadAt('/models/shack.glb',  scene, -6258.0, 0, 2023.4, 0, 1.3);
-  loadAt('/models/shack.glb',  scene,     4.8, 0,  -52.9, 0, 1.3);
+  loadAt('/models/shack.glb',  scene, -6258.0, 0, 2023.4, 0, 1.56);
+  loadAt('/models/shack.glb',  scene,     4.8, 0,  -52.9, 0, 1.56);
 }
