@@ -53,8 +53,10 @@ export class IsoControls {
 
     if (dir.length() > 0) {
       dir.normalize();
-      // atan2(dx, dz): player model has +Z front, so this gives correct facing angle
-      this._lastMoveAngle = Math.atan2(dir.x, dir.z);
+      // Snap to 8 cardinal/diagonal directions (45° increments)
+      const raw  = Math.atan2(dir.x, dir.z);
+      const step = Math.PI / 4;
+      this._lastMoveAngle = Math.round(raw / step) * step;
     }
     this.position.x += dir.x * SPEED * speedMult * dt;
     this.position.z += dir.z * SPEED * speedMult * dt;
