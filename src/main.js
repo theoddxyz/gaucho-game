@@ -191,15 +191,19 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const lineDir = new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize();
     let closest = null, closestT = Infinity;
     const bWP = new THREE.Vector3();
+    const _bbox = new THREE.Box3();
     for (const bMesh of bottleMeshes) {
       bMesh.updateWorldMatrix(true, false);
-      bMesh.getWorldPosition(bWP);
-      const toB = bWP.clone().sub(gunPos);
-      const proj = toB.dot(lineDir);            // how far along bullet path
+      // Use bounding-box center so pivot offset doesn't matter
+      _bbox.setFromObject(bMesh);
+      _bbox.getCenter(bWP);
+      const proj = new THREE.Vector3(bWP.x - gunPos.x, 0, bWP.z - gunPos.z).dot(lineDir);
       if (proj < 0 || proj > 80) continue;
-      const nearPt = gunPos.clone().addScaledVector(lineDir, proj);
-      const lateralDist = bWP.distanceTo(nearPt); // perp distance from bullet line
-      console.log('[bottle]', bMesh.name, 'proj=', proj.toFixed(1), 'lateral=', lateralDist.toFixed(2));
+      const nearX = gunPos.x + lineDir.x * proj;
+      const nearZ = gunPos.z + lineDir.z * proj;
+      // XZ-only lateral distance — ignores height so pivot y doesn't matter
+      const lateralDist = Math.sqrt((bWP.x - nearX) ** 2 + (bWP.z - nearZ) ** 2);
+      console.log('[bottle]', bMesh.name, 'proj=', proj.toFixed(1), 'lateralXZ=', lateralDist.toFixed(2));
       if (lateralDist < 1.5 && proj < closestT) { closest = bMesh; closestT = proj; }
     }
     if (closest) { console.log('[bottle] HIT', closest.name); hitBottle(closest, result.direction); }
