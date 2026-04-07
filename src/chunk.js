@@ -5,8 +5,12 @@ import { WATER_ZONES } from './landmarks.js';
 
 function _inWater(x, z) {
   for (const w of WATER_ZONES) {
-    const dx = x - w.x, dz = z - w.z;
-    if (dx * dx + dz * dz < w.r * w.r) return true;
+    if (w.box) {
+      if (x >= w.box.min.x && x <= w.box.max.x && z >= w.box.min.z && z <= w.box.max.z) return true;
+    } else {
+      const dx = x - w.x, dz = z - w.z;
+      if (dx * dx + dz * dz < w.r * w.r) return true;
+    }
   }
   return false;
 }

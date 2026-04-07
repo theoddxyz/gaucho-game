@@ -13,8 +13,12 @@ const SIDE_DIST          = 2.2;
 const MOUNT_DUR          = 0.35;
 const DISMOUNT_DUR       = 0.40;
 
-const LEG_PATTERN  = /leg|pata|pierna|hoof|pezuña|extremidad/i;
-const SKIP_PATTERN = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
+const LEG_PATTERN    = /leg|pata|pierna|hoof|pezuña|extremidad/i;
+const SKIP_PATTERN   = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
+const SADDLE_PATTERN = /saddle|blanket|montura|manta|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
+
+// Distinct coat colors: brown, black, palomino, dark chestnut, sorrel, gray
+const HORSE_COLORS = [0x8B4513, 0x1a0a05, 0xd4b870, 0x3d1c08, 0xc07030, 0x707070];
 
 export const HORSE_SPAWNS = [
   { id: 0, x: -30, z:  10 },
@@ -112,13 +116,29 @@ export class HorseManager {
     for (const spawn of HORSE_SPAWNS) {
       const mesh = template ? template.clone(true) : this._fallbackMesh();
       mesh.position.set(spawn.x, 0, spawn.z);
-      mesh.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+      const color = HORSE_COLORS[spawn.id % HORSE_COLORS.length];
+      const saddleNodes = [];
+
+      mesh.traverse(o => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.receiveShadow = true;
+        if (SADDLE_PATTERN.test(o.name)) {
+          saddleNodes.push(o);
+          o.visible = false;  // hidden while no rider
+        } else {
+          o.material = o.material.clone();
+          o.material.color.set(color);
+        }
+      });
+
       this.scene.add(mesh);
       mesh.updateWorldMatrix(true, true);
 
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
-        mesh, legs, riderId: null,
+        mesh, legs, riderId: null, saddleNodes,
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z,
         _sprinting: false,
@@ -228,6 +248,7 @@ export class HorseManager {
     if (!horse) return;
     horse.riderId  = playerId;
     this.myHorseId = horseId;
+    horse.saddleNodes?.forEach(n => n.visible = true);
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 
@@ -258,6 +279,7 @@ export class HorseManager {
     // Make sure horse lands back at Y=0 when rider leaves
     horse.mesh.position.y = 0;
     horse.riderId  = null;
+    horse.saddleNodes?.forEach(n => n.visible = false);
     this.network?.sendDismount(this.myHorseId);
     this.myHorseId = null;
     return { x: landX, z: landZ };
@@ -330,10 +352,13 @@ export class HorseManager {
 
   // ── Remote sync ─────────────────────────────────────────────────────────────
 
-  onRemoteMount(horseId, riderId)  { const h = this.horses.get(horseId); if (h) h.riderId = riderId; }
-  onRemoteDismount(horseId)        {
+  onRemoteMount(horseId, riderId)  {
     const h = this.horses.get(horseId);
-    if (h) { h.riderId = null; h.mesh.position.y = 0; }
+    if (h) { h.riderId = riderId; h.saddleNodes?.forEach(n => n.visible = true); }
+  }
+  onRemoteDismount(horseId) {
+    const h = this.horses.get(horseId);
+    if (h) { h.riderId = null; h.mesh.position.y = 0; h.saddleNodes?.forEach(n => n.visible = false); }
   }
 
   onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {

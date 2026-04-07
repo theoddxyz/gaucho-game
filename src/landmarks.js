@@ -10,8 +10,12 @@ export const WATER_ZONES = [];
 
 function _inWater(x, z) {
   for (const w of WATER_ZONES) {
-    const dx = x - w.x, dz = z - w.z;
-    if (dx * dx + dz * dz < w.r * w.r) return true;
+    if (w.box) {
+      if (x >= w.box.min.x && x <= w.box.max.x && z >= w.box.min.z && z <= w.box.max.z) return true;
+    } else {
+      const dx = x - w.x, dz = z - w.z;
+      if (dx * dx + dz * dz < w.r * w.r) return true;
+    }
   }
   return false;
 }
@@ -54,7 +58,7 @@ const _waterMat = new THREE.MeshStandardMaterial({
   map: _waterTex,
   roughness: 0.04, metalness: 0.18,
   transparent: true, opacity: 0.88,
-  polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
+  depthWrite: false,
 });
 
 // ─── Ripple system ────────────────────────────────────────────────────────────
@@ -319,12 +323,11 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
       if (/water|lagoon|lago|agua/i.test(nm)) {
         // Replace with animated water material
         o.material = _waterMat;
-        // Register water zone from actual mesh bounds (for ripples + chunk exclusion)
+        o.renderOrder = 1;  // render after terrain to avoid z-fight
+        // Register exact XZ box from mesh bounds (no radius padding)
         const bbox = new THREE.Box3().setFromObject(o);
         const center = new THREE.Vector3(); bbox.getCenter(center);
-        const size   = new THREE.Vector3(); bbox.getSize(size);
-        const r = Math.max(size.x, size.z) * 0.5 + 1.5;
-        WATER_ZONES.push({ x: center.x, z: center.z, r });
+        WATER_ZONES.push({ x: center.x, z: center.z, r: 0, box: bbox.clone() });
       } else if (/shore|sand|arena|orilla|playa/i.test(nm)) {
         // Replace with terrain-matching shore material
         o.material = _shoreMat.clone();
