@@ -142,7 +142,7 @@ Network.onJoined((data) => {
   Network.onBottleHit(({ key, dir }) => hitBottleByKey(key, dir));
 
   // Avestruz sincronizada
-  Network.onOstrichKill(() => ostrichSystem.kill());
+  Network.onOstrichKill(({ idx } = {}) => ostrichSystem.kill(idx ?? 0));
 
   // Vacas — init with already-corralled state from server
   cowSystem = new CowSystem(scene);
@@ -220,6 +220,10 @@ Network.onPlayerHit((data) => {
 
 Network.onPlayerKilled((data) => {
   UI.addKillMessage(data.killerName, data.victimName);
+  // Animación de caída para el jugador/bot que muere
+  if (data.victimId !== myId) {
+    remotePlayers.get(data.victimId)?.startDying();
+  }
   if (data.victimId === myId) {
     isDead = true;
     myData.deaths = data.victimDeaths;
@@ -250,12 +254,15 @@ Network.onPlayerRespawned((data) => {
 // --- Shooting (left-click, only while right-click aim is held) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId || !controls.isAiming()) return;
-  const pos = controls.getPosition();
-  const dir = controls.getFreshAimDirection(); // recompute from current mouse position at shot time
+  const pos    = controls.getPosition();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
   const gunY   = riderY + 0.55;
   const fp     = localPlayerModel?.getFirepointWorldPos();
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
+  // Pasar la posición real del arma para que la dirección incluya componente Y
+  const gunOriginVec = fp ? new THREE.Vector3(fp.x, fp.y, fp.z)
+                           : new THREE.Vector3(pos.x, gunY, pos.z);
+  const dir = controls.getFreshAimDirection(gunOriginVec);
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   controls.applyRecoil();
@@ -264,19 +271,20 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
 
-  // Ostrich hit check
+  // Ostrich hit check — usa la dirección 3D completa (incluye Y) para acertar desde caballo
   {
     const oHitboxes = ostrichSystem.getHitboxes();
     if (oHitboxes.length > 0) {
       const oRay = new THREE.Raycaster(
         new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
-        new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(),
+        dir.clone(),   // dirección 3D con componente Y
         0, 80
       );
       const oHits = oRay.intersectObjects(oHitboxes, false);
       if (oHits.length > 0) {
-        ostrichSystem.kill();
-        Network.sendOstrichKill();
+        const idx = ostrichSystem.getIndexByHitbox(oHits[0].object);
+        ostrichSystem.kill(idx);
+        Network.sendOstrichKill(idx);
       }
     }
   }

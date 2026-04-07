@@ -43,8 +43,8 @@ export function onNpcResponse(cb)     { socket.on('npcResponse', cb); }
 export function sendBottleHit(key, dir) { socket.emit('bottleHit', { key, dir }); }
 export function onBottleHit(cb)         { socket.on('bottleHit', cb); }
 
-export function sendOstrichKill() { socket.emit('ostrichKill'); }
-export function onOstrichKill(cb) { socket.on('ostrichKill', cb); }
+export function sendOstrichKill(idx) { socket.emit('ostrichKill', { idx }); }
+export function onOstrichKill(cb)    { socket.on('ostrichKill', cb); }
 
 export function sendCowCorralled(id) { socket.emit('cowCorralled', { id }); }
 export function onCowCorralled(cb)   { socket.on('cowCorralled', cb); }

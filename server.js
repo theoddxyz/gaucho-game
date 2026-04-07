@@ -35,10 +35,12 @@ const corralledCows = new Map();   // roomId → Set<cowId>
 // ─── Bot system ───────────────────────────────────────────────────────────────
 const BOT_SPEED          = 3.2;              // units/sec
 const BOT_SHOOT_RANGE    = 32;               // units
-const BOT_SHOOT_COOLDOWN = 1.5;              // seconds between shots
-const BOT_WAVE_INTERVAL  = 3 * 60 * 1000;   // 3 minutes
+const BOT_SHOOT_COOLDOWN = 1.8;              // seconds between shots
+const BOT_WAVE_INTERVAL  = 3 * 60 * 1000;   // 3 minutes between waves
+const FIRST_WAVE_DELAY   = 45 * 1000;        // 45 s para la primera oleada
+const BOT_HP             = 50;               // vida de cada bot (2 disparos para matar)
 const BOT_DT             = 0.10;             // server tick (10 Hz)
-const BOT_COLORS         = ['#cc2211','#cc3300','#aa1100','#dd2200','#bb1100'];
+const BOT_COLORS         = ['#8B2200','#6B1800','#A03010','#7A2808','#5A1500'];
 let   _botSeq            = 0;
 
 const botWaveStates = new Map();   // roomId → { nextWave: timestamp }
@@ -63,7 +65,7 @@ function _spawnBotWave(roomId) {
       y:     0,
       z:     (anchor.z ?? 0) + Math.sin(angle) * dist,
       rx: 0, ry: 0,
-      hp:     100,
+      hp:     BOT_HP,
       kills:  0,
       deaths: 0,
       isBot:  true,
@@ -152,7 +154,7 @@ setInterval(() => {
     const humans = [...room.values()].filter(p => !p.isBot);
     if (humans.length === 0) continue;
     if (!botWaveStates.has(roomId)) {
-      botWaveStates.set(roomId, { nextWave: Date.now() + BOT_WAVE_INTERVAL });
+      botWaveStates.set(roomId, { nextWave: Date.now() + FIRST_WAVE_DELAY });
       continue;
     }
     const state = botWaveStates.get(roomId);
@@ -329,9 +331,9 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('bottleHit', data);
   });
 
-  socket.on('ostrichKill', () => {
+  socket.on('ostrichKill', ({ idx } = {}) => {
     if (!currentRoom) return;
-    socket.to(currentRoom).emit('ostrichKill');
+    socket.to(currentRoom).emit('ostrichKill', { idx: idx ?? 0 });
   });
 
   socket.on('cowCorralled', ({ id }) => {

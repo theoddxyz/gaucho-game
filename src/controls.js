@@ -42,7 +42,8 @@ export class IsoControls {
     }, { passive: false });
 
     this.raycaster   = new THREE.Raycaster();
-    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    // Plano de apuntado a altura del arma (~1.2 m) — alinea la mira con la trayectoria
+    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.2);
     this.mouseNDC    = new THREE.Vector2();
 
     document.addEventListener('keydown', (e) => {
@@ -175,16 +176,25 @@ export class IsoControls {
     return new THREE.Vector3(Math.sin(this.aimAngle), 0, Math.cos(this.aimAngle)).normalize();
   }
 
-  /** Recomputes aim direction fresh from current mouse NDC — use at shot time for precision. */
-  getFreshAimDirection() {
+  /**
+   * Recomputes aim direction fresh from current mouse NDC — use at shot time for precision.
+   * @param {THREE.Vector3|null} gunOrigin  Posición real del arma en world-space.
+   *   Si se provee, el vector incluye componente Y descendente para poder impactar
+   *   blancos que estén por debajo del arma (p.ej. disparando desde el caballo).
+   */
+  getFreshAimDirection(gunOrigin = null) {
     this.camera.updateMatrixWorld();
     this.raycaster.setFromCamera(this.mouseNDC, this.camera);
     const hit = new THREE.Vector3();
     if (this.raycaster.ray.intersectPlane(this.groundPlane, hit)) {
-      const dx = hit.x - this.position.x;
-      const dz = hit.z - this.position.z;
+      const ox = gunOrigin ? gunOrigin.x : this.position.x;
+      const oy = gunOrigin ? gunOrigin.y : 1.2;
+      const oz = gunOrigin ? gunOrigin.z : this.position.z;
+      const dx = hit.x - ox;
+      const dy = hit.y - oy;   // inclinación descendente desde la altura del arma
+      const dz = hit.z - oz;
       if (dx * dx + dz * dz > 0.01) {
-        return new THREE.Vector3(dx, 0, dz).normalize();
+        return new THREE.Vector3(dx, dy, dz).normalize();
       }
     }
     return this.getAimDirection();

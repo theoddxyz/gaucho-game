@@ -10,9 +10,9 @@ const SPAWN_X   = 3.8;
 const SPAWN_Z   = -69;
 const N_COWS    = 33;
 
-const WALK_SPEED  = 1.0;
-const FLEE_SPEED  = 4.2;
-const FLEE_RADIUS = 7;
+const WALK_SPEED  = 1.8;
+const FLEE_SPEED  = 5.0;
+const FLEE_RADIUS = 8;
 
 // ─── Shared materials (5 palettes × 3 mats = 15 total) ───────────────────────
 const PALETTES = [
@@ -106,6 +106,7 @@ export class CowSystem {
       const z     = SPAWN_Z + Math.sin(angle) * dist;
       mesh.position.set(x, 0, z);
       mesh.rotation.y = rng() * Math.PI * 2;
+      mesh.scale.set(2, 2, 2);
       scene.add(mesh);
 
       this._cows.push({
@@ -164,6 +165,25 @@ export class CowSystem {
     }
   }
 
+  /** Contagion: cows in panic spread it to neighbors within 14 units. */
+  _spreadPanic() {
+    for (const cow of this._cows) {
+      if (cow.removed || cow.panicTimer <= 0) continue;
+      const cx = cow.mesh.position.x, cz = cow.mesh.position.z;
+      for (const other of this._cows) {
+        if (other.removed || other.panicTimer > 0 || other.id === cow.id) continue;
+        const dx = other.mesh.position.x - cx;
+        const dz = other.mesh.position.z - cz;
+        if (dx * dx + dz * dz < 14 * 14) {
+          other.panicTimer  = 2.5 + Math.random() * 2;
+          other.wanderAngle = Math.atan2(dx, dz); // run away from panicking cow
+          other.vx = Math.sin(other.wanderAngle) * FLEE_SPEED * 0.8;
+          other.vz = Math.cos(other.wanderAngle) * FLEE_SPEED * 0.8;
+        }
+      }
+    }
+  }
+
   // playerPositions: array of {x, z}
   // Returns array of cow IDs that entered the stable this frame
   update(dt, playerPositions) {
@@ -216,9 +236,9 @@ export class CowSystem {
         cow.wanderTimer -= dt;
         if (cow.wanderTimer <= 0) {
           cow.wanderAngle += (Math.random() - 0.5) * 2.8;
-          cow.wanderSpeed  = Math.random() < 0.28
+          cow.wanderSpeed  = Math.random() < 0.05
             ? 0
-            : WALK_SPEED * (0.4 + Math.random() * 0.8);
+            : WALK_SPEED * (0.5 + Math.random() * 0.8);
           cow.wanderTimer  = 2.5 + Math.random() * 5.5;
         }
         targetVX = Math.cos(cow.wanderAngle) * cow.wanderSpeed;
@@ -250,6 +270,9 @@ export class CowSystem {
         cow.mesh.position.y *= 0.88;
       }
     }
+
+    // Spread panic to nearby cows (flocking / contagion)
+    this._spreadPanic();
 
     return newlyCorralled;
   }

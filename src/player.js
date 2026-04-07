@@ -40,6 +40,74 @@ function buildFallbackModel(color) {
   return group;
 }
 
+/**
+ * Modelo procedural "indio hacker" para bots enemigos.
+ * Estética nativa + pintura de guerra en tonos tecnológicos.
+ */
+function buildBotModel() {
+  const grp = new THREE.Group();
+
+  const mk = (w, h, d, col, x, y, z) => {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshStandardMaterial({ color: col, roughness: 0.85 })
+    );
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    grp.add(m);
+    return m;
+  };
+
+  // Piel oscura / tonos tierra
+  const SKIN  = 0x6B3A1F;
+  const CLOTH = 0x2A1A08;   // tela oscura / cuero
+  const PAINT = 0xCC2200;   // pintura de guerra roja
+  const TECH  = 0x004488;   // acento hacker azul
+  const BONE  = 0xD4C090;   // huesos / collares
+
+  // Torso
+  const body = mk(0.80, 1.10, 0.50, CLOTH, 0, 0.55, 0);
+  // Detalles de tela en el pecho
+  mk(0.78, 0.12, 0.52, TECH,  0, 0.88, 0.01);  // banda tecnológica
+  mk(0.78, 0.12, 0.52, PAINT, 0, 0.72, 0.01);  // banda roja
+
+  // Cabeza
+  const head = mk(0.48, 0.46, 0.46, SKIN, 0, 1.43, 0);
+  // Pintura de guerra — rayas rojas en la cara
+  mk(0.50, 0.08, 0.10, PAINT, 0, 1.50,  0.24);
+  mk(0.50, 0.08, 0.10, PAINT, 0, 1.36,  0.24);
+  // Punto tecnológico (ojo cyberpunk)
+  mk(0.10, 0.10, 0.05, TECH, -0.14, 1.46, 0.25);
+  mk(0.10, 0.10, 0.05, TECH,  0.14, 1.46, 0.25);
+
+  // Plumas del tocado — triángulos voxel
+  for (let i = -2; i <= 2; i++) {
+    const h2 = 0.20 + Math.abs(i) * 0.04;
+    const col = i % 2 === 0 ? PAINT : BONE;
+    mk(0.10, h2, 0.06, col, i * 0.10, 1.70 + h2 * 0.5, 0);
+  }
+
+  // Brazos
+  mk(0.22, 0.90, 0.22, SKIN,  0.51, 0.60, 0);
+  mk(0.22, 0.90, 0.22, SKIN, -0.51, 0.60, 0);
+  // Pulseras bone en cada muñeca
+  mk(0.24, 0.07, 0.24, BONE,  0.51, 0.15, 0);
+  mk(0.24, 0.07, 0.24, BONE, -0.51, 0.15, 0);
+
+  // Piernas
+  mk(0.28, 0.80, 0.28, CLOTH,  0.20, -0.40, 0);
+  mk(0.28, 0.80, 0.28, CLOTH, -0.20, -0.40, 0);
+  // Mocasines
+  mk(0.30, 0.10, 0.36, BONE,  0.20, -0.85, 0.04);
+  mk(0.30, 0.10, 0.36, BONE, -0.20, -0.85, 0.04);
+
+  // Collar de huesos
+  mk(0.72, 0.10, 0.10, BONE, 0, 1.10, 0.26);
+
+  grp._hitboxes = [body, head];
+  return grp;
+}
+
 export class PlayerModel {
   constructor(scene, data) {
     this.id = data.id;
@@ -68,6 +136,11 @@ export class PlayerModel {
     this._firepoint = null;
     this._gunRecoil  = 0;
     this._gunRestPos = null; // local position stored once gun is found
+
+    // Muerte / caída
+    this._dying  = false;
+    this._dyingT = 0;
+    this._isBot  = !!data.isBot;
 
     // Load GLB model async, apply color tint
     loadTemplate(!!data.isBot).then((template) => {
@@ -104,7 +177,7 @@ export class PlayerModel {
           }
         });
       } else {
-        model = buildFallbackModel(this.color);
+        model = this._isBot ? buildBotModel() : buildFallbackModel(this.color);
         this._hitboxes = model._hitboxes || [];
       }
       this.group.add(model);
@@ -242,7 +315,23 @@ export class PlayerModel {
     this.group.add(sprite);
   }
 
+  /** Dispara la animación de caída (se queda en el suelo, no desaparece). */
+  startDying() {
+    if (this._dying) return;
+    this._dying  = true;
+    this._dyingT = 0;
+  }
+
   update(dt) {
+    if (this._dying) {
+      this._dyingT += dt;
+      // Caer de costado en ~0.6 s
+      this.group.rotation.z = Math.min(Math.PI / 2, this._dyingT * 3.5);
+      // Hundirse levemente en el suelo
+      this.group.position.y = Math.max(-0.25, this.group.position.y - dt * 0.4);
+      this.updateHat(dt);
+      return;  // no seguir interpolando posición
+    }
     this.group.position.lerp(this.targetPos, Math.min(1, 8 * dt));
     // Shortest-path angle lerp — avoids spinning the long way around ±π
     let diff = this.targetRY - this.group.rotation.y;
