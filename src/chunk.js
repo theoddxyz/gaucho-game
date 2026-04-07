@@ -22,45 +22,36 @@ const loader = new GLTFLoader();
 let treeTemplate = null;
 let rockTemplate = null;
 
-// ─── World-space procedural terrain (GLSL shader, zero tiling) ───────────────
-// FBM runs in the GPU using world XZ, so the pattern is continuous and unique
-// across every chunk — the same coordinate always gives the same color.
-// Colors (linear, sRGB→linear via pow(c/255, 2.2)):
-//   wet  #38240606 → (0.040, 0.020, 0.002)
-//   base #a8844a   → (0.400, 0.248, 0.073)
-//   dry  #c8aa78   → (0.575, 0.405, 0.186)
-const TERRAIN_MAT = new THREE.MeshStandardMaterial({ roughness: 0.92 });
-TERRAIN_MAT.onBeforeCompile = (shader) => {
-  // Pass world position to fragment shader
-  shader.vertexShader = 'varying vec3 vWPos;\n' + shader.vertexShader;
-  shader.vertexShader = shader.vertexShader.replace(
-    '#include <begin_vertex>',
-    '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(position,1.0)).xyz;'
-  );
-  // Prepend helpers to fragment shader
-  shader.fragmentShader = `
-varying vec3 vWPos;
-float _h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-float _vn(vec2 p){
-  vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
-  return mix(mix(_h(i),_h(i+vec2(1,0)),u.x),mix(_h(i+vec2(0,1)),_h(i+vec2(1,1)),u.x),u.y);
+// ─── Procedural terrain color — JS FBM, sampled per vertex ───────────────────
+// Same math as the old GLSL version; vertex colors are seamless across chunks.
+// Colors (linear): wet (0.040,0.020,0.002) · base (0.400,0.248,0.073) · dry (0.575,0.405,0.186)
+function _th(px, py) {
+  const s = Math.sin(px * 127.1 + py * 311.7) * 43758.5453;
+  return s - Math.floor(s);
 }
-float _fbm(vec2 p){float v=0.,a=.55;for(int i=0;i<5;i++){v+=_vn(p)*a;p*=2.07;a*=.5;}return v;}
-` + shader.fragmentShader;
-  // Replace map_fragment include with world-space FBM color
-  shader.fragmentShader = shader.fragmentShader.replace(
-    '#include <map_fragment>',
-    `{
-      vec2 wp = vWPos.xz;
-      float n = _fbm(wp/90.)*0.72 + _fbm(wp/18.+vec2(7.3,3.9))*0.28;
-      vec3 wet  = vec3(0.040,0.020,0.002);
-      vec3 base = vec3(0.400,0.248,0.073);
-      vec3 dry  = vec3(0.575,0.405,0.186);
-      diffuseColor.rgb = n<0.36 ? mix(wet,base,n/0.36) : mix(base,dry,(n-0.36)/0.64);
-    }`
-  );
-};
-TERRAIN_MAT.customProgramCacheKey = () => 'terrain_world_fbm';
+function _tn(px, py) {
+  const ix = Math.floor(px), iy = Math.floor(py);
+  const fx = px - ix, fy = py - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = _th(ix, iy), b = _th(ix+1, iy), c = _th(ix, iy+1), d = _th(ix+1, iy+1);
+  return a + (b-a)*ux + (c-a)*uy + (d-c-b+a)*ux*uy;
+}
+function _tfbm(px, py) {
+  let v = 0, a = 0.55;
+  for (let i = 0; i < 5; i++) { v += _tn(px, py) * a; px *= 2.07; py *= 2.07; a *= 0.5; }
+  return v;
+}
+function _tcolor(wx, wz) {
+  const n = _tfbm(wx/90, wz/90)*0.72 + _tfbm(wx/18+7.3, wz/18+3.9)*0.28;
+  if (n < 0.36) {
+    const t = n / 0.36;
+    return [0.040+(0.400-0.040)*t, 0.020+(0.248-0.020)*t, 0.002+(0.073-0.002)*t];
+  }
+  const t = (n-0.36)/0.64;
+  return [0.400+(0.575-0.400)*t, 0.248+(0.405-0.248)*t, 0.073+(0.186-0.073)*t];
+}
+
+const TERRAIN_MAT = new THREE.MeshStandardMaterial({ roughness: 0.92, vertexColors: true });
 
 // ─── Shared pebble geometry + material palette ────────────────────────────────
 // Slightly varied earth tones close to #cca465
@@ -146,11 +137,18 @@ export class ChunkManager {
     const objects = [];
     const ownColliders = [];
 
-    // ── Ground ───────────────────────────────────────────────────────────────
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 4, 4),
-      TERRAIN_MAT
-    );
+    // ── Ground (vertex colors from JS FBM — seamless across chunk boundaries) ──
+    const SUB = 48;
+    const geoG = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, SUB, SUB);
+    const pos  = geoG.attributes.position;
+    const cols = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      // PlaneGeometry verts are in XY plane; after rotation.x=-π/2 world coords are (x+ox, 0, -y+oz)
+      const [r, g, b] = _tcolor(pos.getX(i) + ox, -pos.getY(i) + oz);
+      cols[i*3] = r; cols[i*3+1] = g; cols[i*3+2] = b;
+    }
+    geoG.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    const ground = new THREE.Mesh(geoG, TERRAIN_MAT);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(ox, 0, oz);
     ground.receiveShadow = true;
