@@ -1,20 +1,27 @@
 // --- Isometric Controls: WASD movement + Mouse aiming ---
 import * as THREE from 'three';
 
-const SPEED = 10;
-const BOUND = 9900; // large bound for infinite chunk world
+const SPEED       = 10;
+const SPRINT_MULT = 1.9;   // extra speed when Shift held
+const JUMP_VEL    = 9;     // m/s upward on jump
+const GRAVITY     = 24;    // m/s² downward
+const BOUND       = 9900;
 
 export class IsoControls {
   constructor(camera) {
-    this.camera = camera;
-    this.position = new THREE.Vector3(0, 0, 0); // player ground position
-    this.aimAngle = 0; // radians, where the player faces
+    this.camera   = camera;
+    this.position = new THREE.Vector3(0, 0, 0);
+    this.aimAngle = 0;
     this.mouseWorld = new THREE.Vector3();
     this.keys = { w: false, a: false, s: false, d: false };
-    this.onEPress = null; // callback for E key
-    this._lastMoveAngle = 0; // movement facing angle
-    this._isAiming = false;  // right-click held = aim mode
-    this._camZoom = 1.0;     // scroll-to-zoom multiplier
+    this.onEPress = null;
+    this._lastMoveAngle = 0;
+    this._isAiming   = false;
+    this._camZoom    = 1.0;
+    this._vy         = 0;       // vertical velocity (m/s)
+    this._onGround   = true;
+    this._jumpTrigger = false;  // set true on Space keydown, consumed in update
+    this._sprinting  = false;
 
     document.addEventListener('mousedown', (e) => { if (e.button === 2) this._isAiming = true; });
     document.addEventListener('mouseup',   (e) => { if (e.button === 2) this._isAiming = false; });
@@ -23,29 +30,34 @@ export class IsoControls {
       e.preventDefault();
       this._camZoom = Math.max(0.3, Math.min(2.5, this._camZoom + e.deltaY * 0.001));
     }, { passive: false });
-    this.raycaster = new THREE.Raycaster();
+
+    this.raycaster   = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    this.mouseNDC = new THREE.Vector2();
+    this.mouseNDC    = new THREE.Vector2();
 
     document.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
       if (k in this.keys) this.keys[k] = true;
+      if (k === ' ') { e.preventDefault(); this._jumpTrigger = true; }
+      if (k === 'shift') this._sprinting = true;
       if (k === 'e' && this.onEPress) this.onEPress();
     });
     document.addEventListener('keyup', (e) => {
       const k = e.key.toLowerCase();
       if (k in this.keys) this.keys[k] = false;
+      if (k === 'shift') this._sprinting = false;
     });
     document.addEventListener('mousemove', (e) => {
-      this.mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+      this.mouseNDC.x = (e.clientX / window.innerWidth)  * 2 - 1;
       this.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     });
   }
 
   update(dt, colliders, speedMult = 1.0) {
-    // --- Movement (WASD in world-axis-aligned directions for isometric) ---
+    const sprint = this._sprinting ? SPRINT_MULT : 1.0;
+
+    // --- Horizontal movement ---
     const dir = new THREE.Vector3();
-    // In isometric, "up" on screen = forward (-Z), "right" = +X
     if (this.keys.w) dir.z -= 1;
     if (this.keys.s) dir.z += 1;
     if (this.keys.a) dir.x -= 1;
@@ -53,75 +65,88 @@ export class IsoControls {
 
     if (dir.length() > 0) {
       dir.normalize();
-      // Snap to 8 cardinal/diagonal directions (45° increments)
       const raw  = Math.atan2(dir.x, dir.z);
       const step = Math.PI / 4;
       this._lastMoveAngle = Math.round(raw / step) * step;
     }
-    this.position.x += dir.x * SPEED * speedMult * dt;
-    this.position.z += dir.z * SPEED * speedMult * dt;
+    this.position.x += dir.x * SPEED * speedMult * sprint * dt;
+    this.position.z += dir.z * SPEED * speedMult * sprint * dt;
 
-    // World boundary
     this.position.x = Math.max(-BOUND, Math.min(BOUND, this.position.x));
     this.position.z = Math.max(-BOUND, Math.min(BOUND, this.position.z));
 
-    // Collide with boxes
+    // --- Box collisions (X/Z only) ---
     if (colliders) {
       for (const box of colliders) {
-        const halfX = box.sx / 2;
-        const halfZ = box.sz / 2;
+        const halfX = box.sx / 2, halfZ = box.sz / 2;
         const dx = this.position.x - box.x;
         const dz = this.position.z - box.z;
         const overlapX = halfX + 0.5 - Math.abs(dx);
         const overlapZ = halfZ + 0.5 - Math.abs(dz);
         if (overlapX > 0 && overlapZ > 0) {
-          if (overlapX < overlapZ) {
-            this.position.x += Math.sign(dx) * overlapX;
-          } else {
-            this.position.z += Math.sign(dz) * overlapZ;
-          }
+          if (overlapX < overlapZ) this.position.x += Math.sign(dx) * overlapX;
+          else                     this.position.z += Math.sign(dz) * overlapZ;
         }
       }
     }
 
-    // --- Aim: mouse -> world position on ground plane ---
+    // --- Jump & gravity ---
+    if (this._jumpTrigger && this._onGround) {
+      this._vy       = JUMP_VEL;
+      this._onGround = false;
+    }
+    this._jumpTrigger = false;
+
+    if (!this._onGround) {
+      this._vy -= GRAVITY * dt;
+      this.position.y += this._vy * dt;
+      if (this.position.y <= 0) {
+        this.position.y = 0;
+        this._vy       = 0;
+        this._onGround = true;
+      }
+    }
+
+    // --- Aim: mouse → ground plane ---
     this.raycaster.setFromCamera(this.mouseNDC, this.camera);
     const hit = new THREE.Vector3();
     this.raycaster.ray.intersectPlane(this.groundPlane, hit);
     if (hit) {
       this.mouseWorld.copy(hit);
-      this.aimAngle = Math.atan2(
-        hit.x - this.position.x,
-        hit.z - this.position.z
-      );
+      this.aimAngle = Math.atan2(hit.x - this.position.x, hit.z - this.position.z);
     }
 
-    // --- Camera follows player (zoomable) ---
-    const camOffset = new THREE.Vector3(20, 25, 20).multiplyScalar(this._camZoom);
-    this.camera.position.copy(this.position).add(camOffset);
+    // --- Camera: fixed height (doesn't bob with jump), follows X/Z ---
+    const camOff = new THREE.Vector3(20, 25, 20).multiplyScalar(this._camZoom);
+    this.camera.position.set(
+      this.position.x + camOff.x,
+      camOff.y,                    // fixed height — no camera bounce on jump
+      this.position.z + camOff.z
+    );
     this.camera.lookAt(this.position.x, 0, this.position.z);
   }
 
-  getPosition() {
-    return { x: this.position.x, y: 1.0, z: this.position.z };
+  /** Call when auto-mounting mid-air: stops vertical velocity, resets Y. */
+  landOnHorse() {
+    this.position.y = 0;
+    this._vy        = 0;
+    this._onGround  = true;
   }
 
-  getRotation() {
-    return { x: 0, y: this.aimAngle };
-  }
-
+  getPosition()      { return { x: this.position.x, y: this.position.y, z: this.position.z }; }
+  getRotation()      { return { x: 0, y: this.aimAngle }; }
   getMovementAngle() { return this._lastMoveAngle; }
   isAiming()         { return this._isAiming; }
+  isInAir()          { return !this._onGround; }
+  isSprinting()      { return this._sprinting; }
 
   getAimDirection() {
-    return new THREE.Vector3(
-      Math.sin(this.aimAngle),
-      0,
-      Math.cos(this.aimAngle)
-    ).normalize();
+    return new THREE.Vector3(Math.sin(this.aimAngle), 0, Math.cos(this.aimAngle)).normalize();
   }
 
   setPosition(x, y, z) {
     this.position.set(x, 0, z);
+    this._vy      = 0;
+    this._onGround = true;
   }
 }

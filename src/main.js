@@ -186,7 +186,7 @@ function gameLoop() {
   const dt = Math.min(clock.getDelta(), 0.1);
 
   if (!isDead && myId) {
-    controls.update(dt, colliders, horseManager?.speedMultiplier() ?? 1.0);
+    controls.update(dt, colliders, horseManager?.speedMultiplier(controls.isSprinting()) ?? (controls.isSprinting() ? 1.9 : 1.0));
 
     const pos = controls.getPosition();
     const rot = controls.getRotation();
@@ -202,15 +202,24 @@ function gameLoop() {
         horseManager.syncRiderPosition(pos.x, pos.z, moveAngle);
         Network.sendHorseMoved({ horseId: horseManager.myHorseId, x: pos.x, z: pos.z, ry: moveAngle });
       }
+      // Auto-mount: jump onto a nearby horse while in the air
+      if (!horseManager.isMounted() && controls.isInAir()) {
+        const mounted = horseManager.tryAutoMount(pos, myId);
+        if (mounted) controls.landOnHorse();
+      }
     }
 
     // Local player model
     const facingAngle = controls.isAiming() ? rot.y : controls.getMovementAngle();
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
-      // Y: use jump animation during mount/dismount, otherwise static height
+      // Y: mount/dismount anim → horse jump (2.5 + jump offset) → ground jump → ground
       const animY  = horseManager?.getAnimY();
-      const riderY = animY ?? (horseManager?.isMounted() ? 2.5 : pos.y);
+      const riderY = animY != null
+        ? animY
+        : horseManager?.isMounted()
+          ? 2.5 + pos.y          // horse jump: rider rises above saddle
+          : pos.y;               // normal ground jump (pos.y goes up on Space)
 
       // XZ: during dismount, visually arc from horse center to landing spot
       const dismountXZ = horseManager?.getDismountModelPos(pos);

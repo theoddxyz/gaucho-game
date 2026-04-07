@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader           = new GLTFLoader();
-const MOUNT_RADIUS     = 3.0;
-const HORSE_SPEED_MULT = 2.2;
+const MOUNT_RADIUS       = 3.0;
+const HORSE_SPEED_MULT   = 2.2;
+const HORSE_SPRINT_EXTRA = 1.7;  // extra multiplier when Shift held on horseback
 const WALK_FREQ        = 6.0;
 const WALK_AMP         = 0.45;
 const SIDE_DIST        = 2.2;   // metres player lands from horse on dismount
@@ -294,6 +295,24 @@ export class HorseManager {
     if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
   }
 
-  isMounted()       { return this.myHorseId !== null; }
-  speedMultiplier() { return this.isMounted() ? this._mountedSpeedMult : 1.0; }
+  /** Auto-mount when player jumps onto a horse (called from main.js while in air). */
+  tryAutoMount(pos, playerId) {
+    if (this.myHorseId !== null) return false;
+    for (const [id, horse] of this.horses) {
+      if (horse.riderId !== null) continue;
+      const dx = horse.x - pos.x;
+      const dz = horse.z - pos.z;
+      if (Math.sqrt(dx * dx + dz * dz) < MOUNT_RADIUS) {
+        this._mount(id, playerId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  isMounted()                  { return this.myHorseId !== null; }
+  speedMultiplier(sprinting = false) {
+    if (!this.isMounted()) return 1.0;
+    return this._mountedSpeedMult * (sprinting ? HORSE_SPRINT_EXTRA : 1.0);
+  }
 }
