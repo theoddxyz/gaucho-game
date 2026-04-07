@@ -244,10 +244,11 @@ export class HorseManager {
     }
 
     for (const [, horse] of this.horses) {
-      const moved = horse.riderId !== null && (
-        Math.abs(horse.x - horse._prevX) > 0.005 ||
-        Math.abs(horse.z - horse._prevZ) > 0.005
-      );
+      const dx = horse.x - horse._prevX;
+      const dz = horse.z - horse._prevZ;
+      const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);
+      // Stop legs as soon as speed drops below threshold — don't keep animating during deceleration
+      const moved = horse.riderId !== null && speed > 0.8;
       horse._prevX = horse.x;
       horse._prevZ = horse.z;
       if (moved) horse.walkTime += dt;
