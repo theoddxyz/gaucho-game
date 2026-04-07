@@ -4,17 +4,25 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GAUCHO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       overflow: hidden;
-      background: #0c0904;
+      background: #000;
       font-family: 'Share Tech Mono', 'Courier New', Courier, monospace;
       color: #b88a3a;
     }
-    canvas { display: block; }
+    /* Canvas must be fixed so it sits in the same stacking context as all UI overlays */
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100% !important;
+      height: 100% !important;
+      z-index: 0;
+    }
 
     /* ── Crosshair ─────────────────────────────────────────────────────────── */
     body.game-active { cursor: none; }
