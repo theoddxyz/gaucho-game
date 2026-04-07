@@ -134,6 +134,7 @@ function findLegs(horseMesh) {
 
   return final.map(({ obj, phase }) => ({
     pivot: wrapInPivot(obj),
+    legObj: obj,   // ref kept for knee-bend secondary rotation
     phase,
   }));
 }
@@ -192,14 +193,25 @@ export class HorseManager {
       this.scene.add(mesh);
       mesh.updateWorldMatrix(true, true);
 
+      // Find head & neck nodes for nod animation
+      let headNode = null, neckNode = null;
+      mesh.traverse(o => {
+        const n = o.name.toLowerCase();
+        if (!headNode && /head|cabeza/.test(n)) headNode = o;
+        if (!neckNode && /neck|cuello/.test(n)) neckNode = o;
+      });
+
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
         mesh, legs, riderId: null, saddleNodes, isWild,
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z,
         _sprinting: false,
-        _targetRY: mesh.rotation.y,   // target rotation (set externally)
-        _displayRY: mesh.rotation.y,  // smoothed display rotation
+        _targetRY: mesh.rotation.y,
+        _displayRY: mesh.rotation.y,
+        _baseY: 0,    // base Y (jumpY from rider, 0 otherwise)
+        _bobY:  0,    // vertical bob offset applied on top of _baseY
+        headNode, neckNode,
       });
     }
   }
@@ -269,6 +281,9 @@ export class HorseManager {
       while (ryDiff < -Math.PI) ryDiff += Math.PI * 2;
       horse._displayRY += ryDiff * Math.min(1, 14 * dt);
       horse.mesh.rotation.y = horse._displayRY;
+
+      // Apply bob offset on top of base Y
+      horse.mesh.position.y = horse._baseY + horse._bobY;
     }
 
     if (this.myHorseId !== null) return;
@@ -286,13 +301,58 @@ export class HorseManager {
   }
 
   _animateLegs(horse, moving) {
-    // Use faster frequency when sprinting
-    const freq = horse._sprinting ? WALK_FREQ_SPRINT : WALK_FREQ;
-    for (const leg of horse.legs) {
-      leg.pivot.rotation.x = moving
-        ? Math.sin(freq * horse.walkTime + leg.phase) * WALK_AMP
-        : 0;
+    const sprint = horse._sprinting;
+    const freq   = sprint ? WALK_FREQ_SPRINT : WALK_FREQ;
+    const amp    = WALK_AMP * (sprint ? 1.35 : 1.0);
+    const t      = horse.walkTime;
+
+    if (!moving) {
+      // Smoothly return everything to rest
+      for (const leg of horse.legs) {
+        leg.pivot.rotation.x *= 0.85;
+        if (leg.legObj) leg.legObj.rotation.x *= 0.85;
+      }
+      horse._bobY        *= 0.85;
+      horse.mesh.rotation.z *= 0.85;
+      if (horse.headNode) horse.headNode.rotation.x *= 0.85;
+      if (horse.neckNode) horse.neckNode.rotation.x *= 0.85;
+      return;
     }
+
+    // ── Leg swing (hip pivot) ────────────────────────────────────────────
+    // Asymmetric waveform: faster lift forward, slower push back
+    //   forward stroke: sin > 0 region
+    //   power stroke:   sin < 0 region (hoof on ground, driving forward)
+    for (const leg of horse.legs) {
+      const s = Math.sin(freq * t + leg.phase);
+      // Bias: squash the power stroke so the leg spends longer on the ground
+      const swing = s > 0 ? s * amp : s * amp * 0.65;
+      leg.pivot.rotation.x = swing;
+
+      // ── Knee flex ─────────────────────────────────────────────────────
+      // Knee bends when leg is swinging forward (positive swing phase).
+      // max(0,…) → only bends in one direction (can't hyperextend backward).
+      if (leg.legObj) {
+        const kneeFlex = Math.max(0, Math.sin(freq * t + leg.phase + 0.55)) * amp * 0.55;
+        leg.legObj.rotation.x = -kneeFlex;
+      }
+    }
+
+    // ── Body bob (vertical) ──────────────────────────────────────────────
+    // Rises twice per stride cycle (one lift per diagonal pair hitting ground)
+    const bobAmp = sprint ? 0.07 : 0.045;
+    horse._bobY = Math.abs(Math.sin(freq * t)) * bobAmp;
+
+    // ── Body roll (lateral sway) ─────────────────────────────────────────
+    horse.mesh.rotation.z = Math.sin(freq * t * 0.5) * (sprint ? 0.04 : 0.025);
+
+    // ── Head / neck nod ──────────────────────────────────────────────────
+    const nodAmp = sprint ? 0.10 : 0.06;
+    // Head nods opposite to body bob: rises as body falls, dips as body rises
+    if (horse.headNode)
+      horse.headNode.rotation.x = Math.sin(freq * t + Math.PI * 0.5) * nodAmp;
+    if (horse.neckNode)
+      horse.neckNode.rotation.x = Math.sin(freq * t + Math.PI * 0.5) * nodAmp * 0.6;
   }
 
   // ── Mount / Dismount ────────────────────────────────────────────────────────
@@ -342,8 +402,7 @@ export class HorseManager {
       toX: landX,     toZ: landZ,
     };
 
-    // Make sure horse lands back at Y=0 when rider leaves
-    horse.mesh.position.y = 0;
+    horse._baseY = 0;
     horse.riderId  = null;
     horse.saddleNodes?.forEach(n => n.visible = false);
     this.network?.sendDismount(this.myHorseId);
@@ -395,9 +454,10 @@ export class HorseManager {
     if (!horse) return;
     horse.x = x; horse.z = z;
     horse._sprinting = sprinting;
-    // Horse body rises with rider when jumping
-    horse.mesh.position.set(x, jumpY, z);
-    horse._targetRY = moveAngle + Math.PI;  // smoothed by update() loop
+    horse._baseY = jumpY;  // bob applied on top in update() loop
+    horse.mesh.position.x = x;
+    horse.mesh.position.z = z;
+    horse._targetRY = moveAngle + Math.PI;
   }
 
   // ── Auto-mount by jumping ───────────────────────────────────────────────────
@@ -424,15 +484,17 @@ export class HorseManager {
   }
   onRemoteDismount(horseId) {
     const h = this.horses.get(horseId);
-    if (h) { h.riderId = null; h.mesh.position.y = 0; h.saddleNodes?.forEach(n => n.visible = false); }
+    if (h) { h.riderId = null; h._baseY = 0; h.saddleNodes?.forEach(n => n.visible = false); }
   }
 
   onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
     const horse = this.horses.get(horseId);
     if (!horse) return;
     horse.x = x; horse.z = z;
-    horse.mesh.position.set(x, 0, z);
-    horse._targetRY = ry + Math.PI;  // smoothed by update() loop
+    horse._baseY = 0;
+    horse.mesh.position.x = x;
+    horse.mesh.position.z = z;
+    horse._targetRY = ry + Math.PI;
     // Keep remote player model locked to horse position — no offset
     if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
   }
