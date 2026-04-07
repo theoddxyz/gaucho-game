@@ -183,16 +183,22 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
 
-  // Bottle physics — local only
+  // Bottle physics — cone check (ignores y so bottles at any shelf height are hittable)
   const bottleMeshes = getBottleMeshes();
   if (bottleMeshes.length > 0) {
-    const bRay = new THREE.Raycaster(
-      new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
-      new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(),
-      0, 80
-    );
-    const bHits = bRay.intersectObjects(bottleMeshes, false);
-    if (bHits.length > 0) hitBottle(bHits[0].object, result.direction);
+    const gunPos  = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
+    const aimFlat = new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize();
+    let closest = null, closestDist = Infinity;
+    const bWP = new THREE.Vector3();
+    for (const bMesh of bottleMeshes) {
+      bMesh.getWorldPosition(bWP);
+      const toB = new THREE.Vector3(bWP.x - gunPos.x, 0, bWP.z - gunPos.z);
+      const dist = toB.length();
+      if (dist > 80 || dist < 0.1) continue;
+      const dot = aimFlat.dot(toB.clone().normalize());
+      if (dot > 0.96 && dist < closestDist) { closest = bMesh; closestDist = dist; }
+    }
+    if (closest) hitBottle(closest, result.direction);
   }
 });
 
