@@ -317,6 +317,7 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
         _bottles.push({ mesh: o, falling: false, fallen: false, t: 0,
                         startPos: o.position.clone(), startQuat: o.quaternion.clone(),
                         rotAxis: new THREE.Vector3(1, 0, 0) });
+        console.log('[bottle] registered:', o.name);
       }
 
       if (/water|lagoon|lago|agua/i.test(nm)) {

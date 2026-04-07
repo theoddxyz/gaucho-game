@@ -196,9 +196,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       const dist = toB.length();
       if (dist > 80 || dist < 0.1) continue;
       const dot = aimFlat.dot(toB.clone().normalize());
-      if (dot > 0.96 && dist < closestDist) { closest = bMesh; closestDist = dist; }
+      console.log('[bottle] aim check', bMesh.name, 'dot=', dot.toFixed(3), 'dist=', dist.toFixed(1));
+      if (dot > 0.85 && dist < closestDist) { closest = bMesh; closestDist = dist; }
     }
-    if (closest) hitBottle(closest, result.direction);
+    if (closest) { console.log('[bottle] HIT', closest.name); hitBottle(closest, result.direction); }
   }
 });
 
