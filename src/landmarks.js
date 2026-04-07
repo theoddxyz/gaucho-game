@@ -6,10 +6,10 @@ const loader = new GLTFLoader();
 let   _scene  = null;
 
 // ─── Water zones (world-space circles to exclude from tree/rock placement) ───
-// Shack scaled 1.56×, lagoon local offset (16,0,4) → (24.96,0,6.24); r = 18 × 1.56 ≈ 28
+// Lagoon mesh is at local (0,0,0) in the shack GLB → world = shack origin
 export const WATER_ZONES = [
-  { x:  4.8 + 24.96, z: -52.9 + 6.24, r: 28 },   // near-spawn shack
-  { x: -6258 + 24.96, z: 2023.4 + 6.24, r: 28 },  // far shack
+  { x:  4.8,   z: -52.9,  r: 14 },  // near-spawn shack
+  { x: -6258,  z: 2023.4, r: 14 },  // far shack
 ];
 
 function _inWater(x, z) {
@@ -298,7 +298,7 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
 
     model.traverse(o => {
       // Fire spawn point — empty or mesh; catches any firecamp / fogón variant
-      if (/campfirepoint|firecamppoint|fogon|hoguera|campfire|firepit|fuego|brasero/i.test(o.name)) {
+      if (/firecampoint|campfirepoint|firecamppoint|fogon|hoguera|campfire|firepit|fuego|brasero/i.test(o.name)) {
         const wp = new THREE.Vector3();
         o.getWorldPosition(wp);
         console.log('[fire] spawn at', o.name, wp.x.toFixed(1), wp.y.toFixed(1), wp.z.toFixed(1));
@@ -306,19 +306,19 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
         if (ef) _fires.push(ef);
       }
 
-      if (!o.isMesh) return;
-      o.castShadow    = true;
-      o.receiveShadow = true;
-
       const nm = o.name.toLowerCase();
 
-      // Shootable bottles — register for physics
-      if (/botel|bottle/i.test(nm)) {
+      // Shootable bottles — detect BEFORE isMesh check so multi-primitive Groups are caught
+      if (/botel|bottle/i.test(nm) && !_bottles.some(b => b.mesh === o)) {
         _bottles.push({ mesh: o, falling: false, fallen: false, t: 0,
                         startPos: o.position.clone(), startQuat: o.quaternion.clone(),
                         rotAxis: new THREE.Vector3(1, 0, 0) });
-        console.log('[bottle] registered:', o.name);
+        console.log('[bottle] registered:', o.name, o.type);
       }
+
+      if (!o.isMesh) return;
+      o.castShadow    = true;
+      o.receiveShadow = true;
 
       if (/water|lagoon|lago|agua/i.test(nm)) {
         // Replace with animated water material
