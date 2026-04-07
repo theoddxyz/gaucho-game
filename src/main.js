@@ -261,7 +261,7 @@ function gameLoop() {
 
   for (const [, pm] of remotePlayers) pm.update(dt);
   localPlayerModel?.updateHat(dt);
-  updateLandmarkEffects(dt);
+  updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   updateBullets(scene, dt);
   renderer.render(scene, camera);
 }

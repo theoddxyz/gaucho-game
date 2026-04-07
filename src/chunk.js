@@ -1,6 +1,15 @@
 // --- Infinite world via streaming chunks ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { WATER_ZONES } from './landmarks.js';
+
+function _inWater(x, z) {
+  for (const w of WATER_ZONES) {
+    const dx = x - w.x, dz = z - w.z;
+    if (dx * dx + dz * dz < w.r * w.r) return true;
+  }
+  return false;
+}
 
 export const CHUNK_SIZE    = 200;
 const LOAD_RADIUS          = 2;
@@ -209,6 +218,7 @@ export class ChunkManager {
       for (let i = 0; i < TREES_PER_CHUNK; i++) {
         const tx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
         const tz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
+        if (_inWater(tx, tz)) { rng(); rng(); rng(); continue; } // skip water areas (consume rng for consistency)
         const t  = treeTemplate.clone(true);
         const s  = 0.35 + rng() * 0.15;
         t.position.set(tx, 0, tz);
@@ -226,6 +236,7 @@ export class ChunkManager {
       for (let i = 0; i < ROCKS_PER_CHUNK; i++) {
         const rx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
         const rz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
+        if (_inWater(rx, rz)) { rng(); rng(); rng(); rng(); continue; }
         const r  = rockTemplate.clone(true);
         const rs = 0.5 + rng() * 1.0;
         const rh = 0.35 + rng() * 0.55;
