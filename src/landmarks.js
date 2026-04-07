@@ -5,17 +5,18 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const loader = new GLTFLoader();
 let   _scene  = null;
 
-// ─── Water zones — populated dynamically from "lagoon" mesh bounding boxes ───
+// ─── Water zones — for chunk.js tree/rock exclusion (populated from lagoon bbox) ───
 export const WATER_ZONES = [];
 
+// Actual lagoon meshes — used for precise raycast-based "is over water" check
+const _lagoonMeshes = [];
+const _waterRay = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+
 function _inWater(x, z) {
-  for (const w of WATER_ZONES) {
-    if (w.box) {
-      if (x >= w.box.min.x && x <= w.box.max.x && z >= w.box.min.z && z <= w.box.max.z) return true;
-    } else {
-      const dx = x - w.x, dz = z - w.z;
-      if (dx * dx + dz * dz < w.r * w.r) return true;
-    }
+  if (_lagoonMeshes.length === 0) return false;
+  _waterRay.ray.origin.set(x, 10, z);
+  for (const m of _lagoonMeshes) {
+    if (_waterRay.intersectObject(m, false).length > 0) return true;
   }
   return false;
 }
@@ -324,7 +325,9 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
         // Replace with animated water material
         o.material = _waterMat;
         o.renderOrder = 1;  // render after terrain to avoid z-fight
-        // Register exact XZ box from mesh bounds (no radius padding)
+        // Store actual mesh for precise raycast water detection
+        _lagoonMeshes.push(o);
+        // Also register bbox zone so chunk.js can exclude trees/rocks from lagoon area
         const bbox = new THREE.Box3().setFromObject(o);
         const center = new THREE.Vector3(); bbox.getCenter(center);
         WATER_ZONES.push({ x: center.x, z: center.z, r: 0, box: bbox.clone() });

@@ -39,10 +39,11 @@ function getRoom(roomId) {
 const COLORS = ['#ff4444', '#44aaff', '#44ff44', '#ffaa00', '#ff44ff', '#00ffcc', '#ffff44', '#aa44ff'];
 
 function randomSpawn() {
+  const spread = 12;
   return {
-    x: (Math.random() - 0.5) * 80,
+    x: 3.8 + (Math.random() - 0.5) * spread,
     y: 1.0,
-    z: (Math.random() - 0.5) * 80,
+    z: -69.0 + (Math.random() - 0.5) * spread,
   };
 }
 
