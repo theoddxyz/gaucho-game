@@ -5,12 +5,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const loader = new GLTFLoader();
 let   _scene  = null;
 
-// ─── Water zones (world-space circles to exclude from tree/rock placement) ───
-// Lagoon mesh is at local (0,0,0) in the shack GLB → world = shack origin
-export const WATER_ZONES = [
-  { x:  4.8,   z: -52.9,  r: 14 },  // near-spawn shack
-  { x: -6258,  z: 2023.4, r: 14 },  // far shack
-];
+// ─── Water zones — populated dynamically from "lagoon" mesh bounding boxes ───
+export const WATER_ZONES = [];
 
 function _inWater(x, z) {
   for (const w of WATER_ZONES) {
@@ -323,6 +319,12 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
       if (/water|lagoon|lago|agua/i.test(nm)) {
         // Replace with animated water material
         o.material = _waterMat;
+        // Register water zone from actual mesh bounds (for ripples + chunk exclusion)
+        const bbox = new THREE.Box3().setFromObject(o);
+        const center = new THREE.Vector3(); bbox.getCenter(center);
+        const size   = new THREE.Vector3(); bbox.getSize(size);
+        const r = Math.max(size.x, size.z) * 0.5 + 1.5;
+        WATER_ZONES.push({ x: center.x, z: center.z, r });
       } else if (/shore|sand|arena|orilla|playa/i.test(nm)) {
         // Replace with terrain-matching shore material
         o.material = _shoreMat.clone();

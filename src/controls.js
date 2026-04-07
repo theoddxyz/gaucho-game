@@ -78,8 +78,8 @@ export class IsoControls {
 
     const targetX = dir.x * SPEED * speedMult * sprint;
     const targetZ = dir.z * SPEED * speedMult * sprint;
-    // Faster ramp-up than ramp-down for responsive feel
-    const accel = dir.length() > 0 ? 9 : 14;
+    // Moderate acceleration — reduced to avoid overly snappy horse feel
+    const accel = dir.length() > 0 ? 5 : 8;
     this._velX += (targetX - this._velX) * Math.min(1, accel * dt);
     this._velZ += (targetZ - this._velZ) * Math.min(1, accel * dt);
 

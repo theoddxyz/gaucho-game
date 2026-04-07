@@ -1,5 +1,9 @@
 // --- GAUCHO: Main Game Loop ---
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass }       from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass }     from 'three/addons/postprocessing/OutputPass.js';
 import { IsoControls } from './controls.js';
 import { createWorld }  from './world.js';
 import { ChunkManager } from './chunk.js';
@@ -29,10 +33,21 @@ camera.lookAt(0, 0, 0);
 
 const scene = new THREE.Scene();
 
+// --- Post-processing (SSAO ambient occlusion) ---
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
+ssaoPass.kernelRadius = 12;
+ssaoPass.minDistance  = 0.002;
+ssaoPass.maxDistance  = 0.08;
+composer.addPass(ssaoPass);
+composer.addPass(new OutputPass());
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // --- World setup ---
@@ -294,7 +309,7 @@ function gameLoop() {
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);
   updateBullets(scene, dt);
-  renderer.render(scene, camera);
+  composer.render();
 }
 
 // --- Lobby ---
