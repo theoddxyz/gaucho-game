@@ -60,6 +60,7 @@ const _waterMat = new THREE.MeshStandardMaterial({
   roughness: 0.04, metalness: 0.18,
   transparent: true, opacity: 0.88,
   depthWrite: false,
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
 });
 
 // ─── Ripple system ────────────────────────────────────────────────────────────
@@ -322,9 +323,11 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
       o.receiveShadow = true;
 
       if (/water|lagoon|lago|agua/i.test(nm)) {
-        // Replace with animated water material
         o.material = _waterMat;
-        o.renderOrder = 1;  // render after terrain to avoid z-fight
+        o.renderOrder = 2;  // render after terrain
+        // Lift slightly above ground to eliminate z-fighting
+        o.position.y += 0.03;
+        o.updateMatrixWorld(true, false);
         // Store actual mesh for precise raycast water detection
         _lagoonMeshes.push(o);
         // Also register bbox zone so chunk.js can exclude trees/rocks from lagoon area

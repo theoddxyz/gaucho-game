@@ -16,14 +16,25 @@ const DISMOUNT_DUR       = 0.40;
 const LEG_PATTERN    = /leg|pata|pierna|hoof|pezuña|extremidad/i;
 const SKIP_PATTERN   = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
 const SADDLE_PATTERN = /saddle|blanket|montura|manta|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
+const MANE_PATTERN   = /mane|tail|crin|cola|pelo/i;
+const DARK_PATTERN   = /hoof|pezuña|eye|ojo|nose|nariz|mouth|boca|diente/i;
 
-// Distinct coat colors: brown, black, palomino, dark chestnut, sorrel, gray
-const HORSE_COLORS = [0x8B4513, 0x1a0a05, 0xd4b870, 0x3d1c08, 0xc07030, 0x707070];
+// Wild horse variants: distinct body + mane/tail colors
+const WILD_VARIANTS = [
+  { body: 0x8B4513, mane: 0x2a0e00 },  // chestnut, dark mane
+  { body: 0xd4b870, mane: 0xf0e8c8 },  // palomino, cream mane
+  { body: 0xc07030, mane: 0x3d1500 },  // sorrel, dark mane
+  { body: 0x909090, mane: 0x383838 },  // gray, dark mane
+  { body: 0x3d1c08, mane: 0x1a0800 },  // dark chestnut, very dark mane
+];
+
+// Spawn point (must match server.js randomSpawn)
+const SPAWN_X = 3.8, SPAWN_Z = -69.0, WILD_DIST = 40;
 
 export const HORSE_SPAWNS = [
   { id: 0, x: -30, z:  10 },
   { id: 1, x:  35, z:  25 },
-  { id: 2, x: -10, z: -55 },
+  { id: 2, x: -10, z: -55 },  // closest to spawn shack
   { id: 3, x:  55, z: -15 },
   { id: 4, x:   5, z:  50 },
   { id: 5, x: -60, z: -35 },
@@ -113,11 +124,14 @@ export class HorseManager {
 
   async _init() {
     const template = await loadTemplate();
+    let wildIdx = 0;
     for (const spawn of HORSE_SPAWNS) {
       const mesh = template ? template.clone(true) : this._fallbackMesh();
       mesh.position.set(spawn.x, 0, spawn.z);
 
-      const color = HORSE_COLORS[spawn.id % HORSE_COLORS.length];
+      const dx = spawn.x - SPAWN_X, dz = spawn.z - SPAWN_Z;
+      const isWild = Math.sqrt(dx * dx + dz * dz) > WILD_DIST;
+      const variant = isWild ? WILD_VARIANTS[wildIdx++ % WILD_VARIANTS.length] : null;
       const saddleNodes = [];
 
       mesh.traverse(o => {
@@ -126,10 +140,12 @@ export class HorseManager {
         o.receiveShadow = true;
         if (SADDLE_PATTERN.test(o.name)) {
           saddleNodes.push(o);
-          o.visible = false;  // hidden while no rider
-        } else {
-          o.material = o.material.clone();
-          o.material.color.set(color);
+          if (isWild) o.visible = false;  // wild horses start without tack
+        } else if (isWild && variant) {
+          if (!DARK_PATTERN.test(o.name)) {
+            o.material = o.material.clone();
+            o.material.color.set(MANE_PATTERN.test(o.name) ? variant.mane : variant.body);
+          }
         }
       });
 
@@ -138,7 +154,7 @@ export class HorseManager {
 
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
-        mesh, legs, riderId: null, saddleNodes,
+        mesh, legs, riderId: null, saddleNodes, isWild,
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z,
         _sprinting: false,
