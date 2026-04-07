@@ -15,7 +15,8 @@ import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
 import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight } from './daynight.js';
-import { updateSurvival, getHunger, getThirst } from './survival.js';
+import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
+import { OstrichSystem } from './ostrich.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -79,6 +80,9 @@ const hoofprints = new HoofprintSystem(scene);
 // Smoothed local player facing angle (shortest-path lerp, snaps when aiming)
 let _facingAngle = 0;
 
+// Avestruz
+const ostrichSystem = new OstrichSystem(scene);
+
 // ─── NPC dialogue state ────────────────────────────────────────────────────────
 let _npcActive = false;   // dialogue panel is open
 let _npcDone   = false;   // player already completed dialogue this session
@@ -118,6 +122,9 @@ Network.onJoined((data) => {
 
   // Remote bottle hits
   Network.onBottleHit(({ key, dir }) => hitBottleByKey(key, dir));
+
+  // Avestruz sincronizada
+  Network.onOstrichKill(() => ostrichSystem.kill());
 
   // NPC dialogue resolution
   Network.onNpcResponse(({ type }) => {
@@ -222,6 +229,23 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
+
+  // Ostrich hit check
+  {
+    const oHitboxes = ostrichSystem.getHitboxes();
+    if (oHitboxes.length > 0) {
+      const oRay = new THREE.Raycaster(
+        new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
+        new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(),
+        0, 80
+      );
+      const oHits = oRay.intersectObjects(oHitboxes, false);
+      if (oHits.length > 0) {
+        ostrichSystem.kill();
+        Network.sendOstrichKill();
+      }
+    }
+  }
 
   // Bottle physics — 3D line-distance check (works at any height, very forgiving)
   const bottleMeshes = getBottleMeshes();
@@ -361,6 +385,16 @@ function gameLoop() {
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);
   updateBullets(scene, dt);
+
+  // ── Avestruz + churrascos ────────────────────────────────────────────────
+  const pickup = ostrichSystem.update(dt, pos);
+  if (pickup && myId && !isDead) {
+    restoreHunger(pickup.hunger);
+    // HP restore: clamp at 100
+    myData.hp = Math.min(100, myData.hp + pickup.hp);
+    UI.updateHP(myData.hp);
+    UI.showEatEffect();
+  }
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
   updateDayNight(dt, scene, sun, ambient, moon);

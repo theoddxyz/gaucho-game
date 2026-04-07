@@ -18,3 +18,6 @@ export function updateSurvival(dt, isSprinting, isMounted) {
 
 export function getHunger() { return Math.round(_hunger); }
 export function getThirst()  { return Math.round(_thirst); }
+
+export function restoreHunger(amount) { _hunger = Math.min(100, _hunger + amount); }
+export function restoreThirst(amount) { _thirst = Math.min(100, _thirst + amount); }

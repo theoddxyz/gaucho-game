@@ -142,6 +142,26 @@ export function showHitmarker() {
   setTimeout(() => { els.hitmarker.style.display = 'none'; }, 180);
 }
 
+// ─── Eat effect (churrasco pickup) ───────────────────────────────────────────
+export function showEatEffect() {
+  let el = document.getElementById('_eat_msg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_eat_msg';
+    el.style.cssText = `
+      position:fixed; bottom:120px; left:50%; transform:translateX(-50%);
+      z-index:300; font-family:'Share Tech Mono','Courier New',monospace;
+      font-size:12px; color:#c8a050; letter-spacing:3px; pointer-events:none;
+      opacity:0; transition:opacity .25s;
+    `;
+    document.body.appendChild(el);
+  }
+  el.textContent = '+ CHURRASCO  VID+25  HAM+55';
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+}
+
 // ─── Damage flash ─────────────────────────────────────────────────────────────
 export function showDamageFlash() {
   els.damageOverlay.style.opacity = '1';

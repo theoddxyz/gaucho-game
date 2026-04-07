@@ -43,6 +43,9 @@ export function onNpcResponse(cb)     { socket.on('npcResponse', cb); }
 export function sendBottleHit(key, dir) { socket.emit('bottleHit', { key, dir }); }
 export function onBottleHit(cb)         { socket.on('bottleHit', cb); }
 
+export function sendOstrichKill() { socket.emit('ostrichKill'); }
+export function onOstrichKill(cb) { socket.on('ostrichKill', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

@@ -185,6 +185,11 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('bottleHit', data);
   });
 
+  socket.on('ostrichKill', () => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('ostrichKill');
+  });
+
   // ── NPC Dialogue ─────────────────────────────────────────────────────────────
   socket.on('npcChoice', ({ choice }) => {
     if (!currentRoom || !playerData || typeof choice !== 'number') return;
