@@ -14,13 +14,12 @@
       font-family: 'Share Tech Mono', 'Courier New', Courier, monospace;
       color: #b88a3a;
     }
-    /* Canvas must be fixed so it sits in the same stacking context as all UI overlays */
+    /* Canvas must be fixed so it sits in the same stacking context as all UI overlays.
+       Three.js sets width/height via inline style — don't override them here. */
     canvas {
       display: block;
       position: fixed;
       top: 0; left: 0;
-      width: 100% !important;
-      height: 100% !important;
       z-index: 0;
     }
 
