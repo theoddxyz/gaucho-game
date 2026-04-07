@@ -15,7 +15,9 @@ const DISMOUNT_DUR       = 0.40;
 
 const LEG_PATTERN    = /leg|pata|pierna|hoof|pezuña|extremidad/i;
 const SKIP_PATTERN   = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
-const SADDLE_PATTERN = /saddle|montura|manta|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
+const SADDLE_PATTERN = /saddle|montura|manta|silla|alforja|arreo|cincha|estribo|rienda|brida|cube015/i;
+// Also detect by material name (Blender may export node as "cube015" but keep material name)
+const SADDLE_MAT_PATTERN = /material0*[056]+|manta|saddle|montura/i;
 
 // Per wild horse: tiny hue shift + lightness multiplier — stays in warm/earth tones.
 // Horse base hue is ~0.04-0.10 (orange-brown); shifts of ±0.07 max to avoid unnatural colors.
@@ -168,7 +170,11 @@ export class HorseManager {
         if (!o.isMesh) return;
         o.castShadow = true;
         o.receiveShadow = true;
-        if (SADDLE_PATTERN.test(o.name)) {
+        // Match by node name OR by material name (cube015 has Material005/006)
+        const matName = (Array.isArray(o.material)
+          ? o.material.map(m => m.name).join(' ')
+          : o.material?.name ?? '');
+        if (SADDLE_PATTERN.test(o.name) || SADDLE_MAT_PATTERN.test(matName)) {
           saddleNodes.push(o);
           if (isWild) o.visible = false;
         }

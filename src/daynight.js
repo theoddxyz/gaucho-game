@@ -79,7 +79,7 @@ function _lerp3(keys, t) {
 }
 
 // ─── Main update ──────────────────────────────────────────────────────────────
-export function updateDayNight(dt, scene, sun, ambient) {
+export function updateDayNight(dt, scene, sun, ambient, moon = null) {
   _t = (_t + dt / DAY_DURATION) % 1;
 
   // Sky + fog
@@ -103,7 +103,23 @@ export function updateDayNight(dt, scene, sun, ambient) {
   sun.intensity = _lerp1(SUN_INT_KEYS, _t);
   const [cr, cg, cb] = _lerp3(SUN_COLOR_KEYS, _t);
   sun.color.setRGB(cr / 255, cg / 255, cb / 255);
+
+  // Moon
+  if (moon) moon.intensity = _lerp1(MOON_INT_KEYS, _t);
 }
+
+// Moon intensity keyframes: bright at midnight, gone during day
+const MOON_INT_KEYS = [
+  [0.00, 0.55],
+  [0.18, 0.35],
+  [0.24, 0.00],
+  [0.26, 0.00],
+  [0.74, 0.00],
+  [0.78, 0.00],
+  [0.82, 0.30],
+  [0.90, 0.55],
+  [1.00, 0.55],
+];
 
 /** 0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk */
 export function getDayProgress() { return _t; }

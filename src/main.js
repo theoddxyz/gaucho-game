@@ -55,7 +55,7 @@ window.addEventListener('resize', () => {
 // --- World setup ---
 // colliders is a shared mutable array — buildings added now, chunks add/remove theirs at runtime
 const colliders = [];
-const { colliders: worldColliders, sun, ambient } = createWorld(scene);
+const { colliders: worldColliders, sun, moon, ambient } = createWorld(scene);
 worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
@@ -363,7 +363,7 @@ function gameLoop() {
   updateBullets(scene, dt);
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
-  updateDayNight(dt, scene, sun, ambient);
+  updateDayNight(dt, scene, sun, ambient, moon);
   if (myId && !isDead) {
     updateSurvival(dt, controls.isSprinting(), horseManager?.isMounted() ?? false);
     UI.updateSurvivalUI(getHunger(), getThirst(), getTemperature());

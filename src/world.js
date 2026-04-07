@@ -9,6 +9,12 @@ export function createWorld(scene) {
   const ambient = new THREE.AmbientLight(0xffe8cc, 0.55);
   scene.add(ambient);
 
+  // Moon — dim cool blue-white, opposite direction from sun
+  const moon = new THREE.DirectionalLight(0x8899cc, 0);  // intensity driven by daynight
+  moon.position.set(-80, 30, -20);
+  moon.castShadow = false;  // no shadow from moon (perf)
+  scene.add(moon);
+
   // Sun low on the western horizon — sunset angle, warm gold
   const sun = new THREE.DirectionalLight(0xffcc77, 1.3);
   sun.position.set(90, 22, 25);
@@ -55,5 +61,5 @@ export function createWorld(scene) {
     colliders.push({ x: b.x, z: b.z, sx: b.sx, sy: b.sy, sz: b.sz });
   }
 
-  return { colliders, sun, ambient };
+  return { colliders, sun, moon, ambient };
 }
