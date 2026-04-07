@@ -1,35 +1,7 @@
-// --- World: terrain + trees + buildings ---
+// --- World: lighting, sky, fog, and static buildings ---
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const loader = new GLTFLoader();
-
-function loadGLB(url) {
-  return new Promise((resolve, reject) => {
-    loader.load(url, (gltf) => resolve(gltf.scene), undefined, reject);
-  });
-}
-
-// Tree positions [x, z] — spread across 400×400 terrain
-const TREE_POSITIONS = [
-  // inner ring
-  [20, 30], [-25, 35], [40, -20], [-40, 15], [30, -40],
-  [-35, -30], [15, 45], [-20, -45], [45, 25], [-45, -20],
-  [60, 5],  [-60, 10], [5, 60],   [10, -60], [-55, 40],
-  [55, -35],[35, 55],  [-30, -55], [70, 30],  [-70, -25],
-  [25, -15],[-15, 25], [50, 50],  [-50, -50], [80, -10],
-  // mid ring
-  [90, 60], [-90, 50], [100, -40], [-100, -70], [75, 90],
-  [-75, -90],[110, 20], [-110, -15],[65, -100], [-65, 100],
-  [120, -80],[-120, 80],[85, -55],  [-85, 55],  [130, 40],
-  [-130,-40],[50, 130], [-50,-130], [140, -10],[-140, 10],
-  // outer ring
-  [160, 70], [-160,-70],[170,-30],  [-170, 30], [100,150],
-  [-100,-150],[150,110],[-150,-110],[180, 60],[-180,-60],
-  [80, -170],[-80, 170],[190, -50],[-190, 50], [120,-160],
-];
-
-export async function createWorld(scene) {
+export function createWorld(scene) {
   const colliders = [];
 
   // --- Lighting ---
@@ -41,118 +13,43 @@ export async function createWorld(scene) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 200;
-  sun.shadow.camera.left = -100;
-  sun.shadow.camera.right = 100;
-  sun.shadow.camera.top = 100;
-  sun.shadow.camera.bottom = -100;
+  sun.shadow.camera.far  = 300;
+  sun.shadow.camera.left   = -120;
+  sun.shadow.camera.right  =  120;
+  sun.shadow.camera.top    =  120;
+  sun.shadow.camera.bottom = -120;
   scene.add(sun);
 
-  // --- Sky & fog ---
+  // --- Sky & fog (extended for large world) ---
   scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.Fog(0x87ceeb, 80, 160);
+  scene.fog = new THREE.Fog(0x87ceeb, 250, 450);
 
-  // --- Terrain GLB ---
-  try {
-    const terrain = await loadGLB('/models/terrain.glb');
-    terrain.traverse(obj => {
-      if (obj.isMesh) {
-        obj.receiveShadow = true;
-      }
-    });
-    scene.add(terrain);
-  } catch (e) {
-    console.warn('terrain.glb not found, using fallback plane');
-    const geo = new THREE.PlaneGeometry(200, 200);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x3a5f3a, roughness: 0.9 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-  }
-
-  // --- Trees GLB ---
-  try {
-    const treeTemplate = await loadGLB('/models/tree.glb');
-
-    for (const [tx, tz] of TREE_POSITIONS) {
-      const tree = treeTemplate.clone(true);
-      tree.position.set(tx, 0, tz);
-      tree.traverse(obj => {
-        if (obj.isMesh) {
-          obj.castShadow = true;
-          obj.receiveShadow = true;
-        }
-      });
-      // 50% smaller than before
-      const scale = 0.35 + Math.random() * 0.15; // 0.35–0.50 × 1.68 = 0.59–0.84 units
-      tree.scale.set(scale, scale, scale);
-      tree.rotation.y = Math.random() * Math.PI * 2;
-      scene.add(tree);
-
-      // Add trunk as collider (radius ~0.5)
-      colliders.push({ x: tx, z: tz, sx: 1, sy: 5, sz: 1, mesh: null });
-    }
-  } catch (e) {
-    console.warn('tree.glb not found:', e.message);
-  }
-
-  // --- Rocks GLB ---
-  const ROCK_POSITIONS = [
-    [10, 18], [-18, 8], [32, -12], [-28, 22], [42, 40],
-    [-42, -8], [18, -38], [-8, 48], [58, 20], [-52, -30],
-    [25, 65], [-65, 18], [12, -68], [-35, 55], [70, -40],
-    // outer rocks
-    [95, 30], [-95, -45], [110, -60], [-110, 70], [80, 110],
-    [-80,-110],[130,-30],  [-130, 30], [60,-130], [-60, 130],
-    [150, 80],[-150,-80], [170,-60],  [-170, 60], [140,130],
-  ];
-  try {
-    const rockTemplate = await loadGLB('/models/rock.glb');
-    for (const [rx, rz] of ROCK_POSITIONS) {
-      const rock = rockTemplate.clone(true);
-      rock.position.set(rx, 0, rz);
-      rock.traverse(obj => {
-        if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; }
-      });
-      const rs = 0.6 + Math.random() * 0.8; // varied sizes
-      const rsY = 0.5 + Math.random() * 0.5;
-      rock.scale.set(rs, rsY, rs);
-      rock.rotation.y = Math.random() * Math.PI * 2;
-      scene.add(rock);
-      colliders.push({ x: rx, z: rz, sx: rs * 1.5, sy: 2, sz: rs * 1.5, mesh: null });
-    }
-  } catch (e) {
-    console.warn('rock.glb not found:', e.message);
-  }
-
-  // --- Buildings (kept until replaced by GLBs) ---
-  const boxMat     = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.7 });
-  const boxDarkMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.8 });
-  const boxRedMat  = new THREE.MeshStandardMaterial({ color: 0x884444, roughness: 0.7 });
+  // --- Static buildings (pueblo central) ---
+  const matGrey = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.7 });
+  const matDark = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.8 });
+  const matRed  = new THREE.MeshStandardMaterial({ color: 0x884444, roughness: 0.7 });
 
   const buildings = [
-    { x: 0,   z: 0,   sx: 6,  sy: 8,  sz: 6,  mat: boxDarkMat },
-    { x: 15,  z: 10,  sx: 10, sy: 5,  sz: 8,  mat: boxMat     },
-    { x: -20, z: -15, sx: 8,  sy: 6,  sz: 10, mat: boxRedMat  },
-    { x: -10, z: 20,  sx: 4,  sy: 3,  sz: 4,  mat: boxMat     },
-    { x: 25,  z: -20, sx: 12, sy: 4,  sz: 6,  mat: boxDarkMat },
-    { x: -40, z: 30,  sx: 8,  sy: 7,  sz: 8,  mat: boxMat     },
-    { x: 40,  z: -35, sx: 6,  sy: 10, sz: 6,  mat: boxRedMat  },
-    { x: -35, z: -40, sx: 10, sy: 4,  sz: 10, mat: boxDarkMat },
-    { x: 35,  z: 35,  sx: 14, sy: 3,  sz: 4,  mat: boxMat     },
-    { x: -15, z: 0,   sx: 1,  sy: 3,  sz: 12, mat: boxDarkMat },
-    { x: 10,  z: -25, sx: 16, sy: 2.5,sz: 1,  mat: boxMat     },
+    { x:   0, z:   0, sx:  6, sy: 8,   sz:  6, mat: matDark },
+    { x:  15, z:  10, sx: 10, sy: 5,   sz:  8, mat: matGrey },
+    { x: -20, z: -15, sx:  8, sy: 6,   sz: 10, mat: matRed  },
+    { x: -10, z:  20, sx:  4, sy: 3,   sz:  4, mat: matGrey },
+    { x:  25, z: -20, sx: 12, sy: 4,   sz:  6, mat: matDark },
+    { x: -40, z:  30, sx:  8, sy: 7,   sz:  8, mat: matGrey },
+    { x:  40, z: -35, sx:  6, sy: 10,  sz:  6, mat: matRed  },
+    { x: -35, z: -40, sx: 10, sy: 4,   sz: 10, mat: matDark },
+    { x:  35, z:  35, sx: 14, sy: 3,   sz:  4, mat: matGrey },
+    { x: -15, z:   0, sx:  1, sy: 3,   sz: 12, mat: matDark },
+    { x:  10, z: -25, sx: 16, sy: 2.5, sz:  1, mat: matGrey },
   ];
 
   for (const b of buildings) {
-    const geo = new THREE.BoxGeometry(b.sx, b.sy, b.sz);
-    const mesh = new THREE.Mesh(geo, b.mat);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.sx, b.sy, b.sz), b.mat);
     mesh.position.set(b.x, b.sy / 2, b.z);
-    mesh.castShadow = true;
+    mesh.castShadow   = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    colliders.push({ x: b.x, z: b.z, sx: b.sx, sy: b.sy, sz: b.sz, mesh });
+    colliders.push({ x: b.x, z: b.z, sx: b.sx, sy: b.sy, sz: b.sz });
   }
 
   return colliders;

@@ -1,17 +1,16 @@
-// --- GAUCHO: Main Game Loop (Isometric) ---
+// --- GAUCHO: Main Game Loop ---
 import * as THREE from 'three';
 import { IsoControls } from './controls.js';
-import { createWorld } from './world.js';
-import { PlayerModel } from './player.js';
+import { createWorld }  from './world.js';
+import { ChunkManager } from './chunk.js';
+import { PlayerModel }  from './player.js';
+import { HorseManager } from './horses.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
-import * as UI from './ui.js';
+import * as UI      from './ui.js';
 
 // --- Crosshair follows mouse ---
-document.addEventListener('mousemove', (e) => {
-  UI.moveCrosshair(e.clientX, e.clientY);
-});
-import { HorseManager } from './horses.js';
+document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -22,7 +21,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // --- Camera (isometric) ---
-const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 600);
 camera.position.set(20, 25, 20);
 camera.lookAt(0, 0, 0);
 
@@ -34,9 +33,13 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// --- World (async: loads GLBs) ---
-let colliders = [];
-createWorld(scene).then(c => { colliders = c; });
+// --- World setup ---
+// colliders is a shared mutable array — buildings added now, chunks add/remove theirs at runtime
+const colliders = [];
+const worldColliders = createWorld(scene); // synchronous: lighting + buildings
+worldColliders.forEach(c => colliders.push(c));
+
+const chunkManager = new ChunkManager(scene, colliders);
 
 // --- Controls ---
 const controls = new IsoControls(camera);
@@ -44,15 +47,13 @@ const controls = new IsoControls(camera);
 // --- Coords display ---
 UI.initCoords();
 
-// --- Local player model ---
-let localPlayerModel = null;
-
 // --- State ---
-const remotePlayers = new Map();
-let myId = null;
+let localPlayerModel = null;
+let horseManager     = null;
+const remotePlayers  = new Map();
+let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
-let horseManager = null;
 
 // --- Network ---
 Network.connect();
@@ -61,16 +62,14 @@ function startGame(name) {
   const roomId = Network.getRoomId() || Network.generateRoomId();
   UI.hideLobby();
   UI.showCoords();
-
   const url = new URL(window.location);
   url.searchParams.set('room', roomId);
   window.history.replaceState({}, '', url);
-
   Network.joinRoom(roomId, name);
 }
 
 Network.onJoined((data) => {
-  myId = data.self.id;
+  myId   = data.self.id;
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
@@ -82,8 +81,7 @@ Network.onJoined((data) => {
   Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
   Network.onPlayerDismountedHorse((d) => horseManager?.onRemoteDismount(d.horseId));
   Network.onHorsePositionUpdate((d) => {
-    const riderModel = remotePlayers.get(d.riderId);
-    horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry, riderModel);
+    horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry, remotePlayers.get(d.riderId));
   });
 
   UI.showGame();
@@ -104,14 +102,13 @@ Network.onPlayerJoined((pd) => {
 });
 
 Network.onPlayerLeft((id) => {
-  const pm = remotePlayers.get(id);
-  if (pm) { pm.remove(scene); remotePlayers.delete(id); }
+  remotePlayers.get(id)?.remove(scene);
+  remotePlayers.delete(id);
   UI.updatePlayersCount(remotePlayers.size + 1);
 });
 
 Network.onPlayerMoved((data) => {
-  const pm = remotePlayers.get(data.id);
-  if (pm) pm.setTarget(data.x, data.y, data.z, data.ry);
+  remotePlayers.get(data.id)?.setTarget(data.x, data.y, data.z, data.ry);
 });
 
 Network.onPlayerShot((data) => {
@@ -156,25 +153,20 @@ Network.onPlayerRespawned((data) => {
     localPlayerModel?.respawnHat();
   } else {
     const pm = remotePlayers.get(data.id);
-    if (pm) {
-      pm.setTarget(data.x, data.y, data.z, 0);
-      pm.respawnHat();
-    }
+    if (pm) { pm.setTarget(data.x, data.y, data.z, 0); pm.respawnHat(); }
   }
 });
 
-// --- Shooting (click — only when aiming with right-click) ---
+// --- Shooting (left-click, only while right-click aim is held) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button !== 0 || isDead || !myId) return;
-  if (!controls.isAiming()) return; // must be aiming (right-click held) to shoot
+  if (e.button !== 0 || isDead || !myId || !controls.isAiming()) return;
   const pos = controls.getPosition();
   const dir = controls.getAimDirection();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
   const gunY   = riderY + 0.55;
-  // Use firepoint node from model if available
-  const fp = localPlayerModel?.getFirepointWorldPos();
-  const explicitOrigin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
-  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, explicitOrigin);
+  const fp     = localPlayerModel?.getFirepointWorldPos();
+  const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
+  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
@@ -182,22 +174,24 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 });
 
 // --- Game loop ---
-const clock = new THREE.Clock();
+const clock    = new THREE.Clock();
 const SEND_RATE = 1 / 20;
-let sendTimer = 0;
+let sendTimer  = 0;
 
 function gameLoop() {
   requestAnimationFrame(gameLoop);
   const dt = Math.min(clock.getDelta(), 0.1);
 
   if (!isDead && myId) {
-    const speedMult = horseManager?.speedMultiplier() ?? 1.0;
-    controls.update(dt, colliders, speedMult);
+    controls.update(dt, colliders, horseManager?.speedMultiplier() ?? 1.0);
 
     const pos = controls.getPosition();
     const rot = controls.getRotation();
 
-    // Sync horse position when mounted
+    // Chunk streaming
+    chunkManager.update(pos);
+
+    // Horse sync
     if (horseManager) {
       horseManager.update(pos, dt);
       if (horseManager.isMounted()) {
@@ -207,8 +201,7 @@ function gameLoop() {
       }
     }
 
-    // Update local model (snap directly, no lerp lag)
-    // Facing: mouse aim only when right-click held; otherwise movement direction
+    // Local player model
     const facingAngle = controls.isAiming() ? rot.y : controls.getMovementAngle();
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
@@ -217,10 +210,8 @@ function gameLoop() {
       localPlayerModel.group.rotation.y = facingAngle;
     }
 
-    // Update coords display
     UI.updateCoords(pos.x, pos.z);
 
-    // Send position (send actual facing angle so remote players see correct orientation)
     sendTimer += dt;
     if (sendTimer >= SEND_RATE) {
       sendTimer = 0;

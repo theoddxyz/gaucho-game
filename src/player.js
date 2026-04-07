@@ -88,6 +88,9 @@ export class PlayerModel {
           }
           if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
             this._firepoint = obj;
+            // Helper object — fully invisible, no shadow
+            obj.visible = false;
+            if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
           }
         });
         // Collect hitboxes
