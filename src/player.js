@@ -48,10 +48,7 @@ export class PlayerModel {
 
     this._scene = scene;
 
-    // Hat setup
-    this._hat = this._buildHat();
-    this.group.add(this._hat);
-    this._hat.position.set(0, 1.78, 0);
+    this._hat = null; // set only if GLB has a hat node
     this._hatFlying = false;
     this._hatVel = new THREE.Vector3();
     this._hatAngVel = new THREE.Vector3();
@@ -83,11 +80,7 @@ export class PlayerModel {
             obj.visible = false; // hidden until aiming
           }
           if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) {
-            // Use the model's own hat instead of the procedural one
-            this.group.remove(this._hat);
-            if (this._hatFlying) this._scene.remove(this._hat);
-            this._hat = obj;
-            this._hatFlying = false;
+            this._hat = obj; // use GLB hat if present
           }
           if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
             this._firepoint = obj;
@@ -218,9 +211,7 @@ export class PlayerModel {
     if (this._hat && this._hatFlying) {
       this._scene.remove(this._hat);
     }
-    this._hat = this._buildHat();
-    this.group.add(this._hat);
-    this._hat.position.set(0, 1.78, 0);
+    this._hat = null;
     this._hatFlying = false;
     this._hatVel.set(0, 0, 0);
     this._hatAngVel.set(0, 0, 0);
