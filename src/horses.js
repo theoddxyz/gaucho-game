@@ -5,11 +5,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const loader           = new GLTFLoader();
 const MOUNT_RADIUS     = 3.0;
 const HORSE_SPEED_MULT = 2.2;
-const WALK_FREQ        = 6.0;  // cycles/sec
-const WALK_AMP         = 0.45; // radians
+const WALK_FREQ        = 6.0;
+const WALK_AMP         = 0.45;
 
-// Body parts to skip when searching for legs
-const SKIP = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose/i;
+// Leg name patterns (add more variants here if needed)
+const LEG_PATTERN  = /leg|pata|pierna|hoof|pezuña|extremidad/i;
+// Body-part skip list (English + Spanish) used only for the position fallback
+const SKIP_PATTERN = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
 
 export const HORSE_SPAWNS = [
   { id: 0, x: -30, z:  10 },
@@ -29,27 +31,47 @@ function loadTemplate() {
   return horseTemplate;
 }
 
-// ─── Find leg meshes in a cloned horse ───────────────────────────────────────
+// ─── Find leg objects ────────────────────────────────────────────────────────
+// Searches ALL object types (Group, Object3D, Mesh, Bone…), not just Mesh.
+// In Blender, the named object is often a Group/Empty, with Mesh children.
+// Rotating the parent moves the whole leg correctly.
 function findLegs(horseMesh) {
   const all = [];
-  horseMesh.traverse(o => { if (o.isMesh) all.push(o); });
+  horseMesh.traverse(o => { if (o !== horseMesh) all.push(o); });
 
-  console.log('[GAUCHO] Horse mesh names:', all.map(o => `"${o.name}"`).join(', '));
+  // Log everything so we can see what the model actually contains
+  console.log('[GAUCHO] All horse nodes:',
+    all.map(o => `${o.type}:"${o.name}"`).join(' | '));
 
-  // Prefer meshes with leg-related names
-  const named = all.filter(o => /leg|pata|pierna|hoof|pezuña/i.test(o.name));
-  // Fallback: any mesh that doesn't look like a body part
-  const candidates = named.length >= 2 ? named : all.filter(o => !SKIP.test(o.name));
+  // ── Strategy 1: any node (any type) whose name matches the leg pattern ──
+  const named = all.filter(o => LEG_PATTERN.test(o.name));
+  if (named.length >= 2) {
+    console.log('[GAUCHO] Found named legs:', named.map(o => `"${o.name}"`).join(', '));
+    return named.slice(0, 4).map((obj, i) => ({
+      obj,
+      initX: obj.rotation.x,
+      phase: (i % 2) * Math.PI,
+    }));
+  }
 
-  // Take up to 4, assign alternating gait phases, save initial rotation
-  const legs = candidates.slice(0, 4).map((mesh, i) => ({
-    mesh,
-    initX: mesh.rotation.x,         // preserve original rotation
-    phase: (i % 2) * Math.PI,       // alternate: 0, π, 0, π …
+  // ── Strategy 2: meshes not matching body-part names, sorted lowest-Y first ──
+  console.warn('[GAUCHO] No named legs found — using position fallback.');
+  const meshes = [];
+  horseMesh.traverse(o => { if (o.isMesh && !SKIP_PATTERN.test(o.name)) meshes.push(o); });
+
+  meshes.sort((a, b) => {
+    const ya = new THREE.Box3().setFromObject(a).getCenter(new THREE.Vector3()).y;
+    const yb = new THREE.Box3().setFromObject(b).getCenter(new THREE.Vector3()).y;
+    return ya - yb; // lowest centroid first → actual legs
+  });
+
+  const candidates = meshes.slice(0, 4);
+  console.log('[GAUCHO] Position fallback legs:', candidates.map(o => `"${o.name}"`).join(', '));
+  return candidates.map((obj, i) => ({
+    obj,
+    initX: obj.rotation.x,
+    phase: (i % 2) * Math.PI,
   }));
-
-  console.log(`[GAUCHO] Animating ${legs.length} leg(s):`, legs.map(l => `"${l.mesh.name}"`).join(', '));
-  return legs;
 }
 
 // ─── HorseManager ────────────────────────────────────────────────────────────
@@ -57,7 +79,7 @@ export class HorseManager {
   constructor(scene, network) {
     this.scene   = scene;
     this.network = network;
-    this.horses  = new Map(); // id → { mesh, legs, riderId, x, z, walkTime }
+    this.horses  = new Map();
     this.myHorseId = null;
     this._mountedSpeedMult = HORSE_SPEED_MULT;
     this._mountPrompt = this._createPrompt();
@@ -106,7 +128,7 @@ export class HorseManager {
     for (const [, horse] of this.horses) {
       const moving = horse.riderId !== null;
       if (moving) horse.walkTime += dt;
-      else horse.walkTime = 0; // reset so legs return to rest smoothly
+      else horse.walkTime = 0;
       this._animateLegs(horse, moving);
     }
 
@@ -117,8 +139,7 @@ export class HorseManager {
       if (horse.riderId !== null) continue;
       const dx = horse.x - playerPos.x;
       const dz = horse.z - playerPos.z;
-      const d  = Math.sqrt(dx * dx + dz * dz);
-      if (d < nearestDist) { nearestDist = d; nearest = id; }
+      if (Math.sqrt(dx * dx + dz * dz) < nearestDist) { nearestDist = Math.sqrt(dx*dx+dz*dz); nearest = id; }
     }
     this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
     this._nearestHorseId = nearest;
@@ -129,8 +150,7 @@ export class HorseManager {
       const swing = moving
         ? Math.sin(WALK_FREQ * horse.walkTime + leg.phase) * WALK_AMP
         : 0;
-      // Add swing on top of the leg's original rotation — doesn't break the model
-      leg.mesh.rotation.x = leg.initX + swing;
+      leg.obj.rotation.x = leg.initX + swing;
     }
   }
 
@@ -165,15 +185,8 @@ export class HorseManager {
     horse.mesh.rotation.y = moveAngle + Math.PI;
   }
 
-  onRemoteMount(horseId, riderId) {
-    const h = this.horses.get(horseId);
-    if (h) h.riderId = riderId;
-  }
-
-  onRemoteDismount(horseId) {
-    const h = this.horses.get(horseId);
-    if (h) h.riderId = null;
-  }
+  onRemoteMount(horseId, riderId)  { const h = this.horses.get(horseId); if (h) h.riderId = riderId; }
+  onRemoteDismount(horseId)        { const h = this.horses.get(horseId); if (h) h.riderId = null; }
 
   onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
     const horse = this.horses.get(horseId);
