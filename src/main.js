@@ -79,7 +79,8 @@ Network.onJoined((data) => {
 
   horseManager = new HorseManager(scene, Network);
   controls.onEPress = () => {
-    const land = horseManager?.tryMount(myId, 0); // 0 = mounting from ground
+    const pos  = controls.getPosition();
+    const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
     if (land) controls.setPosition(land.x, 0, land.z);
   };
 

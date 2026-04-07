@@ -194,18 +194,19 @@ export class HorseManager {
 
   // ── Mount / Dismount ────────────────────────────────────────────────────────
 
-  /** startY: vertical height at mount time (0 = ground, >0 = mid-jump) */
-  tryMount(playerId, startY = 0) {
+  /** startY: vertical height at mount time (0 = ground, >0 = mid-jump)
+   *  fromX/fromZ: player's current XZ so the arc starts from there */
+  tryMount(playerId, startY = 0, fromX = 0, fromZ = 0) {
     if (this.myHorseId !== null) return this._dismount(playerId);
     if (this._nearestHorseId !== null) {
-      this._mount(this._nearestHorseId, playerId, startY);
+      this._mount(this._nearestHorseId, playerId, startY, fromX, fromZ);
       return null;
     }
     return null;
   }
 
-  /** startY = vertical position when mounting (0 for E-press, jump height for auto-mount) */
-  _mount(horseId, playerId, startY = 0) {
+  /** startY = vertical position when mounting; fromX/fromZ = player start position */
+  _mount(horseId, playerId, startY = 0, fromX = 0, fromZ = 0) {
     const horse = this.horses.get(horseId);
     if (!horse) return;
     horse.riderId  = playerId;
@@ -213,11 +214,11 @@ export class HorseManager {
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 
-    // Y eases from startY → 2.5  (short dur when jumping since player is already up)
     this._anim = {
       type: 'mount', t: 0,
       dur: startY > 0.5 ? 0.18 : MOUNT_DUR,
       startY,
+      fromX, fromZ,
       toX: horse.x, toZ: horse.z,
     };
   }
@@ -260,10 +261,14 @@ export class HorseManager {
     }
   }
 
-  /** During mount: snap XZ to horse position immediately (no sliding) */
+  /** During mount: smoothstep XZ from player position → horse position */
   getMountModelPos() {
     if (!this._anim || this._anim.type !== 'mount') return null;
-    return { x: this._anim.toX, z: this._anim.toZ };
+    const ease = this._anim.t * this._anim.t * (3 - 2 * this._anim.t);
+    return {
+      x: this._anim.fromX + (this._anim.toX - this._anim.fromX) * ease,
+      z: this._anim.fromZ + (this._anim.toZ - this._anim.fromZ) * ease,
+    };
   }
 
   /** XZ lerp during dismount: player model arcs from horse to landing spot */
@@ -299,7 +304,7 @@ export class HorseManager {
       const dx = horse.x - pos.x;
       const dz = horse.z - pos.z;
       if (Math.sqrt(dx * dx + dz * dz) < MOUNT_RADIUS) {
-        this._mount(id, playerId, jumpY);
+        this._mount(id, playerId, jumpY, pos.x, pos.z);
         return true;
       }
     }
