@@ -116,26 +116,84 @@ export function getBottleMeshes() {
 export function hitBottle(mesh, aimDir) {
   const b = _bottles.find(b => b.mesh === mesh);
   if (!b || b.falling || b.fallen) return;
-  b.falling = true;
-  b.t = 0;
-  // Rotation axis = perpendicular to aim direction (bottle tips in aim direction)
+  b.falling  = true;
+  b.fallen   = false;
+  b.t        = 0;
+  b.startPos = mesh.position.clone();
+  b.startQuat= mesh.quaternion.clone();
+  // Velocity: forward in aim dir + upward arc
   const fd = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
-  b.rotAxis = new THREE.Vector3(-fd.z, 0, fd.x); // 90° rot of fd in XZ
-  b.startPos  = b.mesh.position.clone();
-  b.startQuat = b.mesh.quaternion.clone();
+  b.vel = { x: fd.x * 4.5, y: 5.5 + Math.random() * 2, z: fd.z * 4.5 };
+  b.spin= new THREE.Vector3(
+    (Math.random() - 0.5) * 18,
+    (Math.random() - 0.5) * 12,
+    (Math.random() - 0.5) * 18
+  );
+  b.currentPos = mesh.position.clone();
+  b.currentQuat= mesh.quaternion.clone();
+  // Shatter fragments
+  _spawnShatter(mesh);
 }
 
+function _spawnShatter(mesh) {
+  if (!_scene) return;
+  const wp = new THREE.Vector3();
+  mesh.getWorldPosition(wp);
+  const geo = new THREE.TetrahedronGeometry(0.06, 0);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x88ccaa, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.85 });
+  for (let i = 0; i < 10; i++) {
+    const frag = new THREE.Mesh(geo, mat);
+    frag.position.copy(wp);
+    frag.scale.setScalar(0.5 + Math.random() * 1.2);
+    _scene.add(frag);
+    const v = { x: (Math.random()-0.5)*8, y: 3+Math.random()*5, z: (Math.random()-0.5)*8 };
+    const spin = new THREE.Vector3((Math.random()-0.5)*20, (Math.random()-0.5)*20, (Math.random()-0.5)*20);
+    _shards.push({ mesh: frag, v, spin, t: 0 });
+  }
+}
+const _shards = [];
+
 function _tickBottles(dt) {
+  const G = -12;
   for (const b of _bottles) {
     if (!b.falling || b.fallen) continue;
-    b.t += dt / 0.35;
-    if (b.t >= 1) { b.t = 1; b.fallen = true; }
-    const ease = 1 - Math.pow(1 - b.t, 2); // ease-out
-    const angle = (Math.PI / 2) * ease;
-    const q = new THREE.Quaternion().setFromAxisAngle(b.rotAxis, angle);
-    b.mesh.quaternion.copy(b.startQuat).multiply(q);
-    // Slide forward slightly
-    b.mesh.position.copy(b.startPos).addScaledVector(b.rotAxis.clone().cross(new THREE.Vector3(0,1,0)).negate(), ease * 0.18);
+    b.t += dt;
+    // Apply gravity to velocity
+    b.vel.y += G * dt;
+    b.currentPos.x += b.vel.x * dt;
+    b.currentPos.y += b.vel.y * dt;
+    b.currentPos.z += b.vel.z * dt;
+    b.mesh.position.copy(b.currentPos);
+    // Spin
+    const dq = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(b.spin.x * dt, b.spin.y * dt, b.spin.z * dt)
+    );
+    b.currentQuat.multiply(dq);
+    b.mesh.quaternion.copy(b.currentQuat);
+    // Hit ground (y relative to local parent — approximate with 0)
+    if (b.currentPos.y < b.startPos.y - 0.5 && b.t > 0.2) {
+      b.fallen = true;
+      b.mesh.visible = false; // hide bottle — shards already spawned
+    }
+  }
+  // Animate shards
+  for (let i = _shards.length - 1; i >= 0; i--) {
+    const s = _shards[i];
+    s.t += dt;
+    s.v.y += G * dt;
+    s.mesh.position.x += s.v.x * dt;
+    s.mesh.position.y += s.v.y * dt;
+    s.mesh.position.z += s.v.z * dt;
+    const dq = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(s.spin.x * dt, s.spin.y * dt, s.spin.z * dt)
+    );
+    s.mesh.quaternion.multiply(dq);
+    // Fade out after 1.5s, remove at 2.5s
+    if (s.t > 1.5) s.mesh.material.opacity = Math.max(0, 0.85 * (1 - (s.t - 1.5)));
+    if (s.t > 2.5) {
+      _scene.remove(s.mesh);
+      _shards.splice(i, 1);
+    }
   }
 }
 
@@ -240,7 +298,7 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
 
     model.traverse(o => {
       // Fire spawn point — empty or mesh; catches any firecamp / fogón variant
-      if (/firecamppoint|fogon|hoguera|campfire|firepit|fuego|fogo|brasero|llama|hearth/i.test(o.name)) {
+      if (/campfirepoint|firecamppoint|fogon|hoguera|campfire|firepit|fuego|brasero/i.test(o.name)) {
         const wp = new THREE.Vector3();
         o.getWorldPosition(wp);
         console.log('[fire] spawn at', o.name, wp.x.toFixed(1), wp.y.toFixed(1), wp.z.toFixed(1));
