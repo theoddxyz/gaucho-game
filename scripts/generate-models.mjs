@@ -12,13 +12,12 @@ await mkdir(OUT, { recursive: true });
 
 const io = new NodeIO();
 
-// Only write if file doesn't exist (preserve user edits)
-// Pass --force to regenerate everything
-const FORCE = process.argv.includes('--force');
+// NEVER overwrite existing GLBs — the user may have edited them in Blender.
+// To replace a specific model, delete it manually first, then re-run the script.
 async function writeGLB(filename, doc) {
   const dest = path.join(OUT, filename);
-  if (!FORCE && existsSync(dest)) {
-    console.log(`⏭  ${filename} (ya existe, usar --force para reemplazar)`);
+  if (existsSync(dest)) {
+    console.log(`⏭  ${filename} (ya existe — borralo manualmente si querés regenerarlo)`);
     return;
   }
   await io.write(dest, doc);
