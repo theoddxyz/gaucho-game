@@ -46,6 +46,16 @@ export class PlayerModel {
     this.group.position.set(data.x, 0, data.z);
     scene.add(this.group);
 
+    this._scene = scene;
+
+    // Hat setup
+    this._hat = this._buildHat();
+    this.group.add(this._hat);
+    this._hat.position.set(0, 1.78, 0);
+    this._hatFlying = false;
+    this._hatVel = new THREE.Vector3();
+    this._hatAngVel = new THREE.Vector3();
+
     // Name label
     if (data.name) this._addNameLabel(data.name);
 
@@ -76,8 +86,112 @@ export class PlayerModel {
       }
       this.group.add(model);
     });
+  }
 
-    this._scene = scene;
+  /**
+   * Build a procedural cowboy hat from Two CylinderGeometry meshes.
+   * Brim: CylinderGeometry(0.44, 0.46, 0.06, 12)
+   * Crown: CylinderGeometry(0.20, 0.25, 0.38, 12) at y=0.22
+   */
+  _buildHat() {
+    const hatGroup = new THREE.Group();
+    const hatMat = new THREE.MeshStandardMaterial({ color: 0x2d1a0a });
+
+    const brimGeo = new THREE.CylinderGeometry(0.44, 0.46, 0.06, 12);
+    const brim = new THREE.Mesh(brimGeo, hatMat);
+    brim.castShadow = true;
+    hatGroup.add(brim);
+
+    const crownGeo = new THREE.CylinderGeometry(0.20, 0.25, 0.38, 12);
+    const crown = new THREE.Mesh(crownGeo, hatMat);
+    crown.position.y = 0.22;
+    crown.castShadow = true;
+    hatGroup.add(crown);
+
+    return hatGroup;
+  }
+
+  /**
+   * Detach the hat from the player and launch it with physics.
+   * If hat is already flying or gone, returns early.
+   */
+  detachHat() {
+    if (this._hatFlying || !this._hat) return;
+
+    // Save world position before reparenting
+    const worldPos = this._hat.getWorldPosition(new THREE.Vector3());
+
+    // Reparent to scene
+    this.group.remove(this._hat);
+    this._scene.add(this._hat);
+
+    // Set world position
+    this._hat.position.copy(worldPos);
+
+    // Random launch velocity
+    this._hatVel.set(
+      (Math.random() - 0.5) * 10,
+      5 + Math.random() * 5,
+      (Math.random() - 0.5) * 10
+    );
+
+    // Random angular velocity
+    this._hatAngVel.set(
+      (Math.random() - 0.5) * 15,
+      (Math.random() - 0.5) * 15,
+      (Math.random() - 0.5) * 15
+    );
+
+    this._hatFlying = true;
+  }
+
+  /**
+   * Update hat physics each frame.
+   */
+  updateHat(dt) {
+    if (!this._hatFlying || !this._hat) return;
+
+    // Gravity
+    this._hatVel.y -= 18 * dt;
+
+    // Move
+    this._hat.position.addScaledVector(this._hatVel, dt);
+
+    // Rotate
+    this._hat.rotation.x += this._hatAngVel.x * dt;
+    this._hat.rotation.y += this._hatAngVel.y * dt;
+    this._hat.rotation.z += this._hatAngVel.z * dt;
+
+    // Bounce on ground
+    if (this._hat.position.y < 0.08) {
+      this._hat.position.y = 0.08;
+      this._hatVel.y *= -0.3;
+      this._hatVel.x *= 0.6;
+      this._hatVel.z *= 0.6;
+      this._hatAngVel.multiplyScalar(0.4);
+
+      // Come to rest if bounce is very small
+      if (Math.abs(this._hatVel.y) < 0.3) {
+        this._hatFlying = false;
+        this._hatVel.set(0, 0, 0);
+        this._hatAngVel.set(0, 0, 0);
+      }
+    }
+  }
+
+  /**
+   * Respawn: remove flying hat from scene, create a fresh one on the player.
+   */
+  respawnHat() {
+    if (this._hat && this._hatFlying) {
+      this._scene.remove(this._hat);
+    }
+    this._hat = this._buildHat();
+    this.group.add(this._hat);
+    this._hat.position.set(0, 1.78, 0);
+    this._hatFlying = false;
+    this._hatVel.set(0, 0, 0);
+    this._hatAngVel.set(0, 0, 0);
   }
 
   _addNameLabel(name) {
@@ -101,6 +215,7 @@ export class PlayerModel {
     this.group.position.lerp(this.targetPos, 8 * dt);
     const diff = this.targetRY - this.group.rotation.y;
     this.group.rotation.y += diff * 8 * dt;
+    this.updateHat(dt);
   }
 
   setTarget(x, y, z, ry) {
@@ -110,6 +225,9 @@ export class PlayerModel {
 
   remove(scene) {
     scene.remove(this.group);
+    if (this._hat && this._hatFlying) {
+      scene.remove(this._hat);
+    }
   }
 
   getHitboxes() {

@@ -124,6 +124,9 @@ Network.onPlayerHit((data) => {
     myData.hp = data.hp;
     UI.updateHP(myData.hp);
     UI.showDamageFlash();
+    localPlayerModel?.detachHat();
+  } else {
+    remotePlayers.get(data.id)?.detachHat();
   }
   if (data.attackerId === myId) UI.showHitmarker();
 });
@@ -150,9 +153,13 @@ Network.onPlayerRespawned((data) => {
     controls.setPosition(data.x, data.y, data.z);
     UI.updateHP(myData.hp);
     UI.hideDeathScreen();
+    localPlayerModel?.respawnHat();
   } else {
     const pm = remotePlayers.get(data.id);
-    if (pm) pm.setTarget(data.x, data.y, data.z, 0);
+    if (pm) {
+      pm.setTarget(data.x, data.y, data.z, 0);
+      pm.respawnHat();
+    }
   }
 });
 
@@ -217,6 +224,7 @@ function gameLoop() {
   }
 
   for (const [, pm] of remotePlayers) pm.update(dt);
+  localPlayerModel?.updateHat(dt);
   updateBullets(scene, dt);
   renderer.render(scene, camera);
 }

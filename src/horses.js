@@ -6,6 +6,18 @@ const loader = new GLTFLoader();
 const MOUNT_RADIUS = 3.0;
 const HORSE_SPEED_MULT = 2.2;
 
+const WALK_FREQ = 8.0;
+const WALK_AMP  = 0.55;
+const HIP_Y     = 1.3;
+
+// Leg definitions: name, hipZ (hipX not needed for X-axis rotation pivot)
+const LEG_DEFS = [
+  { name: 'leg0', hipX:  0.42, hipZ: -0.9, phase: 0           }, // front-left
+  { name: 'leg1', hipX: -0.42, hipZ: -0.9, phase: Math.PI     }, // front-right
+  { name: 'leg2', hipX:  0.42, hipZ:  0.9, phase: Math.PI     }, // back-left
+  { name: 'leg3', hipX: -0.42, hipZ:  0.9, phase: 0           }, // back-right
+];
+
 // [x, z] positions of horses in the world
 export const HORSE_SPAWNS = [
   { id: 0, x: -30, z:  10 },
@@ -30,7 +42,7 @@ export class HorseManager {
   constructor(scene, network) {
     this.scene = scene;
     this.network = network;
-    this.horses = new Map();      // id -> { mesh, riderId, x, z }
+    this.horses = new Map();      // id -> { mesh, riderId, x, z, walkTime }
     this.myHorseId = null;        // which horse this player is riding
     this._mountedSpeedMult = HORSE_SPEED_MULT;
 
@@ -45,7 +57,7 @@ export class HorseManager {
       mesh.position.set(spawn.x, 0, spawn.z);
       mesh.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       this.scene.add(mesh);
-      this.horses.set(spawn.id, { mesh, riderId: null, x: spawn.x, z: spawn.z });
+      this.horses.set(spawn.id, { mesh, riderId: null, x: spawn.x, z: spawn.z, walkTime: 0 });
     }
   }
 
@@ -75,6 +87,15 @@ export class HorseManager {
 
   // Called every frame with player position
   update(playerPos, dt) {
+    // Animate all horses BEFORE the early return
+    for (const [, horse] of this.horses) {
+      const ridden = horse.riderId !== null;
+      if (ridden) {
+        horse.walkTime += dt;
+      }
+      this._animateLegs(horse, ridden);
+    }
+
     if (this.myHorseId !== null) return; // already mounted
 
     let nearest = null;
@@ -93,6 +114,44 @@ export class HorseManager {
 
     this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
     this._nearestHorseId = nearest;
+  }
+
+  /**
+   * Animate the four legs of a horse using pivot rotation around the hip point.
+   * Rotation is around the X axis (forward/back swing).
+   *
+   * Pivot matrix (rotate angle A around point (hipX, HIP_Y, hz)):
+   *   | 1  0      0     0                              |
+   *   | 0  cosA  -sinA  HIP_Y*(1-cosA) + hz*sinA       |
+   *   | 0  sinA   cosA  hz*(1-cosA) - HIP_Y*sinA       |
+   *   | 0  0      0     1                              |
+   *
+   * When not moving the walkTime is not incremented so the angle decays to 0.
+   */
+  _animateLegs(horse, moving) {
+    for (const def of LEG_DEFS) {
+      const node = horse.mesh.getObjectByName(def.name);
+      if (!node) continue; // handle missing nodes gracefully
+
+      const t = horse.walkTime;
+      const angle = moving
+        ? Math.sin(WALK_FREQ * t + def.phase) * WALK_AMP
+        : 0; // when not moving keep angle at 0 (walkTime stopped incrementing)
+
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      const hz   = def.hipZ;
+
+      // Build column-major array for THREE.Matrix4
+      // THREE.Matrix4.set() takes row-major arguments
+      node.matrixAutoUpdate = false;
+      node.matrix.set(
+        1,    0,     0,    0,
+        0,    cosA, -sinA, HIP_Y * (1 - cosA) + hz * sinA,
+        0,    sinA,  cosA, hz * (1 - cosA) - HIP_Y * sinA,
+        0,    0,     0,    1
+      );
+    }
   }
 
   tryMount(playerId) {
