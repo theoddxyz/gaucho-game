@@ -1,6 +1,7 @@
 // --- Infinite world via streaming chunks ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WATER_ZONES } from './landmarks.js';
 
 function _inWater(x, z) {
@@ -24,7 +25,47 @@ const PEBBLES_PER_CHUNK    = 40;  // new: small flat pebbles
 
 const loader = new GLTFLoader();
 let treeTemplate = null;
-let rockTemplate = null;
+
+// ─── Voxel rock builder ───────────────────────────────────────────────────────
+const ROCK_MATS = [
+  new THREE.MeshStandardMaterial({ color: 0x7a7a7a, roughness: 0.97 }),
+  new THREE.MeshStandardMaterial({ color: 0x6a6a6a, roughness: 0.95 }),
+  new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.96 }),
+  new THREE.MeshStandardMaterial({ color: 0x909080, roughness: 0.97 }),
+  new THREE.MeshStandardMaterial({ color: 0x787060, roughness: 0.98 }),
+];
+
+function buildVoxelRock(rng) {
+  const VS  = 0.30;   // voxel size
+  const GX = 4, GY = 3, GZ = 4;
+  const mat = ROCK_MATS[Math.floor(rng() * ROCK_MATS.length)];
+  const geos = [];
+  for (let x = 0; x < GX; x++) {
+    for (let y = 0; y < GY; y++) {
+      for (let z = 0; z < GZ; z++) {
+        const nx = (x - (GX - 1) / 2) / (GX / 2);
+        const ny = (y - 0.3) / (GY * 0.65);
+        const nz = (z - (GZ - 1) / 2) / (GZ / 2);
+        if (nx*nx + ny*ny*1.6 + nz*nz > 1.05) continue;
+        if (rng() > 0.82) continue;  // random holes for blocky feel
+        const g = new THREE.BoxGeometry(VS, VS, VS);
+        g.translate(x * VS, y * VS, z * VS);
+        geos.push(g);
+      }
+    }
+  }
+  if (geos.length === 0) {
+    const g = new THREE.BoxGeometry(VS, VS, VS); g.translate(0, 0, 0); geos.push(g);
+  }
+  const merged = mergeGeometries(geos);
+  geos.forEach(g => g.dispose());
+  // Center on XZ, rest on ground
+  merged.translate(-(GX / 2) * VS, 0, -(GZ / 2) * VS);
+  const mesh = new THREE.Mesh(merged, mat);
+  mesh.castShadow   = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
 
 // ─── Procedural terrain color — JS FBM, sampled per vertex ───────────────────
 // Same math as the old GLSL version; vertex colors are seamless across chunks.
@@ -79,10 +120,7 @@ let _tplPromise = null;
 function loadTemplates() {
   if (_tplPromise) return _tplPromise;
   const load = (url, setter) => new Promise(r => loader.load(url, g => { setter(g.scene); r(); }, null, r));
-  _tplPromise = Promise.all([
-    load('/models/tree.glb', s => { treeTemplate = s; }),
-    load('/models/rock.glb', s => { rockTemplate = s; }),
-  ]);
+  _tplPromise = load('/models/tree.glb', s => { treeTemplate = s; });
   return _tplPromise;
 }
 
@@ -176,23 +214,20 @@ export class ChunkManager {
       }
     }
 
-    // ── Rocks (medium–large) ──────────────────────────────────────────────────
-    if (rockTemplate) {
-      for (let i = 0; i < ROCKS_PER_CHUNK; i++) {
-        const rx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
-        const rz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
-        if (_inWater(rx, rz)) { rng(); rng(); rng(); rng(); continue; }
-        const r  = rockTemplate.clone(true);
-        const rs = 0.5 + rng() * 1.0;
-        const rh = 0.35 + rng() * 0.55;
-        r.position.set(rx, 0, rz);
-        r.scale.set(rs, rs * rh, rs * (0.8 + rng() * 0.4));
-        r.rotation.y = rng() * Math.PI * 2;
-        r.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        this.scene.add(r);
-        objects.push(r);
-        ownColliders.push({ x: rx, z: rz, sx: rs * 1.6, sy: 2, sz: rs * 1.6 });
-      }
+    // ── Rocks (voxel style) ───────────────────────────────────────────────────
+    for (let i = 0; i < ROCKS_PER_CHUNK; i++) {
+      const rx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
+      const rz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
+      if (_inWater(rx, rz)) { rng(); rng(); rng(); rng(); continue; }
+      const r  = buildVoxelRock(rng);
+      const rs = 0.5 + rng() * 1.0;
+      const rh = 0.35 + rng() * 0.55;
+      r.position.set(rx, 0, rz);
+      r.scale.set(rs, rs * rh, rs * (0.8 + rng() * 0.4));
+      r.rotation.y = rng() * Math.PI * 2;
+      this.scene.add(r);
+      objects.push(r);
+      ownColliders.push({ x: rx, z: rz, sx: rs * 1.6, sy: 2, sz: rs * 1.6 });
     }
 
     // ── Pebbles (small flat stones, no colliders) ─────────────────────────────

@@ -15,11 +15,17 @@ const DISMOUNT_DUR       = 0.40;
 
 const LEG_PATTERN    = /leg|pata|pierna|hoof|pezuña|extremidad/i;
 const SKIP_PATTERN   = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
-const SADDLE_PATTERN = /saddle|montura|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
+const SADDLE_PATTERN = /saddle|montura|manta|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
 
-// Per wild horse: hue rotation (0–1) applied to all non-black colors.
-// Preserves original lightness + saturation — only shifts the hue.
-const WILD_HUE_SHIFTS = [0.08, 0.22, 0.42, 0.58, 0.72];
+// Per wild horse: tiny hue shift + lightness multiplier — stays in warm/earth tones.
+// Horse base hue is ~0.04-0.10 (orange-brown); shifts of ±0.07 max to avoid unnatural colors.
+const WILD_VARIANTS = [
+  { hShift: -0.02, lMult: 0.70 },  // dark bay
+  { hShift:  0.05, lMult: 1.25 },  // palomino / dun
+  { hShift: -0.03, lMult: 0.55 },  // dark chestnut
+  { hShift:  0.07, lMult: 1.40 },  // cream / isabella
+  { hShift:  0.02, lMult: 0.88 },  // sorrel
+];
 
 // Spawn point (must match server.js randomSpawn)
 const SPAWN_X = 3.8, SPAWN_Z = -69.0, WILD_DIST = 40;
@@ -124,7 +130,7 @@ export class HorseManager {
 
       const dx = spawn.x - SPAWN_X, dz = spawn.z - SPAWN_Z;
       const isWild = Math.sqrt(dx * dx + dz * dz) > WILD_DIST;
-      const hueShift = isWild ? WILD_HUE_SHIFTS[wildIdx++ % WILD_HUE_SHIFTS.length] : 0;
+      const variant = isWild ? WILD_VARIANTS[wildIdx++ % WILD_VARIANTS.length] : null;
       const saddleNodes = [];
       const _hsl = { h: 0, s: 0, l: 0 };
 
@@ -136,11 +142,13 @@ export class HorseManager {
           saddleNodes.push(o);
           if (isWild) o.visible = false;
         }
-        if (isWild && hueShift > 0) {
+        if (isWild && variant) {
           o.material = o.material.clone();
           o.material.color.getHSL(_hsl);
-          if (_hsl.l >= 0.08) {  // skip near-black — hooves, eyes, etc.
-            o.material.color.setHSL((_hsl.h + hueShift) % 1, _hsl.s, _hsl.l);
+          if (_hsl.l >= 0.08) {  // skip near-black parts (hooves, eyes)
+            const newH = (_hsl.h + variant.hShift + 1) % 1;
+            const newL = Math.min(0.95, _hsl.l * variant.lMult);
+            o.material.color.setHSL(newH, _hsl.s, newL);
           }
         }
       });
