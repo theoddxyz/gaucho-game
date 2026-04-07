@@ -8,9 +8,7 @@ const HORSE_SPEED_MULT = 2.2;
 const WALK_FREQ        = 6.0;
 const WALK_AMP         = 0.45;
 
-// Leg name patterns (add more variants here if needed)
 const LEG_PATTERN  = /leg|pata|pierna|hoof|pezuña|extremidad/i;
-// Body-part skip list (English + Spanish) used only for the position fallback
 const SKIP_PATTERN = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
 
 export const HORSE_SPAWNS = [
@@ -31,47 +29,82 @@ function loadTemplate() {
   return horseTemplate;
 }
 
-// ─── Find leg objects ────────────────────────────────────────────────────────
-// Searches ALL object types (Group, Object3D, Mesh, Bone…), not just Mesh.
-// In Blender, the named object is often a Group/Empty, with Mesh children.
-// Rotating the parent moves the whole leg correctly.
+// ─── Insert a pivot Group at the TOP of the leg (hip joint) ──────────────────
+// Before: parent → legObj       (rotates around leg center → looks dislocated)
+// After:  parent → pivot → legObj  (rotates around pivot = hip joint → correct)
+function wrapInPivot(legObj) {
+  const parent = legObj.parent;
+  if (!parent) return legObj;
+
+  // Bounding box of this leg in world space (matrices must be updated first)
+  const worldBox = new THREE.Box3().setFromObject(legObj);
+  if (worldBox.isEmpty()) return legObj;
+
+  // Pivot world position = top-center of leg bounding box
+  const legWP      = legObj.getWorldPosition(new THREE.Vector3());
+  const pivotWorld = new THREE.Vector3(legWP.x, worldBox.max.y, legWP.z);
+
+  // Decompose leg's current world transform
+  const wPos = new THREE.Vector3();
+  const wQuat = new THREE.Quaternion();
+  const wScale = new THREE.Vector3();
+  legObj.matrixWorld.decompose(wPos, wQuat, wScale);
+
+  // Create pivot Group, position it in parent-local space
+  const pivot = new THREE.Group();
+  pivot.position.copy(parent.worldToLocal(pivotWorld.clone()));
+
+  // Reparent: parent → pivot → legObj
+  parent.remove(legObj);
+  parent.add(pivot);
+  pivot.add(legObj);
+
+  // Restore leg's transform relative to the new pivot
+  pivot.updateWorldMatrix(true, false);
+  const newLocalMat = new THREE.Matrix4()
+    .compose(wPos, wQuat, wScale)
+    .premultiply(new THREE.Matrix4().copy(pivot.matrixWorld).invert());
+  newLocalMat.decompose(legObj.position, legObj.quaternion, legObj.scale);
+
+  return pivot; // rotate this group, not the mesh
+}
+
+// ─── Find leg objects and wrap each in a pivot ───────────────────────────────
 function findLegs(horseMesh) {
   const all = [];
   horseMesh.traverse(o => { if (o !== horseMesh) all.push(o); });
 
-  // Log everything so we can see what the model actually contains
   console.log('[GAUCHO] All horse nodes:',
     all.map(o => `${o.type}:"${o.name}"`).join(' | '));
 
-  // ── Strategy 1: any node (any type) whose name matches the leg pattern ──
+  // Prefer objects whose name matches the leg pattern (any type: Group, Mesh, etc.)
   const named = all.filter(o => LEG_PATTERN.test(o.name));
-  if (named.length >= 2) {
-    console.log('[GAUCHO] Found named legs:', named.map(o => `"${o.name}"`).join(', '));
-    return named.slice(0, 4).map((obj, i) => ({
-      obj,
-      initX: obj.rotation.x,
-      phase: (i % 2) * Math.PI,
-    }));
+  let sources = named.length >= 2 ? named.slice(0, 4) : null;
+
+  if (!sources) {
+    console.warn('[GAUCHO] No named legs — using position fallback (lowest meshes).');
+    const meshes = [];
+    horseMesh.traverse(o => {
+      if (o.isMesh && !SKIP_PATTERN.test(o.name)) meshes.push(o);
+    });
+    meshes.sort((a, b) => {
+      const ya = new THREE.Box3().setFromObject(a).getCenter(new THREE.Vector3()).y;
+      const yb = new THREE.Box3().setFromObject(b).getCenter(new THREE.Vector3()).y;
+      return ya - yb; // lowest first = actual legs
+    });
+    sources = meshes.slice(0, 4);
   }
 
-  // ── Strategy 2: meshes not matching body-part names, sorted lowest-Y first ──
-  console.warn('[GAUCHO] No named legs found — using position fallback.');
-  const meshes = [];
-  horseMesh.traverse(o => { if (o.isMesh && !SKIP_PATTERN.test(o.name)) meshes.push(o); });
+  // Trot gait phases: front-L=0, front-R=π, back-L=π, back-R=0
+  const PHASES = [0, Math.PI, Math.PI, 0];
 
-  meshes.sort((a, b) => {
-    const ya = new THREE.Box3().setFromObject(a).getCenter(new THREE.Vector3()).y;
-    const yb = new THREE.Box3().setFromObject(b).getCenter(new THREE.Vector3()).y;
-    return ya - yb; // lowest centroid first → actual legs
+  const legs = sources.map((obj, i) => {
+    const pivot = wrapInPivot(obj);
+    return { pivot, phase: PHASES[i] ?? (i % 2) * Math.PI };
   });
 
-  const candidates = meshes.slice(0, 4);
-  console.log('[GAUCHO] Position fallback legs:', candidates.map(o => `"${o.name}"`).join(', '));
-  return candidates.map((obj, i) => ({
-    obj,
-    initX: obj.rotation.x,
-    phase: (i % 2) * Math.PI,
-  }));
+  console.log(`[GAUCHO] ${legs.length} leg pivot(s) created.`);
+  return legs;
 }
 
 // ─── HorseManager ────────────────────────────────────────────────────────────
@@ -94,9 +127,16 @@ export class HorseManager {
       mesh.position.set(spawn.x, 0, spawn.z);
       mesh.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       this.scene.add(mesh);
+      mesh.updateWorldMatrix(true, true); // required before pivot calculations
 
       const legs = template ? findLegs(mesh) : [];
-      this.horses.set(spawn.id, { mesh, legs, riderId: null, x: spawn.x, z: spawn.z, walkTime: 0 });
+      this.horses.set(spawn.id, {
+        mesh, legs,
+        riderId: null,
+        x: spawn.x, z: spawn.z,
+        walkTime: 0,
+        _prevX: spawn.x, _prevZ: spawn.z,
+      });
     }
   }
 
@@ -126,10 +166,18 @@ export class HorseManager {
 
   update(playerPos, dt) {
     for (const [, horse] of this.horses) {
-      const moving = horse.riderId !== null;
-      if (moving) horse.walkTime += dt;
-      else horse.walkTime = 0;
-      this._animateLegs(horse, moving);
+      // Only animate when the horse actually moved (not just "has a rider")
+      const moved = horse.riderId !== null && (
+        Math.abs(horse.x - horse._prevX) > 0.005 ||
+        Math.abs(horse.z - horse._prevZ) > 0.005
+      );
+      horse._prevX = horse.x;
+      horse._prevZ = horse.z;
+
+      if (moved) horse.walkTime += dt;
+      else       horse.walkTime  = 0;
+
+      this._animateLegs(horse, moved);
     }
 
     if (this.myHorseId !== null) return;
@@ -139,7 +187,8 @@ export class HorseManager {
       if (horse.riderId !== null) continue;
       const dx = horse.x - playerPos.x;
       const dz = horse.z - playerPos.z;
-      if (Math.sqrt(dx * dx + dz * dz) < nearestDist) { nearestDist = Math.sqrt(dx*dx+dz*dz); nearest = id; }
+      const d  = Math.sqrt(dx * dx + dz * dz);
+      if (d < nearestDist) { nearestDist = d; nearest = id; }
     }
     this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
     this._nearestHorseId = nearest;
@@ -147,10 +196,11 @@ export class HorseManager {
 
   _animateLegs(horse, moving) {
     for (const leg of horse.legs) {
-      const swing = moving
+      // Rotate the pivot group — its origin is at the hip joint, so the leg
+      // swings correctly without separating from the body
+      leg.pivot.rotation.x = moving
         ? Math.sin(WALK_FREQ * horse.walkTime + leg.phase) * WALK_AMP
         : 0;
-      leg.obj.rotation.x = leg.initX + swing;
     }
   }
 
