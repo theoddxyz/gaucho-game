@@ -15,18 +15,11 @@ const DISMOUNT_DUR       = 0.40;
 
 const LEG_PATTERN    = /leg|pata|pierna|hoof|pezuña|extremidad/i;
 const SKIP_PATTERN   = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
-const SADDLE_PATTERN = /saddle|blanket|montura|manta|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
-const MANE_PATTERN   = /mane|tail|crin|cola|pelo/i;
-const DARK_PATTERN   = /hoof|pezuña|eye|ojo|nose|nariz|mouth|boca|diente/i;
+const SADDLE_PATTERN = /saddle|montura|silla|alforja|arreo|cincha|estribo|rienda|brida/i;
 
-// Wild horse variants: distinct body + mane/tail colors
-const WILD_VARIANTS = [
-  { body: 0x8B4513, mane: 0x2a0e00 },  // chestnut, dark mane
-  { body: 0xd4b870, mane: 0xf0e8c8 },  // palomino, cream mane
-  { body: 0xc07030, mane: 0x3d1500 },  // sorrel, dark mane
-  { body: 0x909090, mane: 0x383838 },  // gray, dark mane
-  { body: 0x3d1c08, mane: 0x1a0800 },  // dark chestnut, very dark mane
-];
+// Per wild horse: hue rotation (0–1) applied to all non-black colors.
+// Preserves original lightness + saturation — only shifts the hue.
+const WILD_HUE_SHIFTS = [0.08, 0.22, 0.42, 0.58, 0.72];
 
 // Spawn point (must match server.js randomSpawn)
 const SPAWN_X = 3.8, SPAWN_Z = -69.0, WILD_DIST = 40;
@@ -131,8 +124,9 @@ export class HorseManager {
 
       const dx = spawn.x - SPAWN_X, dz = spawn.z - SPAWN_Z;
       const isWild = Math.sqrt(dx * dx + dz * dz) > WILD_DIST;
-      const variant = isWild ? WILD_VARIANTS[wildIdx++ % WILD_VARIANTS.length] : null;
+      const hueShift = isWild ? WILD_HUE_SHIFTS[wildIdx++ % WILD_HUE_SHIFTS.length] : 0;
       const saddleNodes = [];
+      const _hsl = { h: 0, s: 0, l: 0 };
 
       mesh.traverse(o => {
         if (!o.isMesh) return;
@@ -140,11 +134,13 @@ export class HorseManager {
         o.receiveShadow = true;
         if (SADDLE_PATTERN.test(o.name)) {
           saddleNodes.push(o);
-          if (isWild) o.visible = false;  // wild horses start without tack
-        } else if (isWild && variant) {
-          if (!DARK_PATTERN.test(o.name)) {
-            o.material = o.material.clone();
-            o.material.color.set(MANE_PATTERN.test(o.name) ? variant.mane : variant.body);
+          if (isWild) o.visible = false;
+        }
+        if (isWild && hueShift > 0) {
+          o.material = o.material.clone();
+          o.material.color.getHSL(_hsl);
+          if (_hsl.l >= 0.08) {  // skip near-black — hooves, eyes, etc.
+            o.material.color.setHSL((_hsl.h + hueShift) % 1, _hsl.s, _hsl.l);
           }
         }
       });
