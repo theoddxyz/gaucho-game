@@ -199,7 +199,7 @@ function gameLoop() {
     chunkManager.update(pos);
 
     // Shadow follows player — directional light moves with camera so frustum covers local area
-    sun.position.set(pos.x + 40, 80, pos.z + 30);
+    sun.position.set(pos.x + 90, 22, pos.z + 25);
     sun.target.position.set(pos.x, 0, pos.z);
     sun.target.updateMatrixWorld();
 

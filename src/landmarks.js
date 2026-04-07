@@ -20,4 +20,5 @@ export function createLandmarks(scene) {
   loadAt('/models/well.glb',   scene, -7656.9, 0, 5268.8);
   loadAt('/models/skulls.glb', scene, -7173.3, 0, 2997.3);
   loadAt('/models/shack.glb',  scene, -6258.0, 0, 2023.4);
+  loadAt('/models/shack.glb',  scene,     4.8, 0,  -52.9);
 }

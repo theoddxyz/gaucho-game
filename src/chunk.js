@@ -30,10 +30,10 @@ function _makeTerrainTexture() {
   const img = ctx.createImageData(SIZE, SIZE);
   const d   = img.data;
 
-  // Color stops (raw 0-255)
-  const WET  = [0x4a, 0x31, 0x0a];
-  const BASE = [0xcc, 0xa4, 0x65];
-  const DRY  = [0xeb, 0xd0, 0xa0];
+  // Color stops (raw 0-255) — darkened ~15% vs original
+  const WET  = [0x38, 0x24, 0x06];
+  const BASE = [0xa8, 0x84, 0x4a];
+  const DRY  = [0xc8, 0xaa, 0x78];
 
   function lerp(a, b, t) { return a + (b - a) * t; }
   function smoothstep(t) { return t * t * (3 - 2 * t); }

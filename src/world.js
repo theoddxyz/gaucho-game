@@ -5,15 +5,17 @@ export function createWorld(scene) {
   const colliders = [];
 
   // --- Lighting ---
-  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  // Warm late-afternoon ambient
+  const ambient = new THREE.AmbientLight(0xffcc88, 0.45);
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-  sun.position.set(30, 50, 20);
+  // Sun low on the western horizon — sunset angle
+  const sun = new THREE.DirectionalLight(0xff9944, 1.4);
+  sun.position.set(90, 22, 25);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far  = 300;
+  sun.shadow.camera.far  = 350;
   sun.shadow.camera.left   = -120;
   sun.shadow.camera.right  =  120;
   sun.shadow.camera.top    =  120;
@@ -21,9 +23,9 @@ export function createWorld(scene) {
   scene.add(sun);
   scene.add(sun.target); // target must be in scene for updates to work
 
-  // --- Sky & fog (extended for large world) ---
-  scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.Fog(0x87ceeb, 250, 450);
+  // --- Sky & fog — warm dusk palette ---
+  scene.background = new THREE.Color(0xe8804a);
+  scene.fog = new THREE.Fog(0xd0603a, 250, 450);
 
   // --- Static buildings (pueblo central) ---
   const matGrey = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.7 });
