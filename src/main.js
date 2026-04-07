@@ -179,6 +179,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   controls.applyRecoil();
+  localPlayerModel?.triggerGunRecoil();
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);

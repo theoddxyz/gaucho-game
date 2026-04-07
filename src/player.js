@@ -61,6 +61,8 @@ export class PlayerModel {
 
     this._gun = null;
     this._firepoint = null;
+    this._gunRecoil  = 0;
+    this._gunRestPos = null; // local position stored once gun is found
 
     // Load GLB model async, apply color tint
     loadTemplate().then((template) => {
@@ -77,6 +79,7 @@ export class PlayerModel {
           const n = obj.name.toLowerCase();
           if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
             this._gun = obj;
+            this._gunRestPos = obj.position.clone();
             obj.visible = false; // hidden until aiming
           }
           if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) {
@@ -168,6 +171,16 @@ export class PlayerModel {
    * Update hat physics each frame.
    */
   updateHat(dt) {
+    // Gun recoil kick — push along local Z then spring back
+    if (this._gun && this._gunRestPos) {
+      this._gunRecoil = Math.max(0, this._gunRecoil - dt / 0.10);
+      const kick = this._gunRecoil * 0.22;
+      this._gun.position.set(
+        this._gunRestPos.x,
+        this._gunRestPos.y,
+        this._gunRestPos.z + kick
+      );
+    }
     if (!this._hatFlying || !this._hat) return;
 
     // Gravity
@@ -245,6 +258,8 @@ export class PlayerModel {
   setAiming(isAiming) {
     if (this._gun) this._gun.visible = isAiming;
   }
+
+  triggerGunRecoil() { this._gunRecoil = 1; }
 
   getFirepointWorldPos() {
     if (this._firepoint) {

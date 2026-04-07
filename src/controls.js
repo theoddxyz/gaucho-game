@@ -135,8 +135,8 @@ export class IsoControls {
 
     // --- Camera: fixed height (doesn't bob with jump), follows X/Z ---
     // Recoil lifts camera and pulls back slightly behind the aim direction
-    const recoilLift = this._recoil * 4;
-    const recoilPull = this._recoil * 2;
+    const recoilLift = this._recoil * 1.8;
+    const recoilPull = this._recoil * 0.9;
     const aimDx = Math.sin(this.aimAngle), aimDz = Math.cos(this.aimAngle);
     const camOff = new THREE.Vector3(20, 25, 20).multiplyScalar(this._camZoom);
     this.camera.position.set(
