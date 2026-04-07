@@ -55,5 +55,5 @@ export function createWorld(scene) {
     colliders.push({ x: b.x, z: b.z, sx: b.sx, sy: b.sy, sz: b.sz });
   }
 
-  return { colliders, sun };
+  return { colliders, sun, ambient };
 }

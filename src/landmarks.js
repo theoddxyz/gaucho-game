@@ -262,9 +262,9 @@ function _spawnTumbleweed(playerPos) {
   if (!_scene || _tumbleweeds.length >= TUMBLEWEED_MAX) return;
   _ensureTweedTemplate();
   // Spawn upwind of player (opposite wind direction), randomized spread
-  const spread = 60 + Math.random() * 80;
+  const spread = 55 + Math.random() * 70;
   const perp   = new THREE.Vector3(-WIND_DIR.z, 0, WIND_DIR.x);
-  const side   = (Math.random() - 0.5) * 80;
+  const side   = (Math.random() - 0.5) * 70;
   const spawnX = playerPos.x - WIND_DIR.x * spread + perp.x * side;
   const spawnZ = playerPos.z - WIND_DIR.z * spread + perp.z * side;
 
@@ -273,15 +273,16 @@ function _spawnTumbleweed(playerPos) {
   tw.rotation.set(0, Math.random() * Math.PI * 2, 0);
   _scene.add(tw);
 
-  // Spin axis: perpendicular to wind direction
-  const spinAxis = new THREE.Vector3(-WIND_DIR.z, 0, WIND_DIR.x).normalize();
   _tumbleweeds.push({
     mesh: tw,
     t: 0,
-    spinAxis,
-    // Slight speed variation per tumbleweed
-    speed: WIND_SPEED * (0.7 + Math.random() * 0.7),
-    bounce: Math.random() * Math.PI * 2,  // phase offset for bounce
+    speed:       WIND_SPEED * (0.6 + Math.random() * 0.8),
+    bounce:      Math.random() * Math.PI * 2,
+    driftAmp:    0.18 + Math.random() * 0.22,   // max lateral drift angle (radians)
+    driftFreq:   0.40 + Math.random() * 0.35,   // how fast it drifts (Hz)
+    driftPhase:  Math.random() * Math.PI * 2,
+    gustFreq:    0.28 + Math.random() * 0.25,   // wind gust frequency
+    gustPhase:   Math.random() * Math.PI * 2,
   });
 }
 
@@ -294,33 +295,47 @@ function _tickTumbleweeds(dt, playerPos) {
     _spawnTumbleweed(playerPos);
   }
 
-  const _qDelta = new THREE.Quaternion();
+  const _qDelta  = new THREE.Quaternion();
+  const _windBase = Math.atan2(WIND_DIR.z, WIND_DIR.x);  // base wind heading
+
   for (let i = _tumbleweeds.length - 1; i >= 0; i--) {
     const tw = _tumbleweeds[i];
     tw.t += dt;
 
-    // Move along wind direction
-    tw.mesh.position.x += WIND_DIR.x * tw.speed * dt;
-    tw.mesh.position.z += WIND_DIR.z * tw.speed * dt;
+    // Drift: sinusoidal lateral sway around base wind heading
+    const driftAngle = _windBase +
+      Math.sin(tw.t * tw.driftFreq * Math.PI * 2 + tw.driftPhase) * tw.driftAmp;
 
-    // Bounce: sinusoidal Y oscillation (rolling over bumps)
-    tw.mesh.position.y = Math.max(0, Math.abs(Math.sin(tw.t * 3.2 + tw.bounce)) * 0.18);
+    // Gust: speed variation
+    const gustMult = 0.75 + 0.50 * (0.5 + 0.5 * Math.sin(tw.t * tw.gustFreq * Math.PI * 2 + tw.gustPhase));
+    const speed = tw.speed * gustMult;
 
-    // Roll: rotate around axis perpendicular to wind
-    const rollAngle = (tw.speed / 0.38) * dt;  // arc-length / radius
-    _qDelta.setFromAxisAngle(tw.spinAxis, rollAngle);
+    // Movement direction from drifted heading
+    const mdx = Math.cos(driftAngle);
+    const mdz = Math.sin(driftAngle);
+
+    tw.mesh.position.x += mdx * speed * dt;
+    tw.mesh.position.z += mdz * speed * dt;
+
+    // Bounce: abs-sine so it never goes below ground
+    tw.mesh.position.y = Math.abs(Math.sin(tw.t * 3.0 + tw.bounce)) * 0.20;
+
+    // Roll: rotate around axis perpendicular to current movement direction
+    // (rolling in the direction of travel, not a fixed axis)
+    const spinAxis = new THREE.Vector3(-mdz, 0, mdx).normalize();
+    const rollAngle = (speed / 0.38) * dt;  // circumference-based roll amount
+    _qDelta.setFromAxisAngle(spinAxis, rollAngle);
     tw.mesh.quaternion.multiply(_qDelta);
 
-    // Despawn when far from player or life exceeded
+    // Despawn
     if (tw.t > TUMBLEWEED_LIFE) {
-      _scene.remove(tw.mesh);
-      _tumbleweeds.splice(i, 1);
-    } else if (playerPos) {
+      _scene.remove(tw.mesh); _tumbleweeds.splice(i, 1); continue;
+    }
+    if (playerPos) {
       const dx = tw.mesh.position.x - playerPos.x;
       const dz = tw.mesh.position.z - playerPos.z;
-      if (dx * dx + dz * dz > 220 * 220) {
-        _scene.remove(tw.mesh);
-        _tumbleweeds.splice(i, 1);
+      if (dx * dx + dz * dz > 200 * 200) {
+        _scene.remove(tw.mesh); _tumbleweeds.splice(i, 1);
       }
     }
   }

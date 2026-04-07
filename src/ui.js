@@ -1,116 +1,159 @@
-// --- HUD & UI Manager ---
+// --- HUD & UI Manager (oldschool minimal) ---
 
 const $ = (id) => document.getElementById(id);
 
-const els = {
-  lobby: $('lobby'),
-  nameInput: $('name-input'),
-  playBtn: $('play-btn'),
-  crosshair: $('crosshair'),
-  hud: $('hud'),
-  hpBar: $('hp-bar'),
-  hpText: $('hp-text'),
-  score: $('score'),
-  killfeed: $('killfeed'),
-  roomLink: $('room-link'),
-  hitmarker: $('hitmarker'),
-  damageOverlay: $('damage-overlay'),
-  deathScreen: $('death-screen'),
-  playersCount: $('players-count'),
-};
+// ─── Stat bar helpers ─────────────────────────────────────────────────────────
+const FULL  = '█';
+const EMPTY = '░';
+const BAR_W = 10;
 
-export function showLobby() {
-  els.lobby.style.display = 'flex';
-  hideGame();
+function mkBar(pct) {
+  const n = Math.round(Math.max(0, Math.min(100, pct)) / 10);
+  return FULL.repeat(n) + EMPTY.repeat(BAR_W - n);
 }
 
+// ─── Element refs ─────────────────────────────────────────────────────────────
+const els = {
+  lobby:         $('lobby'),
+  nameInput:     $('name-input'),
+  playBtn:       $('play-btn'),
+  crosshair:     $('crosshair'),
+  crosshairDot:  $('crosshair-dot'),
+  hud:           $('hud'),
+  barHp:         $('bar-hp'),
+  valHp:         $('val-hp'),
+  barHam:        $('bar-ham'),
+  valHam:        $('val-ham'),
+  barSed:        $('bar-sed'),
+  valSed:        $('val-sed'),
+  statTemp:      $('stat-temp'),
+  score:         $('score'),
+  gameTime:      $('game-time'),
+  scoreKd:       $('score-kd'),
+  playersCount:  $('players-count'),
+  killfeed:      $('killfeed'),
+  roomLink:      $('room-link'),
+  hitmarker:     $('hitmarker'),
+  damageOverlay: $('damage-overlay'),
+  deathScreen:   $('death-screen'),
+};
+
+// ─── Lobby ────────────────────────────────────────────────────────────────────
 export function hideLobby() {
   els.lobby.style.display = 'none';
 }
 
-export function moveCrosshair(x, y) {
-  if (!els.crosshair) return;
-  els.crosshair.style.left = x + 'px';
-  els.crosshair.style.top  = y + 'px';
-}
-
 export function showGame() {
-  els.crosshair.style.display = 'block';
+  els.crosshair.style.display    = 'block';
+  els.crosshairDot.style.display = 'block';
   document.body.classList.add('game-active');
-  els.hud.style.display = 'block';
-  els.score.style.display = 'block';
-  els.killfeed.style.display = 'block';
-  els.roomLink.style.display = 'block';
-  els.playersCount.style.display = 'block';
+  els.hud.style.display          = 'block';
+  els.score.style.display        = 'block';
+  els.killfeed.style.display     = 'block';
+  els.roomLink.style.display     = 'block';
 }
 
-function hideGame() {
-  els.crosshair.style.display = 'none';
-  els.hud.style.display = 'none';
-  els.score.style.display = 'none';
-  els.killfeed.style.display = 'none';
-  els.roomLink.style.display = 'none';
-  els.playersCount.style.display = 'none';
+// ─── Crosshair ────────────────────────────────────────────────────────────────
+export function moveCrosshair(x, y) {
+  if (els.crosshair) {
+    els.crosshair.style.left    = x + 'px';
+    els.crosshair.style.top     = y + 'px';
+  }
+  if (els.crosshairDot) {
+    els.crosshairDot.style.left = x + 'px';
+    els.crosshairDot.style.top  = y + 'px';
+  }
 }
 
+// ─── HP ───────────────────────────────────────────────────────────────────────
 export function updateHP(hp) {
   const pct = Math.max(0, hp);
-  els.hpBar.style.width = pct + '%';
-  els.hpText.textContent = pct + ' HP';
-  if (pct > 60) els.hpBar.style.background = '#44ff44';
-  else if (pct > 30) els.hpBar.style.background = '#ffaa00';
-  else els.hpBar.style.background = '#ff4444';
+  els.barHp.textContent = mkBar(pct);
+  els.valHp.textContent = pct;
+  // Color shifts red→orange→green as HP rises
+  if (pct > 60)      els.barHp.style.color = '#885533';
+  else if (pct > 30) els.barHp.style.color = '#7a4422';
+  else               els.barHp.style.color = '#cc2211';
 }
 
+// ─── Survival stats ───────────────────────────────────────────────────────────
+export function updateSurvivalUI(hunger, thirst, tempC) {
+  els.barHam.textContent = mkBar(hunger);
+  els.valHam.textContent = hunger;
+  // hunger bar: amber → dark
+  els.barHam.style.color = hunger > 40 ? '#7a5520' : '#bb6611';
+
+  els.barSed.textContent = mkBar(thirst);
+  els.valSed.textContent = thirst;
+  // thirst bar: blue → bright
+  els.barSed.style.color = thirst > 40 ? '#225566' : '#2288aa';
+
+  // Temperature
+  let tempLabel, tempColor;
+  if (tempC >= 38)      { tempLabel = 'CALOR';  tempColor = '#cc3322'; }
+  else if (tempC >= 28) { tempLabel = 'TIBIO';  tempColor = '#8a7030'; }
+  else if (tempC >= 15) { tempLabel = 'FRESCO'; tempColor = '#507050'; }
+  else if (tempC >=  5) { tempLabel = 'FRIO';   tempColor = '#2266aa'; }
+  else                  { tempLabel = 'HELADO'; tempColor = '#4488cc'; }
+  els.statTemp.textContent = `TEMP ${tempC > 0 ? '+' : ''}${tempC}°C  ${tempLabel}`;
+  els.statTemp.style.color = tempColor;
+}
+
+// ─── Score ────────────────────────────────────────────────────────────────────
 export function updateScore(kills, deaths) {
-  els.score.innerHTML = `Kills: <b>${kills}</b><br>Deaths: <b>${deaths}</b>`;
+  els.scoreKd.textContent = `K:${kills}  M:${deaths}`;
 }
 
+export function updateGameTime(timeStr, isNight) {
+  els.gameTime.textContent = timeStr;
+  els.gameTime.style.color = isNight ? '#4a6090' : '#c8a050';
+}
+
+// ─── Players count ────────────────────────────────────────────────────────────
+export function updatePlayersCount(count) {
+  els.playersCount.textContent = `${count} online`;
+}
+
+// ─── Room link ────────────────────────────────────────────────────────────────
 export function setRoomLink(roomId) {
   const url = `${location.origin}?room=${roomId}`;
-  els.roomLink.textContent = `Room: ${roomId} (click para copiar link)`;
+  els.roomLink.textContent = `sala: ${roomId}`;
+  els.roomLink.title = 'click para copiar link';
   els.roomLink.onclick = () => {
     navigator.clipboard.writeText(url);
-    els.roomLink.textContent = 'Link copiado!';
-    setTimeout(() => {
-      els.roomLink.textContent = `Room: ${roomId} (click para copiar link)`;
-    }, 2000);
+    const prev = els.roomLink.textContent;
+    els.roomLink.textContent = 'link copiado';
+    setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
   };
 }
 
+// ─── Kill feed ────────────────────────────────────────────────────────────────
 export function addKillMessage(killerName, victimName) {
   const msg = document.createElement('div');
   msg.className = 'kill-msg';
-  msg.innerHTML = `<b>${killerName}</b> mato a <b>${victimName}</b>`;
+  msg.innerHTML = `<b>${killerName}</b> &gt; <b>${victimName}</b>`;
   els.killfeed.appendChild(msg);
-  setTimeout(() => msg.remove(), 4500);
+  setTimeout(() => msg.remove(), 5000);
 }
 
+// ─── Hit marker ───────────────────────────────────────────────────────────────
 export function showHitmarker() {
   els.hitmarker.style.display = 'block';
-  setTimeout(() => { els.hitmarker.style.display = 'none'; }, 200);
+  setTimeout(() => { els.hitmarker.style.display = 'none'; }, 180);
 }
 
+// ─── Damage flash ─────────────────────────────────────────────────────────────
 export function showDamageFlash() {
   els.damageOverlay.style.opacity = '1';
-  setTimeout(() => { els.damageOverlay.style.opacity = '0'; }, 300);
+  setTimeout(() => { els.damageOverlay.style.opacity = '0'; }, 280);
 }
 
-export function showDeathScreen() {
-  els.deathScreen.style.display = 'flex';
-}
+// ─── Death screen ─────────────────────────────────────────────────────────────
+export function showDeathScreen() { els.deathScreen.style.display = 'flex'; }
+export function hideDeathScreen() { els.deathScreen.style.display = 'none'; }
 
-export function hideDeathScreen() {
-  els.deathScreen.style.display = 'none';
-}
-
-export function updatePlayersCount(count) {
-  els.playersCount.textContent = `${count} jugador${count !== 1 ? 'es' : ''} online`;
-}
-
-export function getNameInput() {
-  return els.nameInput.value.trim();
-}
+// ─── Lobby input ─────────────────────────────────────────────────────────────
+export function getNameInput() { return els.nameInput.value.trim(); }
 
 export function onPlay(callback) {
   els.playBtn.addEventListener('click', callback);
@@ -119,49 +162,37 @@ export function onPlay(callback) {
   });
 }
 
-// --- Coords display ---
-let coordsEl = null;
-let lastCoords = { x: 0, z: 0 };
+// ─── Coords display ───────────────────────────────────────────────────────────
+let _coordsEl = null;
+let _lastCoords = { x: 0, z: 0 };
 
 export function initCoords() {
-  coordsEl = document.createElement('div');
-  coordsEl.style.cssText = `
-    position: fixed; bottom: 60px; left: 20px; z-index: 100;
-    display: none; background: rgba(0,0,0,0.55);
-    padding: 5px 12px; border-radius: 6px; font-size: 12px;
-    font-family: monospace; cursor: pointer;
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #aef; transition: background 0.15s;
-  `;
-  coordsEl.title = 'Click para copiar coordenadas';
-  coordsEl.addEventListener('mouseenter', () => {
-    coordsEl.style.background = 'rgba(80,120,255,0.4)';
-  });
-  coordsEl.addEventListener('mouseleave', () => {
-    coordsEl.style.background = 'rgba(0,0,0,0.55)';
-  });
-  coordsEl.addEventListener('click', () => {
-    const txt = `X: ${lastCoords.x.toFixed(1)}, Z: ${lastCoords.z.toFixed(1)}`;
+  _coordsEl = document.createElement('div');
+  _coordsEl.id = 'coords-display';
+  _coordsEl.title = 'click para copiar';
+  _coordsEl.style.display = 'none';
+  _coordsEl.addEventListener('click', () => {
+    const txt = `X:${_lastCoords.x.toFixed(1)} Z:${_lastCoords.z.toFixed(1)}`;
     navigator.clipboard.writeText(txt);
-    const prev = coordsEl.textContent;
-    coordsEl.textContent = '¡Copiado!';
-    setTimeout(() => { coordsEl.textContent = prev; }, 1200);
+    const prev = _coordsEl.textContent;
+    _coordsEl.textContent = 'copiado';
+    setTimeout(() => { _coordsEl.textContent = prev; }, 1200);
   });
-  document.body.appendChild(coordsEl);
+  document.body.appendChild(_coordsEl);
 }
 
 export function updateCoords(x, z) {
-  if (!coordsEl) return;
-  lastCoords = { x, z };
-  coordsEl.textContent = `X: ${x.toFixed(1)}  Z: ${z.toFixed(1)}  📋`;
+  if (!_coordsEl) return;
+  _lastCoords = { x, z };
+  _coordsEl.textContent = `${x.toFixed(0)},${z.toFixed(0)}`;
 }
 
 export function showCoords() {
-  if (coordsEl) coordsEl.style.display = 'block';
+  if (_coordsEl) _coordsEl.style.display = 'block';
 }
 
-// ─── NPC Dialogue ──────────────────────────────────────────────────────────────
-let _dlg    = null;
+// ─── NPC Dialogue ─────────────────────────────────────────────────────────────
+let _dlg     = null;
 let _compass = null;
 
 const _CHOICES = [
@@ -174,21 +205,20 @@ export function showNPCDialogue(text) {
   if (_dlg) _dlg.remove();
   _dlg = document.createElement('div');
   _dlg.style.cssText = `
-    position:fixed; bottom:110px; left:50%; transform:translateX(-50%);
-    width:min(580px,88vw);
-    background:rgba(7,4,1,0.95);
-    border:1px solid rgba(195,150,60,0.65);
-    border-radius:3px; padding:20px 26px;
-    font-family:Georgia,'Times New Roman',serif;
-    color:#ecdfa8; z-index:500;
-    box-shadow:0 6px 40px rgba(0,0,0,0.8),inset 0 0 60px rgba(255,110,10,0.04);
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+    width:min(560px,86vw);
+    background:rgba(7,4,1,0.97);
+    border:1px solid #3a2808;
+    padding:18px 24px;
+    font-family:'Share Tech Mono','Courier New',monospace;
+    color:#c8a050; z-index:500;
     pointer-events:auto; user-select:none;
   `;
   _dlg.innerHTML = `
-    <div style="font-size:10px;letter-spacing:3px;color:#c89428;text-transform:uppercase;margin-bottom:10px;">
-      El Viejo del Fuego
+    <div style="font-size:9px;letter-spacing:4px;color:#4a3010;text-transform:uppercase;margin-bottom:10px;">
+      ── El Viejo del Fuego ──
     </div>
-    <div id="_npc_text" style="font-size:15px;line-height:1.7;color:#ecdfa8;min-height:26px;">${text}</div>
+    <div id="_npc_text" style="font-size:13px;line-height:1.75;color:#c8a050;min-height:22px;">${text}</div>
     <div id="_npc_choices" style="margin-top:14px;"></div>
   `;
   document.body.appendChild(_dlg);
@@ -204,19 +234,20 @@ export function showNPCChoices(onChoose) {
     btn.textContent = `${i + 1}. ${txt}`;
     btn.style.cssText = `
       display:block; width:100%;
-      background:rgba(55,33,8,0.75); border:1px solid rgba(195,150,60,0.30);
-      border-radius:2px; color:#e2cc80; font-family:Georgia,serif; font-size:14px;
-      padding:9px 14px; margin-bottom:6px; cursor:pointer; text-align:left;
-      transition:background .15s,border-color .15s;
+      background:none; border:none; border-top:1px solid #2a1c08;
+      color:#7a6030; font-family:inherit; font-size:12px;
+      padding:9px 0; cursor:pointer; text-align:left;
+      letter-spacing:0.5px; transition:color .12s;
     `;
-    btn.onmouseenter = () => { btn.style.background='rgba(95,60,15,0.88)'; btn.style.borderColor='rgba(220,175,75,0.6)'; };
-    btn.onmouseleave = () => { btn.style.background='rgba(55,33,8,0.75)'; btn.style.borderColor='rgba(195,150,60,0.30)'; };
+    btn.onmouseenter = () => { btn.style.color = '#c8a050'; };
+    btn.onmouseleave = () => { btn.style.color = chosen ? btn.style.color : '#7a6030'; };
     btn.onclick = () => {
       if (chosen) return;
       chosen = true;
-      box.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity='0.45'; b.style.cursor='default'; });
-      btn.style.opacity = '1';
-      btn.style.borderColor = 'rgba(220,175,75,0.7)';
+      box.querySelectorAll('button').forEach(b => {
+        b.disabled = true; b.style.opacity = '0.35'; b.style.cursor = 'default';
+      });
+      btn.style.opacity = '1'; btn.style.color = '#c8a050';
       onChoose(i);
     };
     box.appendChild(btn);
@@ -227,8 +258,8 @@ export function showNPCWaiting() {
   const box = document.getElementById('_npc_choices');
   if (!box) return;
   box.innerHTML = `
-    <div style="font-size:12px;color:rgba(195,165,90,0.6);font-style:italic;text-align:center;padding:6px 0;">
-      Esperando que los demás respondan…
+    <div style="font-size:10px;color:#3a2808;letter-spacing:2px;padding:8px 0;">
+      esperando respuesta...
     </div>`;
 }
 
@@ -237,15 +268,15 @@ export function showNPCResponse(text, onDone) {
   const boxEl  = document.getElementById('_npc_choices');
   if (boxEl) boxEl.innerHTML = '';
   if (textEl) {
-    textEl.style.transition = 'opacity .35s';
+    textEl.style.transition = 'opacity .3s';
     textEl.style.opacity = '0';
-    setTimeout(() => { textEl.textContent = text; textEl.style.opacity = '1'; }, 380);
+    setTimeout(() => { textEl.textContent = text; textEl.style.opacity = '1'; }, 320);
   }
   setTimeout(() => {
     if (!_dlg) return;
-    _dlg.style.transition = 'opacity .7s';
+    _dlg.style.transition = 'opacity .6s';
     _dlg.style.opacity = '0';
-    setTimeout(() => { hideNPCDialogue(); if (onDone) onDone(); }, 720);
+    setTimeout(() => { hideNPCDialogue(); if (onDone) onDone(); }, 650);
   }, 3800);
 }
 
@@ -253,22 +284,20 @@ export function hideNPCDialogue() {
   if (_dlg) { _dlg.remove(); _dlg = null; }
 }
 
-// ─── North Compass ─────────────────────────────────────────────────────────────
+// ─── North Compass ────────────────────────────────────────────────────────────
 export function showNorthCompass() {
   if (_compass) return;
   _compass = document.createElement('div');
   _compass.style.cssText = `
-    position:fixed; top:20px; right:20px; z-index:210;
-    width:52px; height:52px; border-radius:50%;
-    background:rgba(7,4,1,0.82); border:1px solid rgba(195,150,60,0.55);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    font-family:Georgia,serif; pointer-events:none;
-    box-shadow:0 2px 12px rgba(0,0,0,0.6);
+    position:fixed; top:14px; left:50%; transform:translateX(-50%);
+    z-index:210; pointer-events:none;
+    font-family:'Share Tech Mono','Courier New',monospace;
+    font-size:10px; color:#4a3010; letter-spacing:3px;
+    text-align:center;
   `;
-  // Camera at (player+20, +25, +20) faces SW. North (-Z world) = upper-right on screen ≈ 45° from top
   _compass.innerHTML = `
-    <div style="font-size:20px;color:#d4a030;line-height:1;transform:rotate(45deg);margin-bottom:-2px;">↑</div>
-    <div style="font-size:9px;letter-spacing:2px;color:#a07828;">N</div>
+    <div style="font-size:16px;color:#c8a050;transform:rotate(45deg);display:inline-block;line-height:1;">↑</div>
+    <div style="margin-top:2px;">N</div>
   `;
   document.body.appendChild(_compass);
 }

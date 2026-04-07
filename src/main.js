@@ -14,6 +14,8 @@ import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
+import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight } from './daynight.js';
+import { updateSurvival, getHunger, getThirst } from './survival.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -53,7 +55,7 @@ window.addEventListener('resize', () => {
 // --- World setup ---
 // colliders is a shared mutable array — buildings added now, chunks add/remove theirs at runtime
 const colliders = [];
-const { colliders: worldColliders, sun } = createWorld(scene);
+const { colliders: worldColliders, sun, ambient } = createWorld(scene);
 worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
@@ -359,6 +361,15 @@ function gameLoop() {
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);
   updateBullets(scene, dt);
+
+  // ── Day/Night + Survival HUD update ──────────────────────────────────────
+  updateDayNight(dt, scene, sun, ambient);
+  if (myId && !isDead) {
+    updateSurvival(dt, controls.isSprinting(), horseManager?.isMounted() ?? false);
+    UI.updateSurvivalUI(getHunger(), getThirst(), getTemperature());
+    UI.updateGameTime(getGameTime(), isNight());
+  }
+
   composer.render();
 }
 

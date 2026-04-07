@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GAUCHO</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+    body {
+      overflow: hidden;
+      background: #0c0904;
+      font-family: 'Share Tech Mono', 'Courier New', Courier, monospace;
+      color: #b88a3a;
+    }
     canvas { display: block; }
 
-    /* --- Crosshair (follows mouse) --- */
+    /* ── Crosshair ─────────────────────────────────────────────────────────── */
     body.game-active { cursor: none; }
     #crosshair {
       position: fixed; top: 0; left: 0;
@@ -18,143 +25,259 @@
       width: 0; height: 0;
     }
     #crosshair::before, #crosshair::after {
-      content: ''; position: absolute; background: rgba(255,255,255,0.9);
-      box-shadow: 0 0 3px rgba(0,0,0,0.8);
+      content: ''; position: absolute;
+      background: rgba(184, 138, 58, 0.85);
     }
-    #crosshair::before { width: 2px; height: 18px; left: -1px; top: -9px; }
-    #crosshair::after  { width: 18px; height: 2px; left: -9px; top: -1px; }
-
-    /* --- HUD --- */
-    #hud {
-      position: fixed; bottom: 20px; left: 20px;
-      z-index: 100; display: none;
-      font-size: 14px;
-    }
-    #hp-bar-outer {
-      width: 200px; height: 8px; background: rgba(255,255,255,0.1);
-      border-radius: 4px; overflow: hidden; margin-bottom: 6px;
-    }
-    #hp-bar {
-      height: 100%; width: 100%; background: #44ff44;
-      border-radius: 4px; transition: width 0.3s, background 0.3s;
-    }
-    #hp-text { font-size: 12px; opacity: 0.8; }
-    #score {
-      position: fixed; top: 20px; right: 20px;
-      z-index: 100; display: none;
-      font-size: 13px; text-align: right;
-      background: rgba(0,0,0,0.4); padding: 10px 14px;
-      border-radius: 8px; backdrop-filter: blur(6px);
+    #crosshair::before { width: 1px; height: 14px; left: -1px; top: -7px; }
+    #crosshair::after  { width: 14px; height: 1px; left: -7px; top: -1px; }
+    #crosshair-dot {
+      position: fixed; top: 0; left: 0;
+      transform: translate(-50%, -50%);
+      z-index: 51; pointer-events: none; display: none;
+      width: 3px; height: 3px;
+      background: rgba(232, 200, 112, 0.9);
+      border-radius: 50%;
     }
 
-    /* --- Kill feed --- */
-    #killfeed {
-      position: fixed; top: 20px; left: 20px;
-      z-index: 100; display: none;
-      font-size: 12px;
-    }
-    .kill-msg {
-      background: rgba(0,0,0,0.5); padding: 4px 10px;
-      border-radius: 4px; margin-bottom: 4px;
-      animation: fadeOut 4s forwards;
-    }
-    @keyframes fadeOut { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
-
-    /* --- Room link --- */
-    #room-link {
-      position: fixed; top: 20px; left: 50%;
-      transform: translateX(-50%);
-      z-index: 100; display: none;
-      background: rgba(0,0,0,0.6); padding: 8px 16px;
-      border-radius: 8px; font-size: 12px;
-      backdrop-filter: blur(6px); cursor: pointer;
-      border: 1px solid rgba(255,255,255,0.15);
-      transition: background 0.2s;
-    }
-    #room-link:hover { background: rgba(255,255,255,0.15); }
-
-    /* --- Hit marker --- */
+    /* ── Hit marker ────────────────────────────────────────────────────────── */
     #hitmarker {
       position: fixed; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       z-index: 60; pointer-events: none; display: none;
-      font-size: 24px; color: #ff4444; font-weight: bold;
+      font-size: 18px; color: #cc4422; font-weight: bold;
+      text-shadow: 0 0 4px rgba(200,60,30,0.6);
     }
 
-    /* --- Damage overlay --- */
+    /* ── Damage vignette ───────────────────────────────────────────────────── */
     #damage-overlay {
-      position: fixed; inset: 0; z-index: 40;
-      pointer-events: none;
-      background: radial-gradient(ellipse at center, transparent 50%, rgba(255,0,0,0.4) 100%);
-      opacity: 0; transition: opacity 0.15s;
+      position: fixed; inset: 0; z-index: 40; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 45%, rgba(180,20,10,0.45) 100%);
+      opacity: 0; transition: opacity 0.12s;
     }
 
-    /* --- Death screen --- */
+    /* ── Death screen ──────────────────────────────────────────────────────── */
     #death-screen {
       position: fixed; inset: 0; z-index: 200;
       display: none; align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.7); flex-direction: column; gap: 12px;
+      background: rgba(0,0,0,0.82); flex-direction: column; gap: 10px;
     }
-    #death-screen h2 { font-size: 36px; color: #ff4444; }
-    #death-screen p { font-size: 14px; opacity: 0.7; }
+    #death-screen .ds-box {
+      border: 1px solid #6a3010;
+      padding: 28px 48px;
+      text-align: center;
+      background: rgba(12,6,2,0.95);
+    }
+    #death-screen h2 {
+      font-size: 22px; letter-spacing: 6px; color: #cc3322;
+      text-transform: uppercase;
+    }
+    #death-screen p {
+      font-size: 11px; color: #6a5030; margin-top: 10px;
+      letter-spacing: 2px;
+    }
 
-    /* --- Lobby --- */
+    /* ── Stats HUD (bottom-left) ───────────────────────────────────────────── */
+    #hud {
+      position: fixed; bottom: 18px; left: 16px;
+      z-index: 100; display: none;
+      font-size: 12px; line-height: 1.9;
+      pointer-events: none; user-select: none;
+    }
+    .stat-row {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .stat-label {
+      width: 28px; color: #6a5030; text-transform: uppercase;
+      font-size: 10px; letter-spacing: 1px;
+    }
+    .stat-bar {
+      letter-spacing: -1px; font-size: 13px;
+    }
+    .stat-val {
+      width: 26px; text-align: right; font-size: 10px;
+      color: #7a6040; margin-left: 2px;
+    }
+    #stat-temp {
+      margin-top: 3px; font-size: 10px;
+      color: #6a5030; letter-spacing: 1px;
+    }
+
+    /* ── Top-right panel (time + score) ────────────────────────────────────── */
+    #score {
+      position: fixed; top: 14px; right: 14px;
+      z-index: 100; display: none;
+      font-size: 11px; text-align: right;
+      line-height: 1.8; color: #7a6030;
+      pointer-events: none; user-select: none;
+    }
+    #game-time {
+      font-size: 14px; color: #c8a050; letter-spacing: 2px;
+    }
+    #score-kd { color: #7a6030; }
+    #players-count {
+      font-size: 10px; color: #50401a; margin-top: 2px;
+    }
+
+    /* ── Kill feed (top-left) ──────────────────────────────────────────────── */
+    #killfeed {
+      position: fixed; top: 14px; left: 14px;
+      z-index: 100; display: none;
+      font-size: 11px; line-height: 1.7;
+      pointer-events: none; user-select: none;
+    }
+    .kill-msg {
+      color: #7a6030;
+      animation: kfFade 5s forwards;
+      white-space: nowrap;
+    }
+    .kill-msg b { color: #c8a050; font-weight: normal; }
+    @keyframes kfFade {
+      0%,65% { opacity: 1; }
+      100%   { opacity: 0; }
+    }
+
+    /* ── Room link (bottom-right) ──────────────────────────────────────────── */
+    #room-link {
+      position: fixed; bottom: 14px; right: 14px;
+      z-index: 100; display: none;
+      font-size: 10px; color: #3a2c10;
+      cursor: pointer; letter-spacing: 1px;
+      transition: color 0.15s;
+    }
+    #room-link:hover { color: #7a5820; }
+
+    /* ── Coords (bottom, above room link) ──────────────────────────────────── */
+    #coords-display {
+      position: fixed; bottom: 32px; right: 14px;
+      z-index: 100; display: none;
+      font-size: 10px; color: #3a2c10;
+      cursor: pointer; letter-spacing: 1px;
+      transition: color 0.15s;
+    }
+    #coords-display:hover { color: #7a5820; }
+
+    /* ── Lobby ─────────────────────────────────────────────────────────────── */
     #lobby {
       position: fixed; inset: 0; z-index: 999;
       display: flex; align-items: center; justify-content: center;
-      background: #1a1a2e; flex-direction: column; gap: 20px;
+      background: #0c0904; flex-direction: column; gap: 0;
     }
-    #lobby h1 { font-size: 48px; letter-spacing: 8px; font-weight: 900; }
-    #lobby input {
-      padding: 10px 16px; border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 8px; background: rgba(255,255,255,0.08);
-      color: #fff; font-size: 16px; width: 240px; text-align: center;
-      outline: none;
+    #lobby-box {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0;
     }
-    #lobby input::placeholder { color: rgba(255,255,255,0.3); }
-    #lobby button {
-      padding: 12px 32px; border: none; border-radius: 8px;
-      background: #5078ff; color: #fff; font-size: 16px;
-      cursor: pointer; font-weight: 600; transition: background 0.2s;
+    .lobby-border-top {
+      font-size: 13px; color: #4a3010; letter-spacing: 1px;
+      white-space: pre;
     }
-    #lobby button:hover { background: #6b8fff; }
-    #lobby .hint { font-size: 12px; opacity: 0.4; }
-
-    /* --- Players list --- */
-    #players-count {
-      position: fixed; bottom: 20px; right: 20px;
-      z-index: 100; display: none;
-      font-size: 11px; opacity: 0.5;
+    #lobby h1 {
+      font-size: 28px; letter-spacing: 10px; color: #c8a050;
+      padding: 14px 40px; border-left: 1px solid #4a3010;
+      border-right: 1px solid #4a3010;
+      text-align: center;
+    }
+    .lobby-border-bot {
+      font-size: 13px; color: #4a3010; letter-spacing: 1px;
+      white-space: pre;
+    }
+    .lobby-spacer { height: 28px; }
+    #lobby-label {
+      font-size: 10px; color: #4a3010; letter-spacing: 3px;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    #lobby-input-row {
+      display: flex; align-items: center; gap: 0;
+      margin-bottom: 20px;
+    }
+    #lobby-cursor {
+      color: #c8a050; font-size: 13px; margin-right: 4px;
+    }
+    #name-input {
+      background: none; border: none; outline: none;
+      color: #c8a050; font-family: inherit; font-size: 13px;
+      width: 180px; caret-color: #c8a050;
+      border-bottom: 1px solid #4a3010; padding: 2px 0;
+    }
+    #name-input::placeholder { color: #3a2808; }
+    #play-btn {
+      border: 1px solid #4a3010; background: none;
+      color: #b88a3a; font-family: inherit; font-size: 12px;
+      padding: 8px 28px; cursor: pointer; letter-spacing: 4px;
+      text-transform: uppercase; transition: border-color 0.15s, color 0.15s;
+    }
+    #play-btn:hover {
+      border-color: #c8a050; color: #e8c870;
+    }
+    .lobby-hint {
+      font-size: 10px; color: #3a2808; letter-spacing: 2px;
+      margin-top: 22px; text-align: center;
     }
   </style>
 </head>
 <body>
-  <!-- Lobby -->
+
+  <!-- ── Lobby ────────────────────────────────────────────────────────────── -->
   <div id="lobby">
-    <h1>GAUCHO</h1>
-    <input id="name-input" type="text" placeholder="Tu nombre" maxlength="16" />
-    <button id="play-btn">JUGAR</button>
-    <div class="hint">WASD moverse &middot; Mouse apuntar &middot; Click disparar &middot; Space saltar</div>
+    <div id="lobby-box">
+      <div class="lobby-border-top">╔══════════════════════════════╗</div>
+      <h1>G A U C H O</h1>
+      <div class="lobby-border-bot">╚══════════════════════════════╝</div>
+      <div class="lobby-spacer"></div>
+      <div id="lobby-label">nombre</div>
+      <div id="lobby-input-row">
+        <span id="lobby-cursor">&gt;</span>
+        <input id="name-input" type="text" placeholder="gaucho" maxlength="16" autocomplete="off" />
+      </div>
+      <button id="play-btn">[ jugar ]</button>
+      <div class="lobby-hint">WASD &middot; MOUSE apuntar &middot; CLICK disparar &middot; ESPACIO saltar &middot; E montar</div>
+    </div>
   </div>
 
-  <!-- Game UI -->
+  <!-- ── Game layer ────────────────────────────────────────────────────────── -->
   <div id="crosshair"></div>
-  <div id="hitmarker">X</div>
+  <div id="crosshair-dot"></div>
+  <div id="hitmarker">×</div>
   <div id="damage-overlay"></div>
+
   <div id="death-screen">
-    <h2>MUERTO</h2>
-    <p>Respawning...</p>
+    <div class="ds-box">
+      <h2>MUERTO</h2>
+      <p>respawning...</p>
+    </div>
   </div>
 
+  <!-- Stats HUD: bottom-left -->
   <div id="hud">
-    <div id="hp-bar-outer"><div id="hp-bar"></div></div>
-    <div id="hp-text">100 HP</div>
+    <div class="stat-row">
+      <span class="stat-label">VID</span>
+      <span class="stat-bar" id="bar-hp"  style="color:#883322;"></span>
+      <span class="stat-val" id="val-hp">100</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">HAM</span>
+      <span class="stat-bar" id="bar-ham" style="color:#7a5520;"></span>
+      <span class="stat-val" id="val-ham">100</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">SED</span>
+      <span class="stat-bar" id="bar-sed" style="color:#225566;"></span>
+      <span class="stat-val" id="val-sed">100</span>
+    </div>
+    <div id="stat-temp">TEMP --°C</div>
   </div>
 
-  <div id="score"></div>
+  <!-- Score + time: top-right -->
+  <div id="score">
+    <div id="game-time">--:--</div>
+    <div id="score-kd">K:0  M:0</div>
+    <div id="players-count">1 online</div>
+  </div>
+
+  <!-- Kill feed: top-left -->
   <div id="killfeed"></div>
-  <div id="room-link" title="Click para copiar"></div>
-  <div id="players-count"></div>
+
+  <!-- Room link: bottom-right -->
+  <div id="room-link"></div>
 
   <script type="module" src="/src/main.js"></script>
 </body>
