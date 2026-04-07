@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 
 const SPEED = 10;
-const BOUND = 195; // half of 400×400 terrain
+const BOUND = 9900; // large bound for infinite chunk world
 
 export class IsoControls {
   constructor(camera) {
