@@ -77,8 +77,9 @@ Network.onJoined((data) => {
 
   horseManager = new HorseManager(scene, Network);
   controls.onEPress = () => {
-    const land = horseManager?.tryMount(myId);
-    if (land) controls.setPosition(land.x, 0, land.z); // teleport controls to landing spot
+    const pos  = controls.getPosition();           // where E was pressed
+    const land = horseManager?.tryMount(myId, pos);
+    if (land) controls.setPosition(land.x, 0, land.z);
   };
 
   Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
@@ -111,6 +112,8 @@ Network.onPlayerLeft((id) => {
 });
 
 Network.onPlayerMoved((data) => {
+  // Skip position update for mounted players — horse position is authoritative
+  if (horseManager?.isPlayerMounted(data.id)) return;
   remotePlayers.get(data.id)?.setTarget(data.x, data.y, data.z, data.ry);
 });
 
@@ -198,8 +201,9 @@ function gameLoop() {
     if (horseManager) {
       horseManager.update(pos, dt);
       if (horseManager.isMounted()) {
-        const moveAngle = controls.getMovementAngle();
-        horseManager.syncRiderPosition(pos.x, pos.z, moveAngle);
+        const moveAngle  = controls.getMovementAngle();
+        const sprinting  = controls.isSprinting();
+        horseManager.syncRiderPosition(pos.x, pos.z, moveAngle, pos.y, sprinting);
         Network.sendHorseMoved({ horseId: horseManager.myHorseId, x: pos.x, z: pos.z, ry: moveAngle });
       }
       // Auto-mount: jump onto a nearby horse while in the air
@@ -221,10 +225,12 @@ function gameLoop() {
           ? 2.5 + pos.y          // horse jump: rider rises above saddle
           : pos.y;               // normal ground jump (pos.y goes up on Space)
 
-      // XZ: during dismount, visually arc from horse center to landing spot
+      // XZ: arc from player pos → horse on mount, horse → landing on dismount
+      const mountXZ    = horseManager?.getMountModelPos();
       const dismountXZ = horseManager?.getDismountModelPos(pos);
-      const modelX = dismountXZ ? dismountXZ.x : pos.x;
-      const modelZ = dismountXZ ? dismountXZ.z : pos.z;
+      const overrideXZ = mountXZ ?? dismountXZ;
+      const modelX = overrideXZ ? overrideXZ.x : pos.x;
+      const modelZ = overrideXZ ? overrideXZ.z : pos.z;
 
       localPlayerModel.group.position.set(modelX, riderY, modelZ);
       localPlayerModel.group.rotation.y = facingAngle;

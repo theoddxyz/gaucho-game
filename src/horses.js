@@ -2,15 +2,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const loader           = new GLTFLoader();
+const loader             = new GLTFLoader();
 const MOUNT_RADIUS       = 3.0;
 const HORSE_SPEED_MULT   = 2.2;
-const HORSE_SPRINT_EXTRA = 1.7;  // extra multiplier when Shift held on horseback
-const WALK_FREQ        = 6.0;
-const WALK_AMP         = 0.45;
-const SIDE_DIST        = 2.2;   // metres player lands from horse on dismount
-const MOUNT_DUR        = 0.35;  // seconds for mount jump
-const DISMOUNT_DUR     = 0.40;  // seconds for dismount jump
+const HORSE_SPRINT_EXTRA = 1.7;
+const WALK_FREQ          = 6.0;
+const WALK_FREQ_SPRINT   = 11.0;  // faster legs when sprinting
+const WALK_AMP           = 0.45;
+const SIDE_DIST          = 2.2;
+const MOUNT_DUR          = 0.35;
+const DISMOUNT_DUR       = 0.40;
 
 const LEG_PATTERN  = /leg|pata|pierna|hoof|pezuña|extremidad/i;
 const SKIP_PATTERN = /torso|body|head|neck|mane|tail|saddle|ear|muzzle|eye|horn|nose|montura|pelo|crin|cola|cuerpo|cabeza|ojo|nariz|boca|diente|lomo|grupas/i;
@@ -44,9 +45,7 @@ function wrapInPivot(legObj) {
   const legWP      = legObj.getWorldPosition(new THREE.Vector3());
   const pivotWorld = new THREE.Vector3(legWP.x, worldBox.max.y, legWP.z);
 
-  const wPos = new THREE.Vector3();
-  const wQuat = new THREE.Quaternion();
-  const wScale = new THREE.Vector3();
+  const wPos = new THREE.Vector3(), wQuat = new THREE.Quaternion(), wScale = new THREE.Vector3();
   legObj.matrixWorld.decompose(wPos, wQuat, wScale);
 
   const pivot = new THREE.Group();
@@ -86,7 +85,7 @@ function findLegs(horseMesh) {
     sources = meshes.slice(0, 4);
   }
 
-  const PHASES = [0, Math.PI, Math.PI, 0]; // trot gait
+  const PHASES = [0, Math.PI, Math.PI, 0];
   return sources.map((obj, i) => ({
     pivot: wrapInPivot(obj),
     phase: PHASES[i] ?? (i % 2) * Math.PI,
@@ -103,8 +102,7 @@ export class HorseManager {
     this._mountedSpeedMult = HORSE_SPEED_MULT;
     this._mountPrompt = this._createPrompt();
     this._nearestHorseId = null;
-    // Mount/dismount jump animation
-    this._anim = null; // { type:'mount'|'dismount', t, dur, fromX, fromZ, toX, toZ }
+    this._anim = null;
     this._init();
   }
 
@@ -122,12 +120,13 @@ export class HorseManager {
         mesh, legs, riderId: null,
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z,
+        _sprinting: false,
       });
     }
   }
 
   _fallbackMesh() {
-    const g    = new THREE.Group();
+    const g = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(1.3, 0.9, 2.6),
       new THREE.MeshStandardMaterial({ color: 0x8B4513 })
@@ -157,7 +156,6 @@ export class HorseManager {
       if (this._anim.t >= 1) { this._anim.t = 1; this._anim = null; }
     }
 
-    // Walk animation
     for (const [, horse] of this.horses) {
       const moved = horse.riderId !== null && (
         Math.abs(horse.x - horse._prevX) > 0.005 ||
@@ -185,84 +183,90 @@ export class HorseManager {
   }
 
   _animateLegs(horse, moving) {
+    // Use faster frequency when sprinting
+    const freq = horse._sprinting ? WALK_FREQ_SPRINT : WALK_FREQ;
     for (const leg of horse.legs) {
       leg.pivot.rotation.x = moving
-        ? Math.sin(WALK_FREQ * horse.walkTime + leg.phase) * WALK_AMP
+        ? Math.sin(freq * horse.walkTime + leg.phase) * WALK_AMP
         : 0;
     }
   }
 
-  // ── Mount/dismount ──────────────────────────────────────────────────────────
+  // ── Mount / Dismount ────────────────────────────────────────────────────────
 
-  tryMount(playerId) {
-    if (this.myHorseId !== null) {
-      return this._dismount(playerId); // returns { x, z } land position
-    }
+  /** playerPos: current controls position (where E was pressed from) */
+  tryMount(playerId, playerPos) {
+    if (this.myHorseId !== null) return this._dismount(playerId);
     if (this._nearestHorseId !== null) {
-      this._mount(this._nearestHorseId, playerId);
+      this._mount(this._nearestHorseId, playerId, playerPos);
       return null;
     }
     return null;
   }
 
-  _mount(horseId, playerId) {
+  _mount(horseId, playerId, playerPos) {
     const horse = this.horses.get(horseId);
     if (!horse) return;
-    horse.riderId = playerId;
+    horse.riderId  = playerId;
     this.myHorseId = horseId;
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 
-    // Jump-on animation: Y goes 0 → arc → 2.5
-    this._anim = { type: 'mount', t: 0, dur: MOUNT_DUR };
+    // Jump-on arc: XZ goes from player position → horse center
+    this._anim = {
+      type: 'mount', t: 0, dur: MOUNT_DUR,
+      fromX: playerPos?.x ?? horse.x,
+      fromZ: playerPos?.z ?? horse.z,
+      toX: horse.x, toZ: horse.z,
+    };
   }
 
   _dismount(playerId) {
     const horse = this.horses.get(this.myHorseId);
     if (!horse) { this.myHorseId = null; return null; }
 
-    // Side position: 90° to the left of horse facing
     const horseAngle = horse.mesh.rotation.y - Math.PI;
     const sideAngle  = horseAngle + Math.PI / 2;
     const landX = horse.x + Math.sin(sideAngle) * SIDE_DIST;
     const landZ = horse.z + Math.cos(sideAngle) * SIDE_DIST;
 
-    // Jump-off animation: Y goes 2.5 → arc → 0, X/Z lerp horse→side
     this._anim = {
       type: 'dismount', t: 0, dur: DISMOUNT_DUR,
       fromX: horse.x, fromZ: horse.z,
       toX: landX,     toZ: landZ,
     };
 
-    horse.riderId = null;
+    // Make sure horse lands back at Y=0 when rider leaves
+    horse.mesh.position.y = 0;
+    horse.riderId  = null;
     this.network?.sendDismount(this.myHorseId);
     this.myHorseId = null;
-
-    return { x: landX, z: landZ }; // caller sets controls position here
+    return { x: landX, z: landZ };
   }
 
-  // ── Animation helpers (read by main.js) ────────────────────────────────────
+  // ── Animation helpers ───────────────────────────────────────────────────────
 
-  /**
-   * Returns the animated player Y during a mount/dismount jump, or null when idle.
-   */
   getAnimY() {
     if (!this._anim) return null;
     const t = this._anim.t;
     if (this._anim.type === 'mount') {
-      // 0 → overshoot → settle at 2.5
       return t * 2.5 + Math.sin(t * Math.PI) * 0.9;
     } else {
-      // 2.5 → arc → 0
       return (1 - t) * 2.5 + Math.sin(t * Math.PI) * 0.6;
     }
   }
 
-  /**
-   * During a dismount jump, returns the interpolated X/Z position so the
-   * player model visually moves from the horse to the landing spot.
-   * Returns null when not in a dismount animation.
-   */
+  /** XZ lerp during mount: player model arcs from press position to horse */
+  getMountModelPos() {
+    if (!this._anim || this._anim.type !== 'mount') return null;
+    const t = this._anim.t;
+    return {
+      x: this._anim.fromX + (this._anim.toX - this._anim.fromX) * t,
+      z: this._anim.fromZ + (this._anim.toZ - this._anim.fromZ) * t,
+    };
+  }
+
+  /** XZ lerp during dismount: player model arcs from horse to landing spot */
   getDismountModelPos(controlsPos) {
     if (!this._anim || this._anim.type !== 'dismount') return null;
     const t = this._anim.t;
@@ -272,30 +276,22 @@ export class HorseManager {
     };
   }
 
-  // ── Remote sync ────────────────────────────────────────────────────────────
+  // ── Rider position sync ─────────────────────────────────────────────────────
 
-  syncRiderPosition(x, z, moveAngle) {
+  /** Called every frame while mounted. jumpY = controls.position.y (0 on ground, >0 mid-jump). */
+  syncRiderPosition(x, z, moveAngle, jumpY = 0, sprinting = false) {
     if (this.myHorseId === null) return;
     const horse = this.horses.get(this.myHorseId);
     if (!horse) return;
     horse.x = x; horse.z = z;
-    horse.mesh.position.set(x, 0, z);
+    horse._sprinting = sprinting;
+    // Horse body rises with rider when jumping
+    horse.mesh.position.set(x, jumpY, z);
     horse.mesh.rotation.y = moveAngle + Math.PI;
   }
 
-  onRemoteMount(horseId, riderId)  { const h = this.horses.get(horseId); if (h) h.riderId = riderId; }
-  onRemoteDismount(horseId)        { const h = this.horses.get(horseId); if (h) h.riderId = null; }
+  // ── Auto-mount by jumping ───────────────────────────────────────────────────
 
-  onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
-    const horse = this.horses.get(horseId);
-    if (!horse) return;
-    horse.x = x; horse.z = z;
-    horse.mesh.position.set(x, 0, z);
-    horse.mesh.rotation.y = ry + Math.PI;
-    if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
-  }
-
-  /** Auto-mount when player jumps onto a horse (called from main.js while in air). */
   tryAutoMount(pos, playerId) {
     if (this.myHorseId !== null) return false;
     for (const [id, horse] of this.horses) {
@@ -303,14 +299,41 @@ export class HorseManager {
       const dx = horse.x - pos.x;
       const dz = horse.z - pos.z;
       if (Math.sqrt(dx * dx + dz * dz) < MOUNT_RADIUS) {
-        this._mount(id, playerId);
+        this._mount(id, playerId, pos);
         return true;
       }
     }
     return false;
   }
 
-  isMounted()                  { return this.myHorseId !== null; }
+  // ── Remote sync ─────────────────────────────────────────────────────────────
+
+  onRemoteMount(horseId, riderId)  { const h = this.horses.get(horseId); if (h) h.riderId = riderId; }
+  onRemoteDismount(horseId)        {
+    const h = this.horses.get(horseId);
+    if (h) { h.riderId = null; h.mesh.position.y = 0; }
+  }
+
+  onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
+    const horse = this.horses.get(horseId);
+    if (!horse) return;
+    horse.x = x; horse.z = z;
+    horse.mesh.position.set(x, 0, z);
+    horse.mesh.rotation.y = ry + Math.PI;
+    // Keep remote player model locked to horse position — no offset
+    if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
+  }
+
+  /** True if this player ID is currently riding any horse (for network filtering). */
+  isPlayerMounted(playerId) {
+    for (const horse of this.horses.values()) {
+      if (horse.riderId === playerId) return true;
+    }
+    return false;
+  }
+
+  isMounted() { return this.myHorseId !== null; }
+
   speedMultiplier(sprinting = false) {
     if (!this.isMounted()) return 1.0;
     return this._mountedSpeedMult * (sprinting ? HORSE_SPRINT_EXTRA : 1.0);
