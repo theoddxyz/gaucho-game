@@ -235,9 +235,12 @@ export class PlayerModel {
   }
 
   update(dt) {
-    this.group.position.lerp(this.targetPos, 8 * dt);
-    const diff = this.targetRY - this.group.rotation.y;
-    this.group.rotation.y += diff * 8 * dt;
+    this.group.position.lerp(this.targetPos, Math.min(1, 8 * dt));
+    // Shortest-path angle lerp — avoids spinning the long way around ±π
+    let diff = this.targetRY - this.group.rotation.y;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    this.group.rotation.y += diff * Math.min(1, 10 * dt);
     this.updateHat(dt);
   }
 

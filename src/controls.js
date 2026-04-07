@@ -121,15 +121,6 @@ export class IsoControls {
       }
     }
 
-    // --- Aim: mouse → ground plane ---
-    this.raycaster.setFromCamera(this.mouseNDC, this.camera);
-    const hit = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(this.groundPlane, hit);
-    if (hit) {
-      this.mouseWorld.copy(hit);
-      this.aimAngle = Math.atan2(hit.x - this.position.x, hit.z - this.position.z);
-    }
-
     // --- Recoil decay ---
     this._recoil = Math.max(0, this._recoil - dt / 0.14);
 
@@ -145,6 +136,16 @@ export class IsoControls {
       this.position.z + camOff.z - aimDz * recoilPull
     );
     this.camera.lookAt(this.position.x, 0, this.position.z);
+    // IMPORTANT: flush camera matrixWorld so the raycast below uses the current frame's camera
+    this.camera.updateMatrixWorld();
+
+    // --- Aim: mouse → ground plane ---
+    this.raycaster.setFromCamera(this.mouseNDC, this.camera);
+    const hit = new THREE.Vector3();
+    if (this.raycaster.ray.intersectPlane(this.groundPlane, hit)) {
+      this.mouseWorld.copy(hit);
+      this.aimAngle = Math.atan2(hit.x - this.position.x, hit.z - this.position.z);
+    }
   }
 
   /** Call when auto-mounting mid-air: stops vertical velocity, resets Y. */
@@ -163,6 +164,21 @@ export class IsoControls {
 
   getAimDirection() {
     return new THREE.Vector3(Math.sin(this.aimAngle), 0, Math.cos(this.aimAngle)).normalize();
+  }
+
+  /** Recomputes aim direction fresh from current mouse NDC — use at shot time for precision. */
+  getFreshAimDirection() {
+    this.camera.updateMatrixWorld();
+    this.raycaster.setFromCamera(this.mouseNDC, this.camera);
+    const hit = new THREE.Vector3();
+    if (this.raycaster.ray.intersectPlane(this.groundPlane, hit)) {
+      const dx = hit.x - this.position.x;
+      const dz = hit.z - this.position.z;
+      if (dx * dx + dz * dz > 0.01) {
+        return new THREE.Vector3(dx, 0, dz).normalize();
+      }
+    }
+    return this.getAimDirection();
   }
 
   setPosition(x, y, z) {

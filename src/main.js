@@ -74,6 +74,9 @@ let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
 const hoofprints = new HoofprintSystem(scene);
 
+// Smoothed local player facing angle (shortest-path lerp, snaps when aiming)
+let _facingAngle = 0;
+
 // ─── NPC dialogue state ────────────────────────────────────────────────────────
 let _npcActive = false;   // dialogue panel is open
 let _npcDone   = false;   // player already completed dialogue this session
@@ -205,7 +208,7 @@ Network.onPlayerRespawned((data) => {
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId || !controls.isAiming()) return;
   const pos = controls.getPosition();
-  const dir = controls.getAimDirection();
+  const dir = controls.getFreshAimDirection(); // recompute from current mouse position at shot time
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
   const gunY   = riderY + 0.55;
   const fp     = localPlayerModel?.getFirepointWorldPos();
@@ -294,8 +297,17 @@ function gameLoop() {
       }
     }
 
-    // Local player model
-    const facingAngle = controls.isAiming() ? rot.y : controls.getMovementAngle();
+    // Local player model — smooth rotation (snaps when aiming so gun always tracks mouse)
+    const rawFacing = controls.isAiming() ? rot.y : controls.getMovementAngle();
+    if (controls.isAiming()) {
+      _facingAngle = rawFacing;                 // snap to mouse — no lag when shooting
+    } else {
+      let _fd = rawFacing - _facingAngle;
+      while (_fd >  Math.PI) _fd -= Math.PI * 2;
+      while (_fd < -Math.PI) _fd += Math.PI * 2;
+      _facingAngle += _fd * Math.min(1, 12 * dt); // smooth turn when walking
+    }
+    const facingAngle = _facingAngle;
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
       // Y: mount/dismount anim → horse jump (2.5 + jump offset) → ground jump → ground

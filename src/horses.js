@@ -192,6 +192,8 @@ export class HorseManager {
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z,
         _sprinting: false,
+        _targetRY: mesh.rotation.y,   // target rotation (set externally)
+        _displayRY: mesh.rotation.y,  // smoothed display rotation
       });
     }
   }
@@ -254,6 +256,13 @@ export class HorseManager {
       if (moved) horse.walkTime += dt;
       else       horse.walkTime  = 0;
       this._animateLegs(horse, moved);
+
+      // Smooth horse rotation — shortest path to avoid snapping through 360°
+      let ryDiff = horse._targetRY - horse._displayRY;
+      while (ryDiff >  Math.PI) ryDiff -= Math.PI * 2;
+      while (ryDiff < -Math.PI) ryDiff += Math.PI * 2;
+      horse._displayRY += ryDiff * Math.min(1, 14 * dt);
+      horse.mesh.rotation.y = horse._displayRY;
     }
 
     if (this.myHorseId !== null) return;
@@ -382,7 +391,7 @@ export class HorseManager {
     horse._sprinting = sprinting;
     // Horse body rises with rider when jumping
     horse.mesh.position.set(x, jumpY, z);
-    horse.mesh.rotation.y = moveAngle + Math.PI;
+    horse._targetRY = moveAngle + Math.PI;  // smoothed by update() loop
   }
 
   // ── Auto-mount by jumping ───────────────────────────────────────────────────
@@ -417,7 +426,7 @@ export class HorseManager {
     if (!horse) return;
     horse.x = x; horse.z = z;
     horse.mesh.position.set(x, 0, z);
-    horse.mesh.rotation.y = ry + Math.PI;
+    horse._targetRY = ry + Math.PI;  // smoothed by update() loop
     // Keep remote player model locked to horse position — no offset
     if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
   }
