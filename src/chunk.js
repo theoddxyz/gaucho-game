@@ -22,102 +22,45 @@ const loader = new GLTFLoader();
 let treeTemplate = null;
 let rockTemplate = null;
 
-// ─── Procedural terrain texture (fully tileable) ─────────────────────────────
-// Blends three colors using FBM noise:
-//   wet  #4a310a  → darker, damp patches
-//   base #cca465  → main sandy colour
-//   dry  #ebd0a0  → lighter, bleached patches
-//
-// Tileability: each noise octave uses hash(ix % period, iy % period) so that
-// the texture wraps seamlessly at every pixel boundary.  Any pixel offset
-// preserves tileability because (SIZE * grids / SIZE) == grids == one period.
-function _makeTerrainTexture() {
-  const SIZE = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = SIZE;
-  const ctx = canvas.getContext('2d');
-  const img = ctx.createImageData(SIZE, SIZE);
-  const d   = img.data;
-
-  // Color stops (raw 0-255) — darkened ~15% vs original
-  const WET  = [0x38, 0x24, 0x06];
-  const BASE = [0xa8, 0x84, 0x4a];
-  const DRY  = [0xc8, 0xaa, 0x78];
-
-  function lerp(a, b, t) { return a + (b - a) * t; }
-  function smoothstep(t) { return t * t * (3 - 2 * t); }
-
-  // Tileable hash — wraps at `period` so output is periodic
-  function hash(ix, iy, period) {
-    ix = ((ix % period) + period) % period;
-    iy = ((iy % period) + period) % period;
-    const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453;
-    return n - Math.floor(n);
-  }
-  function vnoise(x, y, period) {
-    const ix = Math.floor(x), iy = Math.floor(y);
-    const ux = smoothstep(x - ix), uy = smoothstep(y - iy);
-    return lerp(
-      lerp(hash(ix,   iy,   period), hash(ix+1, iy,   period), ux),
-      lerp(hash(ix,   iy+1, period), hash(ix+1, iy+1, period), ux),
-      uy
-    );
-  }
-
-  // Tileable FBM — `baseGrids` cells span the full texture at octave 0.
-  // Each higher octave doubles both frequency and period → always tileable.
-  // Any pixel-space offset is fine: at px=0 and px=SIZE the coord differs
-  // by exactly one period, so the hash wraps identically.
-  function fbm(px, py, baseGrids) {
-    let v = 0, a = 0.55;
-    for (let o = 0; o < 5; o++) {
-      const f   = 1 << o;
-      const per = baseGrids * f;
-      v += vnoise(px * per / SIZE, py * per / SIZE, per) * a;
-      a *= 0.5;
-    }
-    return v;
-  }
-
-  for (let py = 0; py < SIZE; py++) {
-    for (let px = 0; px < SIZE; px++) {
-      // Large wet/dry patches (6 cells) + fine sandy grain (28 cells, offset phase)
-      const n1 = fbm(px,           py,           6);
-      const n2 = fbm(px + 193,     py + 71,      28);
-      const n  = n1 * 0.72 + n2 * 0.28;
-
-      let r, g, b;
-      if (n < 0.36) {
-        const t = n / 0.36;
-        r = lerp(WET[0],  BASE[0], t);
-        g = lerp(WET[1],  BASE[1], t);
-        b = lerp(WET[2],  BASE[2], t);
-      } else {
-        const t = (n - 0.36) / 0.64;
-        r = lerp(BASE[0], DRY[0], t);
-        g = lerp(BASE[1], DRY[1], t);
-        b = lerp(BASE[2], DRY[2], t);
-      }
-
-      const i = (py * SIZE + px) * 4;
-      d[i]   = r | 0;
-      d[i+1] = g | 0;
-      d[i+2] = b | 0;
-      d[i+3] = 255;
-    }
-  }
-
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(8, 8);
-  return tex;
+// ─── World-space procedural terrain (GLSL shader, zero tiling) ───────────────
+// FBM runs in the GPU using world XZ, so the pattern is continuous and unique
+// across every chunk — the same coordinate always gives the same color.
+// Colors (linear, sRGB→linear via pow(c/255, 2.2)):
+//   wet  #38240606 → (0.040, 0.020, 0.002)
+//   base #a8844a   → (0.400, 0.248, 0.073)
+//   dry  #c8aa78   → (0.575, 0.405, 0.186)
+const TERRAIN_MAT = new THREE.MeshStandardMaterial({ roughness: 0.92 });
+TERRAIN_MAT.onBeforeCompile = (shader) => {
+  // Pass world position to fragment shader
+  shader.vertexShader = 'varying vec3 vWPos;\n' + shader.vertexShader;
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(position,1.0)).xyz;'
+  );
+  // Prepend helpers to fragment shader
+  shader.fragmentShader = `
+varying vec3 vWPos;
+float _h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float _vn(vec2 p){
+  vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
+  return mix(mix(_h(i),_h(i+vec2(1,0)),u.x),mix(_h(i+vec2(0,1)),_h(i+vec2(1,1)),u.x),u.y);
 }
-
-const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  map: _makeTerrainTexture(),
-  roughness: 0.92,
-});
+float _fbm(vec2 p){float v=0.,a=.55;for(int i=0;i<5;i++){v+=_vn(p)*a;p*=2.07;a*=.5;}return v;}
+` + shader.fragmentShader;
+  // Replace map_fragment include with world-space FBM color
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <map_fragment>',
+    `{
+      vec2 wp = vWPos.xz;
+      float n = _fbm(wp/90.)*0.72 + _fbm(wp/18.+vec2(7.3,3.9))*0.28;
+      vec3 wet  = vec3(0.040,0.020,0.002);
+      vec3 base = vec3(0.400,0.248,0.073);
+      vec3 dry  = vec3(0.575,0.405,0.186);
+      diffuseColor.rgb = n<0.36 ? mix(wet,base,n/0.36) : mix(base,dry,(n-0.36)/0.64);
+    }`
+  );
+};
+TERRAIN_MAT.customProgramCacheKey = () => 'terrain_world_fbm';
 
 // ─── Shared pebble geometry + material palette ────────────────────────────────
 // Slightly varied earth tones close to #cca465

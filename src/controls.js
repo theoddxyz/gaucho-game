@@ -22,6 +22,9 @@ export class IsoControls {
     this._onGround   = true;
     this._jumpTrigger = false;  // set true on Space keydown, consumed in update
     this._sprinting  = false;
+    this._velX       = 0;       // current horizontal velocity for smooth accel
+    this._velZ       = 0;
+    this._recoil     = 0;       // 0=idle, 1=full kick, decays to 0
 
     document.addEventListener('mousedown', (e) => { if (e.button === 2) this._isAiming = true; });
     document.addEventListener('mouseup',   (e) => { if (e.button === 2) this._isAiming = false; });
@@ -53,10 +56,13 @@ export class IsoControls {
     });
   }
 
+  /** Trigger gun recoil — call once per shot. */
+  applyRecoil() { this._recoil = 1; }
+
   update(dt, colliders, speedMult = 1.0) {
     const sprint = this._sprinting ? SPRINT_MULT : 1.0;
 
-    // --- Horizontal movement ---
+    // --- Horizontal movement with smooth acceleration ---
     const dir = new THREE.Vector3();
     if (this.keys.w) dir.z -= 1;
     if (this.keys.s) dir.z += 1;
@@ -69,8 +75,16 @@ export class IsoControls {
       const step = Math.PI / 4;
       this._lastMoveAngle = Math.round(raw / step) * step;
     }
-    this.position.x += dir.x * SPEED * speedMult * sprint * dt;
-    this.position.z += dir.z * SPEED * speedMult * sprint * dt;
+
+    const targetX = dir.x * SPEED * speedMult * sprint;
+    const targetZ = dir.z * SPEED * speedMult * sprint;
+    // Faster ramp-up than ramp-down for responsive feel
+    const accel = dir.length() > 0 ? 9 : 14;
+    this._velX += (targetX - this._velX) * Math.min(1, accel * dt);
+    this._velZ += (targetZ - this._velZ) * Math.min(1, accel * dt);
+
+    this.position.x += this._velX * dt;
+    this.position.z += this._velZ * dt;
 
     this.position.x = Math.max(-BOUND, Math.min(BOUND, this.position.x));
     this.position.z = Math.max(-BOUND, Math.min(BOUND, this.position.z));
@@ -116,12 +130,19 @@ export class IsoControls {
       this.aimAngle = Math.atan2(hit.x - this.position.x, hit.z - this.position.z);
     }
 
+    // --- Recoil decay ---
+    this._recoil = Math.max(0, this._recoil - dt / 0.14);
+
     // --- Camera: fixed height (doesn't bob with jump), follows X/Z ---
+    // Recoil lifts camera and pulls back slightly behind the aim direction
+    const recoilLift = this._recoil * 4;
+    const recoilPull = this._recoil * 2;
+    const aimDx = Math.sin(this.aimAngle), aimDz = Math.cos(this.aimAngle);
     const camOff = new THREE.Vector3(20, 25, 20).multiplyScalar(this._camZoom);
     this.camera.position.set(
-      this.position.x + camOff.x,
-      camOff.y,                    // fixed height — no camera bounce on jump
-      this.position.z + camOff.z
+      this.position.x + camOff.x - aimDx * recoilPull,
+      camOff.y + recoilLift,
+      this.position.z + camOff.z - aimDz * recoilPull
     );
     this.camera.lookAt(this.position.x, 0, this.position.z);
   }

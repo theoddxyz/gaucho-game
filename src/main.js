@@ -9,6 +9,7 @@ import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js
 import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects } from './landmarks.js';
+import { HoofprintSystem } from './hoofprints.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -56,6 +57,7 @@ const remotePlayers  = new Map();
 let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
+const hoofprints = new HoofprintSystem(scene);
 
 // --- Network ---
 Network.connect();
@@ -176,6 +178,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
+  controls.applyRecoil();
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
@@ -262,6 +265,7 @@ function gameLoop() {
   for (const [, pm] of remotePlayers) pm.update(dt);
   localPlayerModel?.updateHat(dt);
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
+  if (horseManager) hoofprints.update(horseManager.horses, dt);
   updateBullets(scene, dt);
   renderer.render(scene, camera);
 }
