@@ -344,6 +344,11 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
 
 export function createLandmarks(scene) {
   _scene = scene;
+
+  // Fixed fire at shack campfire position
+  const fixedFire = _createFireEffect(9.0, 0.2, -72.9);
+  if (fixedFire) _fires.push(fixedFire);
+
   loadAt('/models/camp.glb',   scene, -7823.3, 0, 5424.2);
   loadAt('/models/well.glb',   scene, -7656.9, 0, 5268.8);
   loadAt('/models/skulls.glb', scene, -7173.3, 0, 2997.3);
