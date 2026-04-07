@@ -306,7 +306,6 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
       if (/firecampoint|campfirepoint|firecamppoint|fogon|hoguera|campfire|firepit|fuego|brasero/i.test(o.name)) {
         const wp = new THREE.Vector3();
         o.getWorldPosition(wp);
-        console.log('[fire] spawn at', o.name, wp.x.toFixed(1), wp.y.toFixed(1), wp.z.toFixed(1));
         const ef = _createFireEffect(wp.x, wp.y, wp.z);
         if (ef) _fires.push(ef);
       }
@@ -318,7 +317,6 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
         _bottles.push({ mesh: o, falling: false, fallen: false, t: 0,
                         startPos: o.position.clone(), startQuat: o.quaternion.clone(),
                         rotAxis: new THREE.Vector3(1, 0, 0) });
-        console.log('[bottle] registered:', o.name, o.type);
       }
 
       if (!o.isMesh) return;

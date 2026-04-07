@@ -234,10 +234,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       const nearZ = gunPos.z + lineDir.z * proj;
       // XZ-only lateral distance — ignores height so pivot y doesn't matter
       const lateralDist = Math.sqrt((bWP.x - nearX) ** 2 + (bWP.z - nearZ) ** 2);
-      console.log('[bottle]', bMesh.name, 'proj=', proj.toFixed(1), 'lateralXZ=', lateralDist.toFixed(2));
       if (lateralDist < 1.5 && proj < closestT) { closest = bMesh; closestT = proj; }
     }
-    if (closest) { console.log('[bottle] HIT', closest.name); hitBottle(closest, result.direction); }
+    if (closest) hitBottle(closest, result.direction);
   }
 });
 
