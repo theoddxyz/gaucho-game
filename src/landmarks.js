@@ -8,6 +8,9 @@ let   _scene  = null;
 // ─── Water zones — for chunk.js tree/rock exclusion (populated from lagoon bbox) ───
 export const WATER_ZONES = [];
 
+// ─── NPC position (world-space, near campfire) ────────────────────────────────
+export const NPC_POSITION = { x: 11.5, z: -73.5 };
+
 // Actual lagoon meshes — used for precise raycast-based "is over water" check
 const _lagoonMeshes = [];
 const _waterRay = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
@@ -353,8 +356,62 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
   }, undefined, (err) => console.warn(`[landmarks] failed to load ${url}`, err));
 }
 
+// ─── NPC mesh ─────────────────────────────────────────────────────────────────
+function _buildNPC() {
+  const g = new THREE.Group();
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc07848, roughness: 0.8 });
+  const shirt = new THREE.MeshStandardMaterial({ color: 0x4a2c10, roughness: 0.85 });
+  const pants = new THREE.MeshStandardMaterial({ color: 0x2c1e0a, roughness: 0.90 });
+  const hat   = new THREE.MeshStandardMaterial({ color: 0x181004, roughness: 0.92 });
+  const boot  = new THREE.MeshStandardMaterial({ color: 0x120c04, roughness: 0.88 });
+
+  const mk = (geo, mat, px, py, pz, rx = 0, ry = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(px, py, pz);
+    m.rotation.set(rx, ry, 0);
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  };
+
+  // Small log to sit on
+  mk(new THREE.CylinderGeometry(0.20, 0.22, 0.42, 9),
+     new THREE.MeshStandardMaterial({ color: 0x3a2008, roughness: 0.97 }),
+     0, 0.21, 0, 0, 0.5);
+
+  // Torso (seated, lower than standing)
+  mk(new THREE.BoxGeometry(0.40, 0.50, 0.22), shirt, 0, 0.60, 0);
+
+  // Head
+  mk(new THREE.SphereGeometry(0.16, 10, 8), skin, 0, 1.00, 0);
+
+  // Sombrero brim + crown
+  mk(new THREE.CylinderGeometry(0.30, 0.30, 0.04, 14), hat, 0, 1.17, 0);
+  mk(new THREE.CylinderGeometry(0.14, 0.18, 0.22, 14), hat, 0, 1.29, 0);
+
+  // Arms leaning forward toward fire
+  for (const sx of [-1, 1]) {
+    mk(new THREE.BoxGeometry(0.09, 0.34, 0.09), shirt, sx * 0.26, 0.66, 0.10, -0.65);
+  }
+
+  // Legs (seated — thighs horizontal, shins down)
+  for (const sx of [-1, 1]) {
+    mk(new THREE.BoxGeometry(0.13, 0.12, 0.32), pants, sx * 0.12, 0.38, 0.18, -0.20);
+    mk(new THREE.BoxGeometry(0.11, 0.26, 0.11), pants, sx * 0.12, 0.16, 0.38,  0.30);
+    mk(new THREE.BoxGeometry(0.12, 0.10, 0.22), boot,  sx * 0.12, 0.07, 0.50,  0);
+  }
+
+  return g;
+}
+
 export function createLandmarks(scene) {
   _scene = scene;
+
+  // ── NPC ────────────────────────────────────────────────────────────────────
+  const npc = _buildNPC();
+  npc.position.set(NPC_POSITION.x, 0, NPC_POSITION.z);
+  npc.rotation.y = -0.75; // faces roughly toward player spawn area
+  scene.add(npc);
 
   // Fixed fire at shack campfire position
   const fixedFire = _createFireEffect(9.0, 0.2, -72.9);

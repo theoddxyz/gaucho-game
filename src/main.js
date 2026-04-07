@@ -12,7 +12,7 @@ import { HorseManager } from './horses.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
-import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle } from './landmarks.js';
+import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
 
 // --- Crosshair follows mouse ---
@@ -74,6 +74,10 @@ let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
 const hoofprints = new HoofprintSystem(scene);
 
+// ─── NPC dialogue state ────────────────────────────────────────────────────────
+let _npcActive = false;   // dialogue panel is open
+let _npcDone   = false;   // player already completed dialogue this session
+
 // --- Network ---
 Network.connect();
 
@@ -105,6 +109,18 @@ Network.onJoined((data) => {
   Network.onPlayerDismountedHorse((d) => horseManager?.onRemoteDismount(d.horseId));
   Network.onHorsePositionUpdate((d) => {
     horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry, remotePlayers.get(d.riderId));
+  });
+
+  // NPC dialogue resolution
+  Network.onNpcResponse(({ type }) => {
+    const reply = type === 'templo'
+      ? '¿El templo Ror? Queda para el norte.'
+      : 'Si no sabes dónde ir… todos los caminos son el correcto.';
+    UI.showNPCResponse(reply, () => {
+      _npcActive = false;
+      _npcDone   = true;
+      if (type === 'templo') UI.showNorthCompass();
+    });
   });
 
   UI.showGame();
@@ -296,6 +312,22 @@ function gameLoop() {
     }
 
     UI.updateCoords(pos.x, pos.z);
+
+    // ── NPC proximity trigger ──────────────────────────────────────────────
+    if (!_npcDone && !_npcActive) {
+      const ndx = pos.x - NPC_POSITION.x;
+      const ndz = pos.z - NPC_POSITION.z;
+      if (ndx * ndx + ndz * ndz < 6 * 6) {
+        _npcActive = true;
+        UI.showNPCDialogue('¿Y ustedes? ¿Qué hace la gente de ciudad en un lugar tan lejano?');
+        setTimeout(() => {
+          UI.showNPCChoices((choice) => {
+            Network.sendNpcChoice(choice);
+            UI.showNPCWaiting();
+          });
+        }, 2200);
+      }
+    }
 
     sendTimer += dt;
     if (sendTimer >= SEND_RATE) {

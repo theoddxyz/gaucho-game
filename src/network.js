@@ -37,6 +37,9 @@ export function onPlayerMountedHorse(cb)   { socket.on('playerMountedHorse', cb)
 export function onPlayerDismountedHorse(cb){ socket.on('playerDismountedHorse', cb); }
 export function onHorsePositionUpdate(cb)  { socket.on('horsePositionUpdate', cb); }
 
+export function sendNpcChoice(choice) { socket.emit('npcChoice', { choice }); }
+export function onNpcResponse(cb)     { socket.on('npcResponse', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

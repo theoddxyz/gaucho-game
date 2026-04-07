@@ -38,6 +38,27 @@ function getRoom(roomId) {
 
 const COLORS = ['#ff4444', '#44aaff', '#44ff44', '#ffaa00', '#ff44ff', '#00ffcc', '#ffff44', '#aa44ff'];
 
+// NPC dialogue per room: voters = players present when first choice arrived
+// (new players who join mid-dialogue don't block resolution)
+const npcSessions = new Map();
+
+function _resolveNpc(roomId) {
+  const s = npcSessions.get(roomId);
+  if (!s) return;
+  const allTemplo = [...s.choices.values()].every(c => c === 1);
+  io.to(roomId).emit('npcResponse', { type: allTemplo ? 'templo' : 'normal' });
+  npcSessions.delete(roomId);
+}
+
+function _checkNpcResolution(roomId) {
+  const s = npcSessions.get(roomId);
+  if (!s || s.choices.size === 0) return;
+  const room = getRoom(roomId);
+  // All voters who are still connected must have answered
+  const pending = [...s.voters].filter(id => room.has(id) && !s.choices.has(id));
+  if (pending.length === 0) _resolveNpc(roomId);
+}
+
 function randomSpawn() {
   const spread = 12;
   return {
@@ -159,13 +180,32 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).volatile.emit('horsePositionUpdate', { ...data, riderId: socket.id });
   });
 
+  // ── NPC Dialogue ─────────────────────────────────────────────────────────────
+  socket.on('npcChoice', ({ choice }) => {
+    if (!currentRoom || !playerData || typeof choice !== 'number') return;
+    const room = getRoom(currentRoom);
+
+    // First choice in this room → lock in the voters (current players)
+    if (!npcSessions.has(currentRoom)) {
+      npcSessions.set(currentRoom, {
+        choices: new Map(),
+        voters:  new Set(room.keys()),
+      });
+    }
+    const s = npcSessions.get(currentRoom);
+    s.choices.set(socket.id, choice);
+    _checkNpcResolution(currentRoom);
+  });
+
   socket.on('disconnect', () => {
     if (currentRoom) {
       const room = getRoom(currentRoom);
       room.delete(socket.id);
       socket.to(currentRoom).emit('playerLeft', socket.id);
       console.log(`[${currentRoom}] Player left (${room.size} players)`);
-      if (room.size === 0) rooms.delete(currentRoom);
+      // A voter disconnected — re-check in case everyone remaining has already answered
+      _checkNpcResolution(currentRoom);
+      if (room.size === 0) { rooms.delete(currentRoom); npcSessions.delete(currentRoom); }
     }
   });
 });
