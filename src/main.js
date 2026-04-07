@@ -377,8 +377,8 @@ function gameLoop() {
 UI.onPlay(() => startGame(UI.getNameInput() || 'Gaucho'));
 
 if (Network.getRoomId()) {
-  document.getElementById('lobby').querySelector('.hint').textContent =
-    'Te uniste a una sala. Ingresa tu nombre y presiona JUGAR';
+  const hintEl = document.querySelector('.lobby-hint');
+  if (hintEl) hintEl.textContent = 'Te uniste a una sala. Ingresa tu nombre y presiona JUGAR';
 }
 
 gameLoop();
