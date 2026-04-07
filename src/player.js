@@ -59,22 +59,38 @@ export class PlayerModel {
     // Name label
     if (data.name) this._addNameLabel(data.name);
 
+    this._gun = null;
+    this._firepoint = null;
+
     // Load GLB model async, apply color tint
     loadTemplate().then((template) => {
       let model;
       if (template) {
         model = template.clone(true);
-        // Apply player color to body mesh
+        // Apply player color to body mesh; find gun/hat/firepoint nodes
         model.traverse((obj) => {
           if (obj.isMesh) {
             obj.castShadow = true;
             obj.material = obj.material.clone();
-            if (obj.name === 'body') {
-              obj.material.color.set(this.color);
-            }
+            if (obj.name === 'body') obj.material.color.set(this.color);
+          }
+          const n = obj.name.toLowerCase();
+          if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
+            this._gun = obj;
+            obj.visible = false; // hidden until aiming
+          }
+          if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) {
+            // Use the model's own hat instead of the procedural one
+            this.group.remove(this._hat);
+            if (this._hatFlying) this._scene.remove(this._hat);
+            this._hat = obj;
+            this._hatFlying = false;
+          }
+          if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
+            this._firepoint = obj;
           }
         });
-        // Collect hitboxes (body + head)
+        // Collect hitboxes
         model.traverse((obj) => {
           if (obj.isMesh && (obj.name === 'body' || obj.name === 'head')) {
             this._hitboxes.push(obj);
@@ -221,6 +237,17 @@ export class PlayerModel {
   setTarget(x, y, z, ry) {
     this.targetPos.set(x, y, z);
     this.targetRY = ry;
+  }
+
+  setAiming(isAiming) {
+    if (this._gun) this._gun.visible = isAiming;
+  }
+
+  getFirepointWorldPos() {
+    if (this._firepoint) {
+      return this._firepoint.getWorldPosition(new THREE.Vector3());
+    }
+    return null;
   }
 
   remove(scene) {

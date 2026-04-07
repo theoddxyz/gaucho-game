@@ -8,12 +8,12 @@ const BULLET_RANGE = 80;
 let lastShot = 0;
 const activeBullets = [];
 
-export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55) {
+export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55, explicitOrigin = null) {
   if (now - lastShot < COOLDOWN) return null;
   lastShot = now;
 
-  // Bullet starts at gun tip: forward offset + correct height
-  const origin = {
+  // Use firepoint node position if available, otherwise calculate
+  const origin = explicitOrigin || {
     x: playerPos.x + aimDirection.x * 0.8,
     y: gunY,
     z: playerPos.z + aimDirection.z * 0.8,

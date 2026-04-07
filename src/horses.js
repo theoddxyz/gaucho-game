@@ -54,10 +54,29 @@ export class HorseManager {
     const template = await loadTemplate();
     for (const spawn of HORSE_SPAWNS) {
       const mesh = template ? template.clone(true) : this._fallbackMesh();
+      if (template) this._setupLegPivots(mesh);
       mesh.position.set(spawn.x, 0, spawn.z);
       mesh.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       this.scene.add(mesh);
       this.horses.set(spawn.id, { mesh, riderId: null, x: spawn.x, z: spawn.z, walkTime: 0 });
+    }
+  }
+
+  // Create a pivot Group at each leg's hip so rotation.x gives natural leg swing
+  _setupLegPivots(horseMesh) {
+    for (const def of LEG_DEFS) {
+      const legMesh = horseMesh.getObjectByName(def.name);
+      if (!legMesh) continue;
+      const parent = legMesh.parent || horseMesh;
+      parent.remove(legMesh);
+
+      const pivot = new THREE.Group();
+      pivot.name = def.name + '_pivot';
+      pivot.position.set(def.hipX, HIP_Y, def.hipZ);
+      // Offset mesh so its top sits at pivot origin
+      legMesh.position.set(-def.hipX, -HIP_Y, -def.hipZ);
+      pivot.add(legMesh);
+      parent.add(pivot);
     }
   }
 
@@ -130,27 +149,13 @@ export class HorseManager {
    */
   _animateLegs(horse, moving) {
     for (const def of LEG_DEFS) {
-      const node = horse.mesh.getObjectByName(def.name);
-      if (!node) continue; // handle missing nodes gracefully
-
-      const t = horse.walkTime;
-      const angle = moving
-        ? Math.sin(WALK_FREQ * t + def.phase) * WALK_AMP
-        : 0; // when not moving keep angle at 0 (walkTime stopped incrementing)
-
-      const cosA = Math.cos(angle);
-      const sinA = Math.sin(angle);
-      const hz   = def.hipZ;
-
-      // Build column-major array for THREE.Matrix4
-      // THREE.Matrix4.set() takes row-major arguments
-      node.matrixAutoUpdate = false;
-      node.matrix.set(
-        1,    0,     0,    0,
-        0,    cosA, -sinA, HIP_Y * (1 - cosA) + hz * sinA,
-        0,    sinA,  cosA, hz * (1 - cosA) - HIP_Y * sinA,
-        0,    0,     0,    1
-      );
+      // Find the pivot group created in _setupLegPivots
+      const pivot = horse.mesh.getObjectByName(def.name + '_pivot');
+      if (!pivot) continue;
+      // Simple rotation around X axis from the pivot point
+      pivot.rotation.x = moving
+        ? Math.sin(WALK_FREQ * horse.walkTime + def.phase) * WALK_AMP
+        : 0;
     }
   }
 

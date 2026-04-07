@@ -163,14 +163,18 @@ Network.onPlayerRespawned((data) => {
   }
 });
 
-// --- Shooting (click) ---
+// --- Shooting (click — only when aiming with right-click) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
+  if (!controls.isAiming()) return; // must be aiming (right-click held) to shoot
   const pos = controls.getPosition();
   const dir = controls.getAimDirection();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
-  const gunY   = riderY + 0.55; // gun height above player group base
-  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY);
+  const gunY   = riderY + 0.55;
+  // Use firepoint node from model if available
+  const fp = localPlayerModel?.getFirepointWorldPos();
+  const explicitOrigin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
+  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, explicitOrigin);
   if (!result) return;
   muzzleFlash(scene, result.origin);
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
@@ -206,6 +210,7 @@ function gameLoop() {
     // Update local model (snap directly, no lerp lag)
     // Facing: mouse aim only when right-click held; otherwise movement direction
     const facingAngle = controls.isAiming() ? rot.y : controls.getMovementAngle();
+    localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
       const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
       localPlayerModel.group.position.set(pos.x, riderY, pos.z);

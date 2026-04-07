@@ -218,7 +218,7 @@ function buildBox(w, h, d) {
   const scene = doc.createScene('Scene');
 
   addMesh(doc, scene, buf, 'terrain',
-    buildPlane(200, 200, 20, 20),
+    buildPlane(400, 400, 40, 40),
     solidMat(doc, 'sand', 0.800, 0.643, 0.396)  // #cca465
   );
 

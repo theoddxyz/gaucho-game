@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 
 const SPEED = 10;
+const BOUND = 195; // half of 400×400 terrain
 
 export class IsoControls {
   constructor(camera) {
@@ -13,10 +14,15 @@ export class IsoControls {
     this.onEPress = null; // callback for E key
     this._lastMoveAngle = 0; // movement facing angle
     this._isAiming = false;  // right-click held = aim mode
+    this._camZoom = 1.0;     // scroll-to-zoom multiplier
 
     document.addEventListener('mousedown', (e) => { if (e.button === 2) this._isAiming = true; });
     document.addEventListener('mouseup',   (e) => { if (e.button === 2) this._isAiming = false; });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this._camZoom = Math.max(0.3, Math.min(2.5, this._camZoom + e.deltaY * 0.001));
+    }, { passive: false });
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.mouseNDC = new THREE.Vector2();
@@ -54,7 +60,6 @@ export class IsoControls {
     this.position.z += dir.z * SPEED * speedMult * dt;
 
     // World boundary
-    const BOUND = 95;
     this.position.x = Math.max(-BOUND, Math.min(BOUND, this.position.x));
     this.position.z = Math.max(-BOUND, Math.min(BOUND, this.position.z));
 
@@ -89,8 +94,8 @@ export class IsoControls {
       );
     }
 
-    // --- Camera follows player ---
-    const camOffset = new THREE.Vector3(20, 25, 20); // isometric offset
+    // --- Camera follows player (zoomable) ---
+    const camOffset = new THREE.Vector3(20, 25, 20).multiplyScalar(this._camZoom);
     this.camera.position.copy(this.position).add(camOffset);
     this.camera.lookAt(this.position.x, 0, this.position.z);
   }
