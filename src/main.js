@@ -193,10 +193,11 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
   const dt = Math.min(clock.getDelta(), 0.1);
 
+  let pos = null;
   if (!isDead && myId) {
     controls.update(dt, colliders, horseManager?.speedMultiplier(controls.isSprinting()) ?? (controls.isSprinting() ? 1.9 : 1.0));
 
-    const pos = controls.getPosition();
+    pos = controls.getPosition();
     const rot = controls.getRotation();
 
     // Chunk streaming
