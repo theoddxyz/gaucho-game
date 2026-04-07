@@ -76,7 +76,10 @@ Network.onJoined((data) => {
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '' });
 
   horseManager = new HorseManager(scene, Network);
-  controls.onEPress = () => horseManager?.tryMount(myId);
+  controls.onEPress = () => {
+    const land = horseManager?.tryMount(myId);
+    if (land) controls.setPosition(land.x, 0, land.z); // teleport controls to landing spot
+  };
 
   Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
   Network.onPlayerDismountedHorse((d) => horseManager?.onRemoteDismount(d.horseId));
@@ -205,8 +208,16 @@ function gameLoop() {
     const facingAngle = controls.isAiming() ? rot.y : controls.getMovementAngle();
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
-      const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
-      localPlayerModel.group.position.set(pos.x, riderY, pos.z);
+      // Y: use jump animation during mount/dismount, otherwise static height
+      const animY  = horseManager?.getAnimY();
+      const riderY = animY ?? (horseManager?.isMounted() ? 2.5 : pos.y);
+
+      // XZ: during dismount, visually arc from horse center to landing spot
+      const dismountXZ = horseManager?.getDismountModelPos(pos);
+      const modelX = dismountXZ ? dismountXZ.x : pos.x;
+      const modelZ = dismountXZ ? dismountXZ.z : pos.z;
+
+      localPlayerModel.group.position.set(modelX, riderY, modelZ);
       localPlayerModel.group.rotation.y = facingAngle;
     }
 
