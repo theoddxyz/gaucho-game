@@ -101,10 +101,10 @@ const TERRAIN_MAT = new THREE.MeshStandardMaterial({ roughness: 0.92, vertexColo
 // ─── Shared pebble geometry + material palette ────────────────────────────────
 // Slightly varied earth tones close to #cca465
 const PEBBLE_GEOS = [
-  new THREE.SphereGeometry(0.15, 6, 4),
-  new THREE.SphereGeometry(0.24, 6, 4),
-  new THREE.SphereGeometry(0.34, 7, 4),
-  new THREE.SphereGeometry(0.44, 7, 5),
+  new THREE.BoxGeometry(0.20, 0.08, 0.20),
+  new THREE.BoxGeometry(0.30, 0.10, 0.30),
+  new THREE.BoxGeometry(0.40, 0.12, 0.40),
+  new THREE.BoxGeometry(0.52, 0.14, 0.52),
 ];
 const PEBBLE_MATS = [
   new THREE.MeshStandardMaterial({ color: 0xcaa050, roughness: 0.97 }),

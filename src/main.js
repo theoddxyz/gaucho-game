@@ -12,7 +12,7 @@ import { HorseManager } from './horses.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
-import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, NPC_POSITION } from './landmarks.js';
+import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
 
 // --- Crosshair follows mouse ---
@@ -110,6 +110,9 @@ Network.onJoined((data) => {
   Network.onHorsePositionUpdate((d) => {
     horseManager?.onRemoteHorseMoved(d.horseId, d.x, d.z, d.ry, remotePlayers.get(d.riderId));
   });
+
+  // Remote bottle hits
+  Network.onBottleHit(({ key, dir }) => hitBottleByKey(key, dir));
 
   // NPC dialogue resolution
   Network.onNpcResponse(({ type }) => {
@@ -236,7 +239,11 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       const lateralDist = Math.sqrt((bWP.x - nearX) ** 2 + (bWP.z - nearZ) ** 2);
       if (lateralDist < 1.5 && proj < closestT) { closest = bMesh; closestT = proj; }
     }
-    if (closest) hitBottle(closest, result.direction);
+    if (closest) {
+      hitBottle(closest, result.direction);
+      const key = getBottleKey(closest);
+      if (key) Network.sendBottleHit(key, result.direction);
+    }
   }
 });
 

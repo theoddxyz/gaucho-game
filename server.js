@@ -180,6 +180,11 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).volatile.emit('horsePositionUpdate', { ...data, riderId: socket.id });
   });
 
+  socket.on('bottleHit', (data) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('bottleHit', data);
+  });
+
   // ── NPC Dialogue ─────────────────────────────────────────────────────────────
   socket.on('npcChoice', ({ choice }) => {
     if (!currentRoom || !playerData || typeof choice !== 'number') return;

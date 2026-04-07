@@ -13,9 +13,9 @@ const _printMat = new THREE.MeshBasicMaterial({
   side: THREE.DoubleSide,
 });
 
-// Shared geometry: oval hoof shape
+// Shared geometry: square voxel hoof print
 const _printGeo = (() => {
-  const g = new THREE.CircleGeometry(0.18, 8);
+  const g = new THREE.PlaneGeometry(0.28, 0.22);
   g.rotateX(-Math.PI / 2);
   return g;
 })();
@@ -91,7 +91,7 @@ export class HoofprintSystem {
     const mat  = _printMat.clone();
     mat.opacity = 0;
     const mesh = new THREE.Mesh(_printGeo, mat);
-    mesh.scale.set(1, 1, 1.6);              // elongate in movement direction
+    mesh.scale.set(1, 1, 1);                // square voxel print — no elongation
     mesh.position.set(hx + ox, 0.02, hz + oz);
     mesh.rotation.y = angle;
     this.scene.add(mesh);

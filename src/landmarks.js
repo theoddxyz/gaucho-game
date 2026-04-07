@@ -118,6 +118,15 @@ export function getBottleMeshes() {
   return _bottles.filter(b => !b.fallen).map(b => b.mesh);
 }
 
+export function getBottleKey(mesh) {
+  return _bottles.find(b => b.mesh === mesh)?.key ?? null;
+}
+
+export function hitBottleByKey(key, aimDir) {
+  const b = _bottles.find(b => b.key === key);
+  if (b && !b.falling && !b.fallen) hitBottle(b.mesh, aimDir);
+}
+
 export function hitBottle(mesh, aimDir) {
   const b = _bottles.find(b => b.mesh === mesh);
   if (!b || b.falling || b.fallen) return;
@@ -314,7 +323,10 @@ function loadAt(url, scene, x, y, z, ry = 0, scale = 1) {
 
       // Shootable bottles — detect BEFORE isMesh check so multi-primitive Groups are caught
       if (/botel|bottle/i.test(nm) && !_bottles.some(b => b.mesh === o)) {
-        _bottles.push({ mesh: o, falling: false, fallen: false, t: 0,
+        const wp = new THREE.Vector3();
+        o.getWorldPosition(wp);
+        const key = `${wp.x.toFixed(1)}_${wp.z.toFixed(1)}`;
+        _bottles.push({ mesh: o, key, falling: false, fallen: false, t: 0,
                         startPos: o.position.clone(), startQuat: o.quaternion.clone(),
                         rotAxis: new THREE.Vector3(1, 0, 0) });
       }

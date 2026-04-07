@@ -40,6 +40,9 @@ export function onHorsePositionUpdate(cb)  { socket.on('horsePositionUpdate', cb
 export function sendNpcChoice(choice) { socket.emit('npcChoice', { choice }); }
 export function onNpcResponse(cb)     { socket.on('npcResponse', cb); }
 
+export function sendBottleHit(key, dir) { socket.emit('bottleHit', { key, dir }); }
+export function onBottleHit(cb)         { socket.on('bottleHit', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;
