@@ -8,7 +8,7 @@ import { HorseManager } from './horses.js';
 import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
-import { createLandmarks } from './landmarks.js';
+import { createLandmarks, updateLandmarkEffects } from './landmarks.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -207,7 +207,13 @@ function gameLoop() {
     // Horse sync
     if (horseManager) {
       horseManager.update(pos, dt);
-      if (horseManager.isMounted()) {
+
+      // When mount animation finishes, snap controls to horse so camera follows
+      const mountLand = horseManager.consumeMountLand();
+      if (mountLand) controls.setPosition(mountLand.x, 0, mountLand.z);
+
+      if (horseManager.isMounted() && !horseManager.isMountAnimating()) {
+        // Only drive horse position after mount arc completes
         const moveAngle  = controls.getMovementAngle();
         const sprinting  = controls.isSprinting();
         horseManager.syncRiderPosition(pos.x, pos.z, moveAngle, pos.y, sprinting);
@@ -255,6 +261,7 @@ function gameLoop() {
 
   for (const [, pm] of remotePlayers) pm.update(dt);
   localPlayerModel?.updateHat(dt);
+  updateLandmarkEffects(dt);
   updateBullets(scene, dt);
   renderer.render(scene, camera);
 }

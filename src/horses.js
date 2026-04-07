@@ -103,6 +103,7 @@ export class HorseManager {
     this._mountPrompt = this._createPrompt();
     this._nearestHorseId = null;
     this._anim = null;
+    this._mountLandPos = null;
     this._init();
   }
 
@@ -149,11 +150,27 @@ export class HorseManager {
     return el;
   }
 
+  isMountAnimating() { return this._anim?.type === 'mount'; }
+
+  /** Returns { x, z } once when mount animation just finished so controls can snap there. */
+  consumeMountLand() {
+    const p = this._mountLandPos;
+    this._mountLandPos = null;
+    return p;
+  }
+
   update(playerPos, dt) {
     // Tick mount/dismount animation
     if (this._anim) {
       this._anim.t += dt / this._anim.dur;
-      if (this._anim.t >= 1) { this._anim.t = 1; this._anim = null; }
+      if (this._anim.t >= 1) {
+        this._anim.t = 1;
+        if (this._anim.type === 'mount') {
+          // Signal main.js to snap controls to horse position
+          this._mountLandPos = { x: this._anim.toX, z: this._anim.toZ };
+        }
+        this._anim = null;
+      }
     }
 
     for (const [, horse] of this.horses) {
