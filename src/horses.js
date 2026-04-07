@@ -78,17 +78,17 @@ function wrapInPivot(legObj) {
   return pivot;
 }
 
-// ─── Find & wrap leg objects ─────────────────────────────────────────────────
+// ─── Find & wrap leg objects, assign anatomically correct walk phases ─────────
+// Natural 4-beat lateral walk sequence:
+//   BL=0, FL=π/2, BR=π, FR=3π/2  (each leg offset by ¼ cycle from the next)
 function findLegs(horseMesh) {
   const all = [];
   horseMesh.traverse(o => { if (o !== horseMesh) all.push(o); });
-  console.log('[GAUCHO] All horse nodes:', all.map(o => `${o.type}:"${o.name}"`).join(' | '));
 
   const named = all.filter(o => LEG_PATTERN.test(o.name));
   let sources = named.length >= 2 ? named.slice(0, 4) : null;
 
   if (!sources) {
-    console.warn('[GAUCHO] No named legs — position fallback.');
     const meshes = [];
     horseMesh.traverse(o => { if (o.isMesh && !SKIP_PATTERN.test(o.name)) meshes.push(o); });
     meshes.sort((a, b) => {
@@ -99,10 +99,40 @@ function findLegs(horseMesh) {
     sources = meshes.slice(0, 4);
   }
 
-  const PHASES = [0, Math.PI, Math.PI, 0];
-  return sources.map((obj, i) => ({
+  if (sources.length < 2) return [];
+
+  // Tag each leg with its local-space XZ position to sort into FL/BL/FR/BR
+  const _wp  = new THREE.Vector3();
+  const tagged = sources.map(obj => {
+    obj.getWorldPosition(_wp);
+    const lp = _wp.clone();
+    horseMesh.worldToLocal(lp);
+    return { obj, x: lp.x, z: lp.z };
+  });
+
+  // Split left (neg X) / right (pos X), sort each side front-to-back by Z
+  // Horse faces +Z in local space (rotation.y + PI applied at runtime), so higher Z = front
+  tagged.sort((a, b) => a.x - b.x);
+  const half  = Math.floor(tagged.length / 2);
+  const left  = tagged.slice(0, half).sort((a, b) => b.z - a.z); // desc Z → front first
+  const right = tagged.slice(half).sort((a, b)  => b.z - a.z);
+
+  // Assign: FL=π/2, BL=0, FR=3π/2, BR=π
+  const ordered = [
+    { obj: left[0]?.obj,  phase: Math.PI * 0.5 },  // Front-Left
+    { obj: left[1]?.obj,  phase: 0              },  // Back-Left
+    { obj: right[0]?.obj, phase: Math.PI * 1.5  },  // Front-Right
+    { obj: right[1]?.obj, phase: Math.PI        },  // Back-Right
+  ].filter(l => l.obj);
+
+  // Fallback: evenly-spaced phases (still a 4-beat walk, just anatomically arbitrary)
+  const final = ordered.length === sources.length
+    ? ordered
+    : sources.map((obj, i) => ({ obj, phase: (Math.PI * 2 * i) / sources.length }));
+
+  return final.map(({ obj, phase }) => ({
     pivot: wrapInPivot(obj),
-    phase: PHASES[i] ?? (i % 2) * Math.PI,
+    phase,
   }));
 }
 
