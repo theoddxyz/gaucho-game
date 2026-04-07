@@ -32,6 +32,137 @@ if (IS_PROD) {
 const rooms         = new Map();
 const corralledCows = new Map();   // roomId → Set<cowId>
 
+// ─── Bot system ───────────────────────────────────────────────────────────────
+const BOT_SPEED          = 3.2;              // units/sec
+const BOT_SHOOT_RANGE    = 32;               // units
+const BOT_SHOOT_COOLDOWN = 1.5;              // seconds between shots
+const BOT_WAVE_INTERVAL  = 3 * 60 * 1000;   // 3 minutes
+const BOT_DT             = 0.10;             // server tick (10 Hz)
+const BOT_COLORS         = ['#cc2211','#cc3300','#aa1100','#dd2200','#bb1100'];
+let   _botSeq            = 0;
+
+const botWaveStates = new Map();   // roomId → { nextWave: timestamp }
+
+function _spawnBotWave(roomId) {
+  const room   = getRoom(roomId);
+  const humans = [...room.values()].filter(p => !p.isBot && p.hp > 0);
+  if (humans.length === 0) return;
+
+  const n      = 3 + Math.floor(Math.random() * 5);   // 3–7 bots
+  const anchor = humans[Math.floor(Math.random() * humans.length)];
+
+  for (let i = 0; i < n; i++) {
+    const botId = `bot_${++_botSeq}`;
+    const angle = (Math.PI * 2 / n) * i + (Math.random() - 0.5) * 0.6;
+    const dist  = 55 + Math.random() * 35;
+    const bot = {
+      id:    botId,
+      name:  'ENEMIGO',
+      color: BOT_COLORS[i % BOT_COLORS.length],
+      x:     (anchor.x ?? 0) + Math.cos(angle) * dist,
+      y:     0,
+      z:     (anchor.z ?? 0) + Math.sin(angle) * dist,
+      rx: 0, ry: 0,
+      hp:     100,
+      kills:  0,
+      deaths: 0,
+      isBot:  true,
+      _shootTimer: BOT_SHOOT_COOLDOWN * Math.random(),
+    };
+    room.set(botId, bot);
+    io.to(roomId).emit('playerJoined', bot);
+  }
+  console.log(`[${roomId}] Bot wave: ${n} enemigos`);
+}
+
+// Bot AI tick — runs every 100 ms
+setInterval(() => {
+  for (const [roomId, room] of rooms) {
+    const bots   = [...room.values()].filter(p => p.isBot  && p.hp > 0);
+    const humans = [...room.values()].filter(p => !p.isBot && p.hp > 0);
+    if (bots.length === 0 || humans.length === 0) continue;
+
+    for (const bot of bots) {
+      // Find nearest living human
+      let target = null, nearestD = Infinity;
+      for (const h of humans) {
+        const d = Math.hypot(h.x - bot.x, h.z - bot.z);
+        if (d < nearestD) { nearestD = d; target = h; }
+      }
+      if (!target) continue;
+
+      const dx = target.x - bot.x, dz = target.z - bot.z;
+
+      // Move toward target, stop at 5 units
+      if (nearestD > 5) {
+        const step = BOT_SPEED * BOT_DT / nearestD;
+        bot.x += dx * step;
+        bot.z += dz * step;
+      }
+      bot.ry = Math.atan2(dx, dz);
+
+      // Shoot
+      bot._shootTimer -= BOT_DT;
+      if (bot._shootTimer <= 0 && nearestD <= BOT_SHOOT_RANGE) {
+        bot._shootTimer = BOT_SHOOT_COOLDOWN + (Math.random() - 0.5) * 0.5;
+
+        const origin    = { x: bot.x, y: 1.4, z: bot.z };
+        const direction = { x: dx / nearestD, y: 0, z: dz / nearestD };
+
+        // Visual: muzzle flash + bullet for all clients
+        io.to(roomId).emit('playerShot', { id: bot.id, origin, direction });
+
+        target.hp -= 25;
+        if (target.hp <= 0) {
+          target.hp = 0;
+          target.deaths += 1;
+          bot.kills += 1;
+          io.to(roomId).emit('playerKilled', {
+            killerId:     bot.id,
+            killerName:   bot.name,
+            killerKills:  bot.kills,
+            victimId:     target.id,
+            victimName:   target.name,
+            victimDeaths: target.deaths,
+          });
+          // Respawn human after 2s
+          setTimeout(() => {
+            if (room.has(target.id)) {
+              const sp = randomSpawn();
+              target.hp = 100; target.x = sp.x; target.y = sp.y; target.z = sp.z;
+              io.to(roomId).emit('playerRespawned', { id: target.id, ...target });
+            }
+          }, 2000);
+        } else {
+          io.to(roomId).emit('playerHit', { id: target.id, hp: target.hp, attackerId: bot.id });
+        }
+      }
+
+      // Broadcast bot position to all clients
+      io.to(roomId).volatile.emit('playerMoved', {
+        id: bot.id, x: bot.x, y: 0, z: bot.z, rx: 0, ry: bot.ry,
+      });
+    }
+  }
+}, BOT_DT * 1000);
+
+// Wave spawner — checks every 30 s if it's time for a new wave
+setInterval(() => {
+  for (const [roomId, room] of rooms) {
+    const humans = [...room.values()].filter(p => !p.isBot);
+    if (humans.length === 0) continue;
+    if (!botWaveStates.has(roomId)) {
+      botWaveStates.set(roomId, { nextWave: Date.now() + BOT_WAVE_INTERVAL });
+      continue;
+    }
+    const state = botWaveStates.get(roomId);
+    if (Date.now() >= state.nextWave) {
+      _spawnBotWave(roomId);
+      state.nextWave = Date.now() + BOT_WAVE_INTERVAL;
+    }
+  }
+}, 30_000);
+
 function getRoom(roomId) {
   if (!rooms.has(roomId)) rooms.set(roomId, new Map());
   return rooms.get(roomId);
@@ -137,23 +268,34 @@ io.on('connection', (socket) => {
           target.deaths += 1;
           playerData.kills += 1;
 
-          setTimeout(() => {
-            if (room.has(data.hitId)) {
-              const spawn = randomSpawn();
-              target.hp = 100;
-              target.x = spawn.x;
-              target.y = spawn.y;
-              target.z = spawn.z;
-              io.to(currentRoom).emit('playerRespawned', { id: data.hitId, ...target });
-            }
-          }, 2000);
+          if (target.isBot) {
+            // Bots don't respawn — remove from room after short death pause
+            setTimeout(() => {
+              if (room.has(data.hitId)) {
+                room.delete(data.hitId);
+                io.to(currentRoom).emit('playerLeft', data.hitId);
+              }
+            }, 1200);
+          } else {
+            // Human player respawn
+            setTimeout(() => {
+              if (room.has(data.hitId)) {
+                const spawn = randomSpawn();
+                target.hp = 100;
+                target.x = spawn.x;
+                target.y = spawn.y;
+                target.z = spawn.z;
+                io.to(currentRoom).emit('playerRespawned', { id: data.hitId, ...target });
+              }
+            }, 2000);
+          }
 
           io.to(currentRoom).emit('playerKilled', {
-            killerId: socket.id,
-            killerName: playerData.name,
-            killerKills: playerData.kills,
-            victimId: data.hitId,
-            victimName: target.name,
+            killerId:     socket.id,
+            killerName:   playerData.name,
+            killerKills:  playerData.kills,
+            victimId:     data.hitId,
+            victimName:   target.name,
             victimDeaths: target.deaths,
           });
         } else {
@@ -227,6 +369,19 @@ io.on('connection', (socket) => {
       console.log(`[${currentRoom}] Player left (${room.size} players)`);
       // A voter disconnected — re-check in case everyone remaining has already answered
       _checkNpcResolution(currentRoom);
+
+      // If no human players remain, evict all bots and reset wave timer
+      const humansLeft = [...room.values()].filter(p => !p.isBot).length;
+      if (humansLeft === 0) {
+        for (const [bid, p] of [...room]) {
+          if (p.isBot) {
+            room.delete(bid);
+            socket.to(currentRoom).emit('playerLeft', bid);
+          }
+        }
+        botWaveStates.delete(currentRoom);
+      }
+
       if (room.size === 0) {
         rooms.delete(currentRoom);
         npcSessions.delete(currentRoom);

@@ -4,8 +4,16 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
 let playerTemplate = null;
+let botTemplate    = null;
 
-function loadTemplate() {
+function loadTemplate(isBot = false) {
+  if (isBot) {
+    if (botTemplate) return botTemplate;
+    botTemplate = new Promise(resolve =>
+      loader.load('/models/bot.glb', g => resolve(g.scene), undefined, () => resolve(null))
+    );
+    return botTemplate;
+  }
   if (playerTemplate) return playerTemplate;
   playerTemplate = new Promise((resolve) => {
     loader.load('/models/player.glb', (gltf) => resolve(gltf.scene), undefined, () => {
@@ -62,7 +70,7 @@ export class PlayerModel {
     this._gunRestPos = null; // local position stored once gun is found
 
     // Load GLB model async, apply color tint
-    loadTemplate().then((template) => {
+    loadTemplate(!!data.isBot).then((template) => {
       let model;
       if (template) {
         model = template.clone(true);

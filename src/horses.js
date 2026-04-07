@@ -193,13 +193,30 @@ export class HorseManager {
       this.scene.add(mesh);
       mesh.updateWorldMatrix(true, true);
 
-      // Find head & neck nodes for nod animation
-      let headNode = null, neckNode = null;
+      // Find head, neck and crin (mane) nodes
+      let headNode = null, neckNode = null, crinNode = null;
       mesh.traverse(o => {
         const n = o.name.toLowerCase();
-        if (!headNode && /head|cabeza/.test(n)) headNode = o;
-        if (!neckNode && /neck|cuello/.test(n)) neckNode = o;
+        if (!headNode && /head|cabeza/.test(n))               headNode = o;
+        if (!neckNode && /neck|cuello/.test(n))               neckNode = o;
+        if (!crinNode && /crin|mane|cube\.012/i.test(o.name)) crinNode = o;
       });
+
+      // Re-parent crin to headNode — it will then nod & rotate with the head
+      if (crinNode && headNode && crinNode.parent) {
+        crinNode.updateWorldMatrix(true, false);
+        const cWP = new THREE.Vector3();
+        const cWQ = new THREE.Quaternion();
+        const cWS = new THREE.Vector3();
+        crinNode.matrixWorld.decompose(cWP, cWQ, cWS);
+        crinNode.removeFromParent();
+        headNode.add(crinNode);
+        headNode.updateWorldMatrix(true, false);
+        const headInv = new THREE.Matrix4().copy(headNode.matrixWorld).invert();
+        const crinMat = new THREE.Matrix4().compose(cWP, cWQ, cWS);
+        crinMat.premultiply(headInv);
+        crinMat.decompose(crinNode.position, crinNode.quaternion, crinNode.scale);
+      }
 
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
