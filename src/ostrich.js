@@ -154,11 +154,8 @@ export class OstrichSystem {
 
       // ── Respawn counter ───────────────────────────────────────────────────
       if (e.dead) {
-        e.churrascos = this._tickChurrascos(e, dt, playerPos, pickup);
-        if (!pickup) {
-          // check if any churrasco was picked up this frame
-          // (already handled inside _tickChurrascos via return value)
-        }
+        const p = this._tickChurrascos(e, dt, playerPos, pickup);
+        if (p && !pickup) pickup = p;
         e.respawnTimer -= dt;
         if (e.respawnTimer <= 0) {
           this._respawn(i);
@@ -172,8 +169,11 @@ export class OstrichSystem {
         e.mesh.rotation.z = Math.min(Math.PI / 2, e.dyingT * 4.0);
         e.mesh.position.y = Math.max(-0.3, -e.dyingT * 0.6);
         if (e.dyingT >= 1.4) {
+          // Guardar posición antes de anular el mesh
+          e.lastX = e.mesh.position.x;
+          e.lastZ = e.mesh.position.z;
           this._scene.remove(e.mesh);
-          e.mesh = null;
+          e.mesh  = null;
           e.dead  = true;
           e.dying = false;
           e.respawnTimer = RESPAWN_DELAY;
