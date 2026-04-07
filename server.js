@@ -29,7 +29,8 @@ if (IS_PROD) {
 }
 
 // --- Game state ---
-const rooms = new Map();
+const rooms         = new Map();
+const corralledCows = new Map();   // roomId → Set<cowId>
 
 function getRoom(roomId) {
   if (!rooms.has(roomId)) rooms.set(roomId, new Map());
@@ -97,6 +98,7 @@ io.on('connection', (socket) => {
       self: playerData,
       players: Object.fromEntries(room),
       roomId: currentRoom,
+      corralledCows: [...(corralledCows.get(currentRoom) ?? [])],
     });
 
     socket.to(currentRoom).emit('playerJoined', playerData);
@@ -190,6 +192,16 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('ostrichKill');
   });
 
+  socket.on('cowCorralled', ({ id }) => {
+    if (!currentRoom || typeof id !== 'number' || id < 0 || id >= 33) return;
+    if (!corralledCows.has(currentRoom)) corralledCows.set(currentRoom, new Set());
+    const set = corralledCows.get(currentRoom);
+    if (set.has(id)) return;                            // already counted
+    set.add(id);
+    io.to(currentRoom).emit('cowCorralled', { id, total: set.size });
+    console.log(`[${currentRoom}] Vaca ${id} corralada (${set.size}/33)`);
+  });
+
   // ── NPC Dialogue ─────────────────────────────────────────────────────────────
   socket.on('npcChoice', ({ choice }) => {
     if (!currentRoom || !playerData || typeof choice !== 'number') return;
@@ -215,7 +227,11 @@ io.on('connection', (socket) => {
       console.log(`[${currentRoom}] Player left (${room.size} players)`);
       // A voter disconnected — re-check in case everyone remaining has already answered
       _checkNpcResolution(currentRoom);
-      if (room.size === 0) { rooms.delete(currentRoom); npcSessions.delete(currentRoom); }
+      if (room.size === 0) {
+        rooms.delete(currentRoom);
+        npcSessions.delete(currentRoom);
+        corralledCows.delete(currentRoom);
+      }
     }
   });
 });

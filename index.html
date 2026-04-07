@@ -124,6 +124,16 @@
     #players-count {
       font-size: 10px; color: #50401a; margin-top: 2px;
     }
+    #corral-count {
+      font-size: 11px; color: #7a6030; margin-top: 4px; letter-spacing: 1px;
+    }
+    #stable-waypoint {
+      font-size: 10px; color: #50401a; margin-top: 2px;
+      letter-spacing: 1px; display: none;
+    }
+    #stable-waypoint .wp-arrow {
+      display: inline-block; color: #c8a050; margin-right: 3px;
+    }
 
     /* ── Kill feed (top-left) ──────────────────────────────────────────────── */
     #killfeed {
@@ -278,6 +288,8 @@
     <div id="game-time">--:--</div>
     <div id="score-kd">K:0  M:0</div>
     <div id="players-count">1 online</div>
+    <div id="corral-count">VACAS: 0/33</div>
+    <div id="stable-waypoint"><span class="wp-arrow">↑</span><span class="wp-info"></span></div>
   </div>
 
   <!-- Kill feed: top-left -->

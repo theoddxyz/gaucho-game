@@ -304,6 +304,42 @@ export function hideNPCDialogue() {
   if (_dlg) { _dlg.remove(); _dlg = null; }
 }
 
+// ─── Corral counter ───────────────────────────────────────────────────────────
+export function updateCorralCount(n, total = 33) {
+  const el = document.getElementById('corral-count');
+  if (!el) return;
+  el.textContent = `VACAS: ${n}/${total}`;
+  el.style.color = n === total ? '#44cc44' : '#7a6030';
+}
+
+// ─── Stable waypoint ──────────────────────────────────────────────────────────
+const _STABLE_X = 1000, _STABLE_Z = 1000;
+const _WP_ARROWS = ['↑','↗','→','↘','↓','↙','←','↖'];
+
+export function updateStableWaypoint(px, pz) {
+  const el = document.getElementById('stable-waypoint');
+  if (!el) return;
+
+  const dx = _STABLE_X - px, dz = _STABLE_Z - pz;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+
+  if (dist < 20) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+
+  // World angle: +x=east, +z=south. atan2(dx, dz)=0 when due south (toward +z)
+  // We want 0=north so flip: atan2(dx, -dz)
+  const angle = Math.atan2(dx, -dz) * 180 / Math.PI;
+  const idx   = Math.round(((angle % 360) + 360) % 360 / 45) % 8;
+  const arrow = _WP_ARROWS[idx];
+
+  const distStr = dist > 999 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`;
+
+  const arrowEl = el.querySelector('.wp-arrow');
+  const infoEl  = el.querySelector('.wp-info');
+  if (arrowEl) arrowEl.textContent = arrow;
+  if (infoEl)  infoEl.textContent  = `ESTABLO ${distStr}`;
+}
+
 // ─── North Compass ────────────────────────────────────────────────────────────
 export function showNorthCompass() {
   if (_compass) return;

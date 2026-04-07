@@ -17,6 +17,7 @@ import { HoofprintSystem } from './hoofprints.js';
 import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight } from './daynight.js';
 import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
 import { OstrichSystem } from './ostrich.js';
+import { CowSystem } from './cows.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -83,6 +84,9 @@ let _facingAngle = 0;
 // Avestruz
 const ostrichSystem = new OstrichSystem(scene);
 
+// Vacas
+let cowSystem = null;
+
 // ─── NPC dialogue state ────────────────────────────────────────────────────────
 let _npcActive = false;   // dialogue panel is open
 let _npcDone   = false;   // player already completed dialogue this session
@@ -125,6 +129,16 @@ Network.onJoined((data) => {
 
   // Avestruz sincronizada
   Network.onOstrichKill(() => ostrichSystem.kill());
+
+  // Vacas — init with already-corralled state from server
+  cowSystem = new CowSystem(scene);
+  for (const id of (data.corralledCows ?? [])) cowSystem.corrall(id);
+  UI.updateCorralCount(cowSystem.getCorralled());
+
+  Network.onCowCorralled(({ id, total }) => {
+    cowSystem?.corrall(id);
+    UI.updateCorralCount(cowSystem?.getCorralled() ?? total);
+  });
 
   // NPC dialogue resolution
   Network.onNpcResponse(({ type }) => {
@@ -394,6 +408,21 @@ function gameLoop() {
     myData.hp = Math.min(100, myData.hp + pickup.hp);
     UI.updateHP(myData.hp);
     UI.showEatEffect();
+  }
+
+  // ── Vacas ─────────────────────────────────────────────────────────────────
+  if (cowSystem && myId && !isDead && pos) {
+    // Collect all player positions for flee detection
+    const playerPositions = [{ x: pos.x, z: pos.z }];
+    for (const [, pm] of remotePlayers) {
+      playerPositions.push({ x: pm.group.position.x, z: pm.group.position.z });
+    }
+    const newlyCorralled = cowSystem.update(dt, playerPositions);
+    for (const id of newlyCorralled) {
+      cowSystem.corrall(id);
+      Network.sendCowCorralled(id);
+    }
+    UI.updateStableWaypoint(pos.x, pos.z);
   }
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────

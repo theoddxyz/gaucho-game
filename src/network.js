@@ -46,6 +46,9 @@ export function onBottleHit(cb)         { socket.on('bottleHit', cb); }
 export function sendOstrichKill() { socket.emit('ostrichKill'); }
 export function onOstrichKill(cb) { socket.on('ostrichKill', cb); }
 
+export function sendCowCorralled(id) { socket.emit('cowCorralled', { id }); }
+export function onCowCorralled(cb)   { socket.on('cowCorralled', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

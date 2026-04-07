@@ -1,0 +1,220 @@
+// --- Cow Herding System ---
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+export const STABLE_X    = 1000;
+export const STABLE_Z    = 1000;
+const CORRAL_RADIUS      = 15;
+
+const SPAWN_X   = 3.8;
+const SPAWN_Z   = -69;
+const N_COWS    = 33;
+
+const WALK_SPEED  = 1.0;
+const FLEE_SPEED  = 4.2;
+const FLEE_RADIUS = 7;
+
+// ─── Shared materials (5 palettes × 3 mats = 15 total) ───────────────────────
+const PALETTES = [
+  { body: 0x5c2e0a, spot: 0xf0ece0, horn: 0xd4c090 },
+  { body: 0x181008, spot: 0xe8e0d0, horn: 0xc8b870 },
+  { body: 0x7a3d18, spot: 0xfff4e8, horn: 0xd0c080 },
+  { body: 0x3d2010, spot: 0xd8c8b0, horn: 0xc4b060 },
+  { body: 0x8b4513, spot: 0xfcf8ee, horn: 0xd8c890 },
+];
+const MATS = PALETTES.map(p => ({
+  B: new THREE.MeshStandardMaterial({ color: p.body, roughness: 0.93 }),
+  S: new THREE.MeshStandardMaterial({ color: p.spot, roughness: 0.90 }),
+  H: new THREE.MeshStandardMaterial({ color: p.horn, roughness: 0.80 }),
+}));
+
+// ─── Seeded PRNG ──────────────────────────────────────────────────────────────
+function _rng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+// ─── Build a single cow mesh (3 draw calls: body / spot / horn) ───────────────
+function buildCow(rng) {
+  const palIdx = Math.floor(rng() * PALETTES.length);
+  const mat    = MATS[palIdx];
+
+  const bodyG = [], spotG = [], hornG = [];
+
+  const b = (arr, w, h, d, x, y, z) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    arr.push(g);
+  };
+
+  // ─ Body
+  b(bodyG, 1.55, 0.82, 0.68,  0.00, 0.92,  0.00);   // torso
+  b(bodyG, 0.28, 0.40, 0.26,  0.80, 1.18,  0.00);   // neck
+  b(bodyG, 0.48, 0.40, 0.36,  1.10, 1.44,  0.00);   // head
+  b(bodyG, 0.07, 0.14, 0.05,  1.03, 1.66,  0.20);   // ear R
+  b(bodyG, 0.07, 0.14, 0.05,  1.03, 1.66, -0.20);   // ear L
+  b(bodyG, 0.09, 0.55, 0.08, -0.85, 0.98,  0.00);   // tail
+  b(bodyG, 0.16, 0.70, 0.14,  0.48, 0.35,  0.27);   // leg FR
+  b(bodyG, 0.16, 0.70, 0.14,  0.48, 0.35, -0.27);   // leg FL
+  b(bodyG, 0.16, 0.70, 0.14, -0.48, 0.35,  0.27);   // leg BR
+  b(bodyG, 0.16, 0.70, 0.14, -0.48, 0.35, -0.27);   // leg BL
+
+  // ─ Spots / light parts
+  b(spotG, 0.60, 0.82, 0.69,  0.18, 0.92,  0.00);   // body patch
+  b(spotG, 0.20, 0.19, 0.28,  1.32, 1.38,  0.00);   // snout
+  b(spotG, 0.30, 0.13, 0.24, -0.10, 0.52,  0.00);   // udder
+  b(spotG, 0.17, 0.04, 0.15,  0.48, 0.01,  0.27);   // hoof FR
+  b(spotG, 0.17, 0.04, 0.15,  0.48, 0.01, -0.27);   // hoof FL
+  b(spotG, 0.17, 0.04, 0.15, -0.48, 0.01,  0.27);   // hoof BR
+  b(spotG, 0.17, 0.04, 0.15, -0.48, 0.01, -0.27);   // hoof BL
+
+  // ─ Horns
+  b(hornG, 0.05, 0.17, 0.04,  0.98, 1.72,  0.18);
+  b(hornG, 0.05, 0.17, 0.04,  0.98, 1.72, -0.18);
+
+  const mk = (geos, mat) => {
+    const merged = mergeGeometries(geos);
+    geos.forEach(g => g.dispose());
+    const m = new THREE.Mesh(merged, mat);
+    m.castShadow = true;
+    return m;
+  };
+
+  const grp = new THREE.Group();
+  grp.add(mk(bodyG, mat.B));
+  grp.add(mk(spotG, mat.S));
+  grp.add(mk(hornG, mat.H));
+  return grp;
+}
+
+// ─── CowSystem ────────────────────────────────────────────────────────────────
+export class CowSystem {
+  constructor(scene) {
+    this._scene     = scene;
+    this._cows      = [];
+    this._corralled = new Set();
+
+    const rng = _rng(98765);
+    for (let i = 0; i < N_COWS; i++) {
+      const mesh  = buildCow(rng);
+      const angle = rng() * Math.PI * 2;
+      const dist  = 8 + rng() * 50;
+      const x     = SPAWN_X + Math.cos(angle) * dist;
+      const z     = SPAWN_Z + Math.sin(angle) * dist;
+      mesh.position.set(x, 0, z);
+      mesh.rotation.y = rng() * Math.PI * 2;
+      scene.add(mesh);
+
+      this._cows.push({
+        id:           i,
+        mesh,
+        vx:           0,
+        vz:           0,
+        wanderAngle:  rng() * Math.PI * 2,
+        wanderSpeed:  WALK_SPEED * (0.5 + rng() * 0.6),
+        wanderTimer:  rng() * 6,
+        walkTime:     rng() * 10,
+        removed:      false,
+      });
+    }
+  }
+
+  // Apply a corralled state (idempotent, safe to call twice)
+  corrall(id) {
+    if (this._corralled.has(id)) return;
+    this._corralled.add(id);
+    const cow = this._cows[id];
+    if (cow && !cow.removed) {
+      cow.removed = true;
+      this._scene.remove(cow.mesh);
+      cow.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+    }
+  }
+
+  getCorralled() { return this._corralled.size; }
+  getTotal()     { return N_COWS; }
+
+  // playerPositions: array of {x, z}
+  // Returns array of cow IDs that entered the stable this frame
+  update(dt, playerPositions) {
+    const newlyCorralled = [];
+
+    for (const cow of this._cows) {
+      if (cow.removed) continue;
+
+      const cx = cow.mesh.position.x;
+      const cz = cow.mesh.position.z;
+
+      // ── Corral arrival check ──────────────────────────────────────────────
+      const dsx = cx - STABLE_X, dsz = cz - STABLE_Z;
+      if (dsx * dsx + dsz * dsz < CORRAL_RADIUS * CORRAL_RADIUS) {
+        newlyCorralled.push(cow.id);
+        continue;
+      }
+
+      // ── Flee if player nearby ─────────────────────────────────────────────
+      let fleeing = false;
+      let fleeX = 0, fleeZ = 0;
+      for (const pp of playerPositions) {
+        const pdx = cx - pp.x, pdz = cz - pp.z;
+        const d2  = pdx * pdx + pdz * pdz;
+        if (d2 < FLEE_RADIUS * FLEE_RADIUS && d2 > 0.001) {
+          const inv = 1 / Math.sqrt(d2);
+          fleeX += pdx * inv;
+          fleeZ += pdz * inv;
+          fleeing = true;
+        }
+      }
+
+      let targetVX, targetVZ;
+      if (fleeing) {
+        const fl = Math.sqrt(fleeX * fleeX + fleeZ * fleeZ);
+        if (fl > 0.001) { fleeX /= fl; fleeZ /= fl; }
+        targetVX = fleeX * FLEE_SPEED;
+        targetVZ = fleeZ * FLEE_SPEED;
+      } else {
+        // Wander
+        cow.wanderTimer -= dt;
+        if (cow.wanderTimer <= 0) {
+          cow.wanderAngle += (Math.random() - 0.5) * 2.8;
+          cow.wanderSpeed  = Math.random() < 0.28
+            ? 0
+            : WALK_SPEED * (0.4 + Math.random() * 0.8);
+          cow.wanderTimer  = 2.5 + Math.random() * 5.5;
+        }
+        targetVX = Math.cos(cow.wanderAngle) * cow.wanderSpeed;
+        targetVZ = Math.sin(cow.wanderAngle) * cow.wanderSpeed;
+      }
+
+      // Smooth velocity
+      const lerp = Math.min(1, 5 * dt);
+      cow.vx += (targetVX - cow.vx) * lerp;
+      cow.vz += (targetVZ - cow.vz) * lerp;
+
+      // Move
+      cow.mesh.position.x += cow.vx * dt;
+      cow.mesh.position.z += cow.vz * dt;
+
+      // Rotate toward movement
+      const speed = Math.sqrt(cow.vx * cow.vx + cow.vz * cow.vz);
+      if (speed > 0.12) {
+        const targetRY = Math.atan2(cow.vx, cow.vz);
+        let diff = targetRY - cow.mesh.rotation.y;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        cow.mesh.rotation.y += diff * Math.min(1, 7 * dt);
+
+        // Body bob
+        cow.walkTime += dt * speed * 2.2;
+        cow.mesh.position.y = Math.abs(Math.sin(cow.walkTime * 3)) * 0.045;
+      } else {
+        cow.mesh.position.y *= 0.88;
+      }
+    }
+
+    return newlyCorralled;
+  }
+}
