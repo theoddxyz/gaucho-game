@@ -117,6 +117,7 @@ export class CowSystem {
         wanderSpeed:  WALK_SPEED * (0.5 + rng() * 0.6),
         wanderTimer:  rng() * 6,
         walkTime:     rng() * 10,
+        panicTimer:   0,    // seconds remaining of post-yell stampede
         removed:      false,
       });
     }
@@ -136,6 +137,32 @@ export class CowSystem {
 
   getCorralled() { return this._corralled.size; }
   getTotal()     { return N_COWS; }
+
+  /**
+   * Yell: cows within `radius` units get a velocity kick away from (px, pz)
+   * and enter stampede mode (keep running for ~5 s even after player moves away).
+   */
+  yell(px, pz, radius = 26) {
+    const r2 = radius * radius;
+    for (const cow of this._cows) {
+      if (cow.removed) continue;
+      const cx = cow.mesh.position.x, cz = cow.mesh.position.z;
+      const dx = cx - px, dz = cz - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= r2) continue;
+
+      const dist = Math.sqrt(d2);
+      // Direction away from player — random if cow is right on top of player
+      const nx = dist > 0.2 ? dx / dist : (Math.random() - 0.5) * 2;
+      const nz = dist > 0.2 ? dz / dist : (Math.random() - 0.5) * 2;
+
+      // Kick velocity + save direction for stampede
+      cow.vx          = nx * FLEE_SPEED * 1.6;
+      cow.vz          = nz * FLEE_SPEED * 1.6;
+      cow.wanderAngle = Math.atan2(nx, nz);
+      cow.panicTimer  = 5.0 + Math.random() * 2;  // 5–7 s of stampede
+    }
+  }
 
   // playerPositions: array of {x, z}
   // Returns array of cow IDs that entered the stable this frame
@@ -171,12 +198,21 @@ export class CowSystem {
 
       let targetVX, targetVZ;
       if (fleeing) {
+        // Active flee — normalize and apply speed
         const fl = Math.sqrt(fleeX * fleeX + fleeZ * fleeZ);
         if (fl > 0.001) { fleeX /= fl; fleeZ /= fl; }
         targetVX = fleeX * FLEE_SPEED;
         targetVZ = fleeZ * FLEE_SPEED;
+        // Save flee direction so panic can continue it
+        cow.wanderAngle = Math.atan2(fleeX, fleeZ);
+        if (cow.panicTimer > 0) cow.panicTimer -= dt;
+      } else if (cow.panicTimer > 0) {
+        // Stampede: keep running in saved flee direction even without player nearby
+        cow.panicTimer -= dt;
+        targetVX = Math.sin(cow.wanderAngle) * FLEE_SPEED * 0.70;
+        targetVZ = Math.cos(cow.wanderAngle) * FLEE_SPEED * 0.70;
       } else {
-        // Wander
+        // Normal wander
         cow.wanderTimer -= dt;
         if (cow.wanderTimer <= 0) {
           cow.wanderAngle += (Math.random() - 0.5) * 2.8;

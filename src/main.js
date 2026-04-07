@@ -22,6 +22,20 @@ import { CowSystem } from './cows.js';
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
 
+// --- G key: yell to stampede nearby cows ---
+let _yellCooldown = 0;
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyG' || !myId || isDead) return;
+  const now = performance.now() / 1000;
+  if (now - _yellCooldown < 2.5) return;   // 2.5 s cooldown between yells
+  _yellCooldown = now;
+  const pos = controls?.getPosition();
+  if (!pos) return;
+  cowSystem?.yell(pos.x, pos.z);
+  Network.sendYell(pos.x, pos.z);
+  UI.showYell(false);
+});
+
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -138,6 +152,12 @@ Network.onJoined((data) => {
   Network.onCowCorralled(({ id, total }) => {
     cowSystem?.corrall(id);
     UI.updateCorralCount(cowSystem?.getCorralled() ?? total);
+  });
+
+  // Remote yells affect local cow simulation too
+  Network.onYell(({ x, z }) => {
+    cowSystem?.yell(x, z);
+    UI.showYell(true);
   });
 
   // NPC dialogue resolution
@@ -313,6 +333,11 @@ function gameLoop() {
     sun.position.set(pos.x + 90, 22, pos.z + 25);
     sun.target.position.set(pos.x, 0, pos.z);
     sun.target.updateMatrixWorld();
+
+    // Moon follows player (opposite offset to sun) so shadow frustum always covers local area
+    moon.position.set(pos.x - 80, 30, pos.z - 20);
+    moon.target.position.set(pos.x, 0, pos.z);
+    moon.target.updateMatrixWorld();
 
     // Horse sync
     if (horseManager) {

@@ -12,8 +12,16 @@ export function createWorld(scene) {
   // Moon — dim cool blue-white, opposite direction from sun
   const moon = new THREE.DirectionalLight(0x8899cc, 0);  // intensity driven by daynight
   moon.position.set(-80, 30, -20);
-  moon.castShadow = false;  // no shadow from moon (perf)
+  moon.castShadow = true;
+  moon.shadow.mapSize.set(1024, 1024);
+  moon.shadow.camera.near   = 1;
+  moon.shadow.camera.far    = 350;
+  moon.shadow.camera.left   = -120;
+  moon.shadow.camera.right  =  120;
+  moon.shadow.camera.top    =  120;
+  moon.shadow.camera.bottom = -120;
   scene.add(moon);
+  scene.add(moon.target);  // target must be in scene so position updates propagate
 
   // Sun low on the western horizon — sunset angle, warm gold
   const sun = new THREE.DirectionalLight(0xffcc77, 1.3);

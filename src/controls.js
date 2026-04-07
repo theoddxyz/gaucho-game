@@ -26,8 +26,15 @@ export class IsoControls {
     this._velZ       = 0;
     this._recoil     = 0;       // 0=idle, 1=full kick, decays to 0
 
-    document.addEventListener('mousedown', (e) => { if (e.button === 2) this._isAiming = true; });
-    document.addEventListener('mouseup',   (e) => { if (e.button === 2) this._isAiming = false; });
+    this._aimRMB  = false;
+    this._aimCtrl = false;
+
+    document.addEventListener('mousedown', (e) => {
+      if (e.button === 2) { this._aimRMB  = true;  this._isAiming = true; }
+    });
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 2) { this._aimRMB  = false; this._isAiming = this._aimCtrl; }
+    });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -44,11 +51,13 @@ export class IsoControls {
       if (k === ' ') { e.preventDefault(); this._jumpTrigger = true; }
       if (k === 'shift') this._sprinting = true;
       if (k === 'e' && this.onEPress) this.onEPress();
+      if (e.key === 'Control') { e.preventDefault(); this._aimCtrl = true; this._isAiming = true; }
     });
     document.addEventListener('keyup', (e) => {
       const k = e.key.toLowerCase();
       if (k in this.keys) this.keys[k] = false;
       if (k === 'shift') this._sprinting = false;
+      if (e.key === 'Control') { this._aimCtrl = false; this._isAiming = this._aimRMB; }
     });
     document.addEventListener('mousemove', (e) => {
       this.mouseNDC.x = (e.clientX / window.innerWidth)  * 2 - 1;

@@ -361,6 +361,12 @@ io.on('connection', (socket) => {
     _checkNpcResolution(currentRoom);
   });
 
+  socket.on('yell', ({ x, z }) => {
+    if (!currentRoom || typeof x !== 'number' || typeof z !== 'number') return;
+    // Relay yell to other clients so their cow simulations react too
+    socket.to(currentRoom).emit('yell', { x, z });
+  });
+
   socket.on('disconnect', () => {
     if (currentRoom) {
       const room = getRoom(currentRoom);

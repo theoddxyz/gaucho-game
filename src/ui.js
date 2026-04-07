@@ -304,6 +304,29 @@ export function hideNPCDialogue() {
   if (_dlg) { _dlg.remove(); _dlg = null; }
 }
 
+// ─── Yell / Arreee ───────────────────────────────────────────────────────────
+let _yellEl = null;
+let _yellT  = null;
+
+export function showYell(isOther = false) {
+  if (!_yellEl) {
+    _yellEl = document.createElement('div');
+    _yellEl.style.cssText = `
+      position:fixed; top:40%; left:50%; transform:translate(-50%,-50%);
+      z-index:300; font-family:'Share Tech Mono','Courier New',monospace;
+      font-size:22px; letter-spacing:6px; color:#e8c050;
+      text-shadow:0 0 18px rgba(230,180,40,0.7);
+      pointer-events:none; opacity:0; transition:opacity .15s;
+      text-transform:uppercase;
+    `;
+    document.body.appendChild(_yellEl);
+  }
+  _yellEl.textContent = isOther ? '¡ARREEE!' : '¡¡ ARREEE !!';
+  _yellEl.style.opacity = '1';
+  clearTimeout(_yellT);
+  _yellT = setTimeout(() => { _yellEl.style.opacity = '0'; }, isOther ? 800 : 1100);
+}
+
 // ─── Corral counter ───────────────────────────────────────────────────────────
 export function updateCorralCount(n, total = 33) {
   const el = document.getElementById('corral-count');
