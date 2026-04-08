@@ -53,8 +53,9 @@ export function sendBulletHit(hitId)    { socket.emit('bulletHit', { hitId }); }
 export function sendYell(x, z)          { socket.emit('yell', { x, z }); }
 export function sendToggleInvincible()  { socket.emit('toggleInvincible'); }
 export function onYell(cb)      { socket.on('yell', cb); }
-export function onGmMessage(cb) { socket.on('gmMessage', cb); }
-export function sendGameEvent(type, data = {}) { socket.emit('gameEvent', { type, ...data }); }
+export function onGmMessage(cb)  { socket.on('gmMessage', cb); }
+export function onGmCommand(cb)  { socket.on('gmCommand', cb); }
+export function sendGameEvent(type, data = {}, hour) { socket.emit('gameEvent', { type, hour, ...data }); }
 
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);

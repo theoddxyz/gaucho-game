@@ -341,6 +341,58 @@ Network.onGmMessage(({ text }) => {
   }, 9000);
 });
 
+// ── GM commands from server ───────────────────────────────────────────────────
+let _daySpeedMult = 1;  // default 1x
+
+Network.onGmCommand((cmd) => {
+  console.log('[GM CMD]', cmd);
+  switch (cmd.type) {
+
+    case 'set_time':
+      setDayProgress(cmd.hour / 24);
+      setTimeout(() => unlockDayProgress(), 8000); // resume after 8s
+      break;
+
+    case 'stampede':
+      cowSystem?.yellAt(0, 0, 99999);  // max radius yell at origin
+      chickenSystem?.yell(0, 0);
+      break;
+
+    case 'storm': {
+      const t = cmd.intensity ?? 1;
+      // Force dark sky + advance toward dusk-storm look
+      setDayProgress(0.78 + Math.random() * 0.04);
+      setTimeout(() => unlockDayProgress(), 20000);
+      break;
+    }
+
+    case 'blood_moon':
+      setDayProgress(0.01);           // deep night
+      // Tint ambient red via hack: override fog color briefly
+      scene.fog.color.setRGB(0.35, 0.02, 0.02);
+      setTimeout(() => unlockDayProgress(), 30000);
+      break;
+
+    case 'fog':
+      scene.fog.near = 10;
+      scene.fog.far  = Math.max(20, 120 * (1 - (cmd.density ?? 0.5)));
+      setTimeout(() => { scene.fog.near = 80; scene.fog.far = 420; }, 20000);
+      break;
+
+    case 'day_speed':
+      _daySpeedMult = cmd.mult ?? 1;
+      setTimeout(() => { _daySpeedMult = 1; }, 30000);
+      break;
+
+    case 'heal_all':
+      if (myData) {
+        myData.hp = Math.min(200, myData.hp + (cmd.amount ?? 100));
+        UI.updateHP(myData.hp);
+      }
+      break;
+  }
+});
+
 // --- Shooting (left-click — no right-click required) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
@@ -739,7 +791,7 @@ function gameLoop() {
   }
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
-  updateDayNight(dt, scene, sun, ambient, moon);
+  updateDayNight(dt * _daySpeedMult, scene, sun, ambient, moon);
   if (myId && !isDead) {
     updateSurvival(dt, controls.isSprinting(), horseManager?.isMounted() ?? false);
     UI.updateSurvivalUI(getHunger(), getThirst(), getTemperature());

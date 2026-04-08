@@ -195,6 +195,60 @@ function _getGmState(roomId) {
   return _gmState.get(roomId);
 }
 
+// ── Execute a GM command on all clients in the room ──────────────────────────
+function execGMCommand(roomId, cmd) {
+  const room = getRoom(roomId);
+  console.log(`[GM CMD] ${JSON.stringify(cmd)}`);
+  switch (cmd.type) {
+
+    case 'set_time':          // 0-24h
+      io.to(roomId).emit('gmCommand', { type: 'set_time', hour: Number(cmd.hour) });
+      break;
+
+    case 'stampede':          // all cows/chickens panic
+      io.to(roomId).emit('gmCommand', { type: 'stampede' });
+      break;
+
+    case 'storm':             // dark sky + strong wind
+      io.to(roomId).emit('gmCommand', { type: 'storm', intensity: cmd.intensity ?? 1 });
+      break;
+
+    case 'heal_all':          // restore HP to all human players
+      for (const [, p] of room) {
+        if (!p.isBot) { p.hp = Math.min(200, p.hp + (cmd.amount ?? 100)); }
+      }
+      io.to(roomId).emit('gmCommand', { type: 'heal_all', amount: cmd.amount ?? 100 });
+      break;
+
+    case 'damage_all':        // hurt all players
+      for (const [id, p] of room) {
+        if (!p.isBot && p.hp > 0) {
+          p.hp = Math.max(1, p.hp - (cmd.amount ?? 30));
+          io.to(roomId).emit('playerHit', { id, hp: p.hp, attackerId: 'gm' });
+        }
+      }
+      break;
+
+    case 'spawn_bots': {      // summon a bot wave
+      const n = Math.min(cmd.count ?? 3, 8);
+      _spawnBotWave(roomId);
+      break;
+    }
+
+    case 'day_speed':         // change how fast time passes (multiplier)
+      io.to(roomId).emit('gmCommand', { type: 'day_speed', mult: cmd.mult ?? 1 });
+      break;
+
+    case 'fog':               // thick fog
+      io.to(roomId).emit('gmCommand', { type: 'fog', density: cmd.density ?? 0.5 });
+      break;
+
+    case 'blood_moon':        // red sky
+      io.to(roomId).emit('gmCommand', { type: 'blood_moon' });
+      break;
+  }
+}
+
 async function callGM(roomId, eventDesc) {
   console.log(`[GM] callGM llamado: model=${!!_gmModel} event="${eventDesc.slice(0,40)}"`);
   if (!_gmModel) { console.warn('[GM] Sin modelo — falta GEMINI_API_KEY'); return; }
@@ -206,24 +260,65 @@ async function callGM(roomId, eventDesc) {
   console.log(`[GM] Llamando a Gemini para sala ${roomId}...`);
 
   const room        = getRoom(roomId);
-  const playerNames = [...room.values()].filter(p => !p.isBot).map(p => p.name).join(', ') || 'nadie';
-  const recentHist  = gm.history.slice(-3).join(' | ');
+  const players     = [...room.values()].filter(p => !p.isBot);
+  const playerNames = players.map(p => p.name).join(', ') || 'nadie';
+  const playerHPs   = players.map(p => `${p.name}:${p.hp}HP`).join(', ') || 'nadie';
+  const recentHist  = gm.history.slice(-4).join(' | ');
+  const hourOfDay   = Math.floor(gm.hour ?? 17);
 
-  const prompt = `Sos el narrador épico de GAUCHO, un juego de acción western gaucho argentino en la pampa infinita. Tu estilo: crudo, poético, con humor oscuro y metáforas rurales. Respondé solo con 1 o 2 oraciones cortas en español, sin saludos ni explicaciones.
+  const prompt = `Sos el Game Master de GAUCHO, un juego de acción western gaucho argentino en la pampa infinita.
+Tu estilo: crudo, épico, con humor oscuro y metáforas rurales.
 
-Estado del juego — jugadores en partida: ${playerNames}. Vacas corraladas: ${gm.corralled}/33. Muertes totales en la sesión: ${gm.totalKills}. Contexto reciente: ${recentHist || 'ninguno'}.
+ESTADO DEL JUEGO:
+- Hora: ${hourOfDay}:00hs
+- Jugadores: ${playerHPs}
+- Vacas corraladas: ${gm.corralled}/33
+- Muertes en sesión: ${gm.totalKills}
+- Historial reciente: ${recentHist || 'ninguno'}
 
-Evento actual: ${eventDesc}`;
+EVENTO: ${eventDesc}
+
+COMANDOS DISPONIBLES (opcionales, ejecutá solo si tiene sentido narrativo):
+- {"type":"set_time","hour":6}  → cambiar hora (0-24)
+- {"type":"stampede"}           → estampida general de vacas
+- {"type":"storm","intensity":1} → tormenta (0.5 suave, 1 fuerte)
+- {"type":"blood_moon"}         → luna de sangre (cielo rojo)
+- {"type":"fog","density":0.8}  → niebla espesa
+- {"type":"day_speed","mult":3} → acelerar el tiempo
+- {"type":"heal_all","amount":50} → curar a todos
+- {"type":"damage_all","amount":25} → dañar a todos
+
+INSTRUCCIONES:
+Respondé SOLO con JSON válido en este formato exacto, sin texto extra, sin markdown:
+{"text":"narración en 1-2 oraciones","commands":[]}
+
+Si querés ejecutar un comando, agregalo al array commands. Ejemplo:
+{"text":"El cielo se tiñó de sangre sobre la pampa.","commands":[{"type":"blood_moon"}]}`;
 
   try {
     const result = await _gmModel.generateContent(prompt);
-    const text   = result.response.text().trim();
+    let raw = result.response.text().trim();
+    // Strip markdown code fences if present
+    raw = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/,'').trim();
+    console.log(`[GM raw] ${raw.slice(0, 200)}`);
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch {
+      // Fallback: treat whole response as plain text narration
+      parsed = { text: raw, commands: [] };
+    }
+
+    const text     = parsed.text?.trim() || '';
+    const commands = Array.isArray(parsed.commands) ? parsed.commands : [];
+
     if (text) {
       gm.history.push(eventDesc);
       if (gm.history.length > 10) gm.history.shift();
       io.to(roomId).emit('gmMessage', { text });
       console.log(`[GM ${roomId}] ${text}`);
     }
+    for (const cmd of commands) execGMCommand(roomId, cmd);
+
   } catch (err) {
     console.warn('[GM] Gemini error:', err.message);
   }
@@ -498,9 +593,10 @@ io.on('connection', (socket) => {
   });
 
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
-  socket.on('gameEvent', ({ type, detail }) => {
+  socket.on('gameEvent', ({ type, detail, hour }) => {
     console.log(`[GM] gameEvent recibido: type=${type}`);
     if (!currentRoom || !playerData) return;
+    if (hour != null) _getGmState(currentRoom).hour = hour;
     const EVENT_DESCS = {
       night_fell:   `Cayó la noche en la pampa. La oscuridad cubre el campo.`,
       dawn:         `Amaneció. El sol asoma detrás del horizonte.`,
