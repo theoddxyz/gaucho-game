@@ -24,6 +24,7 @@ import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
 import { createHeatPass } from './heat-shader.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
+import * as Audio from './audio.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -178,6 +179,9 @@ let _npcDone   = false;   // player already completed dialogue this session
 Network.connect();
 
 function startGame(name) {
+  Audio.initAudio();
+  Audio.stopLobbyMusic();
+  Audio.startWind();
   const roomId = Network.getRoomId() || Network.generateRoomId();
   UI.hideLobby();
   UI.showCoords();
@@ -198,7 +202,7 @@ Network.onJoined((data) => {
   controls.onEPress = () => {
     const pos  = controls.getPosition();
     const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
-    if (land) controls.setPosition(land.x, 0, land.z);
+    if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
   };
 
   Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
@@ -221,6 +225,7 @@ Network.onJoined((data) => {
   Network.onCowCorralled(({ id, total }) => {
     cowSystem?.corrall(id);
     UI.updateCorralCount(cowSystem?.getCorralled() ?? total);
+    if (total === 33) Audio.victory(); else Audio.corralBell();
   });
 
   // Remote yells affect local cow simulation too
@@ -272,9 +277,17 @@ Network.onPlayerMoved((data) => {
 
 Network.onPlayerShot((data) => {
   muzzleFlash(scene, data.origin);
-  // data.direction comes from JSON — convert to Vector3 so spawnBullet doesn't throw
   const remoteDir = new THREE.Vector3(data.direction.x, data.direction.y, data.direction.z);
   spawnBullet(scene, data.origin, remoteDir, 0xff6644);
+  // Silbido si la bala pasa cerca del jugador local
+  if (myId && controls) {
+    const p = controls.getPosition();
+    if (p) {
+      const dx = p.x - data.origin.x, dz = p.z - data.origin.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 18) Audio.bulletWhiz();
+    }
+  }
 });
 
 Network.onPlayerHit((data) => {
@@ -283,11 +296,14 @@ Network.onPlayerHit((data) => {
     UI.updateHP(myData.hp);
     UI.showDamageFlash();
     localPlayerModel?.detachHat();
+    Audio.playerHurt();
+    if (myData.hp <= 30) Audio.startHeartbeat();
+    else Audio.stopHeartbeat();
   } else {
     remotePlayers.get(data.id)?.detachHat();
     remotePlayers.get(data.id)?.setHP(data.hp);
   }
-  if (data.attackerId === myId) UI.showHitmarker();
+  if (data.attackerId === myId) { UI.showHitmarker(); Audio.hitMarker(); }
 });
 
 Network.onPlayerKilled((data) => {
@@ -301,6 +317,8 @@ Network.onPlayerKilled((data) => {
     myData.deaths = data.victimDeaths;
     UI.updateScore(myData.kills, myData.deaths);
     UI.showDeathScreen();
+    Audio.playerDeath();
+    Audio.stopHeartbeat();
   }
   if (data.killerId === myId) {
     myData.kills = data.killerKills;
@@ -316,6 +334,7 @@ Network.onPlayerRespawned((data) => {
     controls.setPosition(data.x, data.y, data.z);
     UI.updateHP(myData.hp);
     UI.hideDeathScreen();
+    Audio.stopHeartbeat();
     localPlayerModel?.respawnHat();
   } else {
     const pm = remotePlayers.get(data.id);
@@ -340,6 +359,7 @@ Network.onGmMessage(({ text }) => {
     box.style.opacity = '0';
     setTimeout(() => { box.style.display = 'none'; box.style.opacity = '1'; }, 650);
   }, 9000);
+  Audio.gmBell();
   speakGm(text);
 });
 
@@ -504,10 +524,12 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (currentWeapon === 'lasso') {
     if (lassoSystem.isCaught() || lassoSystem._state === 'flying') return;
     lassoSystem.startCharge();
+    Audio.startLassoSpin();
     return;
   }
 
   // === ESCOPETA — left-click always shoots, no right-click hold needed ===
+  Audio.shotgun();
   try {
   const pos    = controls.getPosition();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
@@ -690,6 +712,8 @@ renderer.domElement.addEventListener('mouseup', (e) => {
         ? new THREE.Vector3(fp.x, fp.y, fp.z)
         : new THREE.Vector3(pos.x, gunY, pos.z);
       const dir = controls.getFreshAimDirection(gunY);
+      Audio.stopLassoSpin();
+      Audio.lassoThrow();
       lassoSystem.releaseCharge(origin, dir);
     }
   }
@@ -699,6 +723,13 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 const clock    = new THREE.Clock();
 const SEND_RATE = 1 / 20;
 let sendTimer  = 0;
+
+// ── Timers de sonido ambiente ─────────────────────────────────────────────────
+let _stepTimer    = 0;           // pasos
+let _moooTimer    = 8 + Math.random() * 12;   // mugido random
+let _coyoteTimer  = 30 + Math.random() * 60;  // aullido nocturno
+let _wasNight     = false;
+let _wasGalloping = false;
 
 function gameLoop() {
   requestAnimationFrame(gameLoop);
@@ -831,7 +862,7 @@ function gameLoop() {
       restoreHunger(chickenPickup.hunger);
       myData.hp = Math.min(200, myData.hp + chickenPickup.hp);
       UI.updateHP(myData.hp);
-      UI.showEatEffect();
+      UI.showEatEffect(); Audio.eatSound();
     }
   }
 
@@ -851,7 +882,7 @@ function gameLoop() {
       restoreHunger(meatPickup.hunger);
       myData.hp = Math.min(200, myData.hp + meatPickup.hp);
       UI.updateHP(myData.hp);
-      UI.showEatEffect();
+      UI.showEatEffect(); Audio.eatSound();
     }
   }
 
@@ -932,11 +963,56 @@ function gameLoop() {
     UI.updateGameTime(getGameTime(), isNight());
   }
 
+  // ── Audio ambiente ────────────────────────────────────────────────────────
+  if (myId && pos) {
+    const onHorse  = horseManager?.isMounted() ?? false;
+    const isMoving = Math.hypot(controls._velX ?? 0, controls._velZ ?? 0) > 0.4;
+    const nightNow  = isNight();
+
+    // Pasos
+    if (!onHorse && isMoving && !isDead) {
+      _stepTimer -= dt;
+      if (_stepTimer <= 0) {
+        Audio.footstep('dirt');
+        _stepTimer = controls.isSprinting() ? 0.28 : 0.42;
+      }
+    } else {
+      _stepTimer = 0;
+    }
+
+    // Galope
+    if (onHorse && isMoving && !_wasGalloping) { Audio.startGallop(); _wasGalloping = true; }
+    if ((!onHorse || !isMoving) && _wasGalloping) { Audio.stopGallop(); _wasGalloping = false; }
+
+    // Noche: grillos on/off
+    if (nightNow && !_wasNight) { Audio.startCrickets(); _wasNight = true; }
+    if (!nightNow && _wasNight) { Audio.stopCrickets();  _wasNight = false; }
+
+    // Mugido random de vaca
+    _moooTimer -= dt;
+    if (_moooTimer <= 0) {
+      Audio.cowMoo(false);
+      _moooTimer = 8 + Math.random() * 14;
+    }
+
+    // Aullido coyote (solo de noche)
+    if (nightNow) {
+      _coyoteTimer -= dt;
+      if (_coyoteTimer <= 0) {
+        Audio.coyoteHowl();
+        _coyoteTimer = 35 + Math.random() * 55;
+      }
+    }
+  }
+
   composer.render();
 }
 
 // --- Lobby ---
 UI.onPlay(() => startGame(UI.getNameInput() || 'Gaucho'));
+
+// Música de lobby al primer click en cualquier parte
+document.addEventListener('click', () => Audio.startLobbyMusic(), { once: true });
 
 if (Network.getRoomId()) {
   const hintEl = document.querySelector('.lobby-hint');
