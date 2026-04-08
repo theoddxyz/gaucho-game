@@ -93,9 +93,8 @@ const MANIFEST = [
   'weapons/impact_dirt.mp3','weapons/impact_flesh.mp3','weapons/impact_flesh_2.mp3',
   'weapons/impact_glass.mp3','weapons/impact_glass_2.mp3','weapons/impact_metal.mp3',
   'weapons/shell.mp3','weapons/shell_2.mp3','weapons/shell_3.mp3',
-  // player (Kenney impact-sounds + CC0)
-  'player/step_dirt_1.mp3','player/step_dirt_2.mp3','player/step_dirt_3.mp3','player/step_dirt_4.mp3',
-  'player/step_dirt_5.mp3','player/step_dirt_6.mp3','player/step_dirt_7.mp3','player/step_dirt_8.mp3',
+  // player
+  'player/step_sand_1.mp3','player/step_sand_2.mp3','player/step_sand_3.mp3','player/step_sand_4.mp3',
   'player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3',
   'player/hurt_1.mp3','player/hurt_2.mp3','player/hurt_3.mp3',
   'player/death.mp3','player/land.mp3','player/eat.mp3','player/body_fall.mp3',
@@ -114,7 +113,13 @@ const MANIFEST = [
   'ambient/creak_1.mp3','ambient/creak_2.mp3','ambient/creak_3.mp3',
 ];
 function _preloadAll() {
-  MANIFEST.forEach(p => _load(p).catch(() => {}));
+  // Carga secuencial con delay para no spikear el hilo de audio al inicio
+  let i = 0;
+  const next = () => {
+    if (i >= MANIFEST.length) return;
+    _load(MANIFEST[i++]).catch(() => {}).finally(() => setTimeout(next, 40));
+  };
+  setTimeout(next, 500); // empieza 500ms después de initAudio
 }
 
 // ── Reproducir buffer cacheado ────────────────────────────────────────────────
@@ -197,27 +202,20 @@ function _lp(freq) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── PASOS ─────────────────────────────────────────────────────────────────────
-const _stepDirt  = ['player/step_dirt_1.mp3','player/step_dirt_2.mp3','player/step_dirt_3.mp3',
-                    'player/step_dirt_4.mp3','player/step_dirt_5.mp3','player/step_dirt_6.mp3',
-                    'player/step_dirt_7.mp3','player/step_dirt_8.mp3'];
+const _stepSand  = ['player/step_sand_1.mp3','player/step_sand_2.mp3',
+                    'player/step_sand_3.mp3','player/step_sand_4.mp3'];
 const _stepGrass = ['player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3'];
 
-export function footstep(surface = 'dirt') {
-  const pitch = 0.9 + Math.random() * 0.2;
-  const paths  = surface === 'grass' ? _stepGrass : _stepDirt;
-  _playRandom(paths, { volume: 0.55, reverb: 0.04, pitch }, () => {
-    // fallback procedural
+export function footstep(surface = 'sand') {
+  const pitch = 0.88 + Math.random() * 0.24;
+  const paths  = surface === 'grass' ? _stepGrass : _stepSand;
+  _playRandom(paths, { volume: 0.50, reverb: 0.06, pitch }, () => {
+    // fallback procedural — arena suave
     const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(70 + Math.random()*14, t);
-    o.frequency.exponentialRampToValueAtTime(28, t + 0.10);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.18, t + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
-    o.connect(g); _toOut(g, 0.04); o.start(t); o.stop(t + 0.14);
-    const n = _noise(0.09, surface === 'grass' ? 1200 : 750, 0.6);
-    if (n) { _env(n.gain, 0.003, 0.018, 0.08, 0.06, 0.20); _toOut(n.gain, 0.03); n.src.start(t); }
+    const n = _noise(0.12, 1800, 0.5);
+    if (n) { _env(n.gain, 0.003, 0.018, 0.06, 0.08, 0.18); _toOut(n.gain, 0.04); n.src.start(t); }
+    const n2 = _noise(0.08, 600, 0.7);
+    if (n2) { _env(n2.gain, 0.001, 0.010, 0.0, 0.07, 0.12); _toOut(n2.gain, 0.02); n2.src.start(t); }
   });
 }
 
@@ -317,16 +315,17 @@ export function playerDeath() {
 }
 
 export function bodyFall() {
-  _playFile('player/body_fall.mp3', { volume: 0.75, reverb: 0.12 });
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const o = c.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(58,t); o.frequency.exponentialRampToValueAtTime(22,t+0.22);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.38,t+0.004);
-  g.gain.exponentialRampToValueAtTime(0.0001,t+0.28);
-  const lp = _lp(180); o.connect(lp); lp.connect(g); _toOut(g,0.14); o.start(t); o.stop(t+0.30);
-  const n = _noise(0.25, 580, 0.7);
-  if (n) { _env(n.gain,0.005,0.03,0.15,0.18,0.20); _toOut(n.gain,0.06); n.src.start(t+0.02); }
+  _playFile('player/body_fall.mp3', { volume: 0.75, reverb: 0.12 }, () => {
+    const c = _ctx_(); if (!c) return; const t = _now();
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(58,t); o.frequency.exponentialRampToValueAtTime(22,t+0.22);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.38,t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.28);
+    const lp = _lp(180); o.connect(lp); lp.connect(g); _toOut(g,0.14); o.start(t); o.stop(t+0.30);
+    const n = _noise(0.25, 580, 0.7);
+    if (n) { _env(n.gain,0.005,0.03,0.15,0.18,0.20); _toOut(n.gain,0.06); n.src.start(t+0.02); }
+  });
 }
 
 export function jumpLand() {
@@ -459,14 +458,15 @@ function _startGallopSynth() {
 }
 
 export function mountSound() {
-  _playFile('player/mount_leather.mp3', { volume: 0.55, reverb: 0.08 });
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const n = _noise(0.20, 580, 1.1);
-  if (n) { _env(n.gain,0.012,0.04,0.28,0.12,0.20); _toOut(n.gain,0.05); n.src.start(t); }
-  const o = c.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(65,t+0.05); o.frequency.exponentialRampToValueAtTime(28,t+0.18);
-  const g = c.createGain(); _env(g,0.004,0.04,0.0,0.12,0.18);
-  o.connect(g); _toOut(g,0.07); o.start(t+0.05); o.stop(t+0.24);
+  _playFile('player/mount_leather.mp3', { volume: 0.55, reverb: 0.08 }, () => {
+    const c = _ctx_(); if (!c) return; const t = _now();
+    const n = _noise(0.20, 580, 1.1);
+    if (n) { _env(n.gain,0.012,0.04,0.28,0.12,0.20); _toOut(n.gain,0.05); n.src.start(t); }
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(65,t+0.05); o.frequency.exponentialRampToValueAtTime(28,t+0.18);
+    const g = c.createGain(); _env(g,0.004,0.04,0.0,0.12,0.18);
+    o.connect(g); _toOut(g,0.07); o.start(t+0.05); o.stop(t+0.24);
+  });
 }
 
 // ── GALLINAS ──────────────────────────────────────────────────────────────────
