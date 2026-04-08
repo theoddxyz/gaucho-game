@@ -259,8 +259,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const gunY   = riderY + 0.55;
   const fp     = localPlayerModel?.getFirepointWorldPos();
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
-  // Dirección exacta del rayo de la cámara → dispara donde apunta la mira
-  const dir = controls.getFreshAimDirection();
+  // Dirección XZ al punto apuntado + componente Y descendente según altura del arma
+  const dir = controls.getFreshAimDirection(gunY);
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   controls.applyRecoil();

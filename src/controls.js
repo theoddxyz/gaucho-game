@@ -183,14 +183,24 @@ export class IsoControls {
    *   blancos que estén por debajo del arma (p.ej. disparando desde el caballo).
    */
   /**
-   * Devuelve la dirección EXACTA del rayo de la cámara a través del pixel de la mira.
-   * Esto garantiza que el disparo impacte lo que visualmente queda detrás de la cruz,
-   * independientemente de la altura (en suelo, a caballo, etc.).
+   * Dirección de disparo desde la posición del jugador hacia el punto apuntado (y=0).
+   * @param {number} gunY  Altura del arma en world-space (0.55 en suelo, ~3 en caballo).
+   *   Si es > 0, la dirección incluye un componente Y descendente para poder
+   *   impactar blancos más bajos que la altura del arma.
    */
-  getFreshAimDirection() {
+  getFreshAimDirection(gunY = 0) {
     this.camera.updateMatrixWorld();
     this.raycaster.setFromCamera(this.mouseNDC, this.camera);
-    return this.raycaster.ray.direction.clone();  // dirección exacta de la cámara
+    const hit = new THREE.Vector3();
+    if (this.raycaster.ray.intersectPlane(this.groundPlane, hit)) {
+      const dx = hit.x - this.position.x;
+      const dz = hit.z - this.position.z;
+      if (dx * dx + dz * dz > 0.01) {
+        // dy negativo: el arma está a gunY metros sobre el suelo (y=0)
+        return new THREE.Vector3(dx, -gunY, dz).normalize();
+      }
+    }
+    return this.getAimDirection();
   }
 
   setPosition(x, y, z) {
