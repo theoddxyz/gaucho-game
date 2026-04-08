@@ -512,7 +512,7 @@ function gameLoop() {
   const pickup = ostrichSystem.update(dt, pos);
   if (pickup && myId && !isDead) {
     restoreHunger(pickup.hunger);
-    myData.hp = Math.min(100, myData.hp + pickup.hp);
+    myData.hp = Math.min(200, myData.hp + pickup.hp);
     UI.updateHP(myData.hp);
     UI.showEatEffect();
   }
@@ -522,7 +522,7 @@ function gameLoop() {
     const meatPickup = cowSystem.updateMeats(dt, pos);
     if (meatPickup) {
       restoreHunger(meatPickup.hunger);
-      myData.hp = Math.min(100, myData.hp + meatPickup.hp);
+      myData.hp = Math.min(200, myData.hp + meatPickup.hp);
       UI.updateHP(myData.hp);
       UI.showEatEffect();
     }
