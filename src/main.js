@@ -259,10 +259,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const gunY   = riderY + 0.55;
   const fp     = localPlayerModel?.getFirepointWorldPos();
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
-  // Pasar la posición real del arma para que la dirección incluya componente Y
-  const gunOriginVec = fp ? new THREE.Vector3(fp.x, fp.y, fp.z)
-                           : new THREE.Vector3(pos.x, gunY, pos.z);
-  const dir = controls.getFreshAimDirection(gunOriginVec);
+  // Dirección exacta del rayo de la cámara → dispara donde apunta la mira
+  const dir = controls.getFreshAimDirection();
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   controls.applyRecoil();
