@@ -473,9 +473,19 @@ export function updateHoofbeats(speed) {
   if (!_hoofTimer) _scheduleHoof();
 }
 
+/**
+ * Disparo directo sincronizado con la animación — llamar cuando una pata toca el suelo.
+ * speed: velocidad actual del caballo (m/s), sprint: boolean
+ */
+export function playHoofTouch(speed, sprint) {
+  const hard = speed > 16 || sprint;
+  const vol  = speed > 16 ? 0.28 : (speed > 7 ? 0.20 : 0.14);
+  _playHoof(vol, hard);
+}
+
 // Stubs de compatibilidad
-export function startGallop() { updateHoofbeats(20); }
-export function stopGallop()  { updateHoofbeats(0);  }
+export function startGallop() {}
+export function stopGallop()  {}
 
 export function mountSound() {
   _playFile('player/mount_leather.mp3', { volume: 0.55, reverb: 0.08 }, () => {

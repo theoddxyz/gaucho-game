@@ -209,6 +209,7 @@ Network.onJoined((data) => {
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '' });
 
   horseManager = new HorseManager(scene, Network);
+  horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   controls.onEPress = () => {
     const pos  = controls.getPosition();
     const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
@@ -1000,9 +1001,7 @@ function gameLoop() {
       _stepTimer = 0;
     }
 
-    // Cascos procedurales (speed-reactive)
-    const horseSpeed = onHorse ? Math.hypot(controls._velX ?? 0, controls._velZ ?? 0) : 0;
-    Audio.updateHoofbeats(horseSpeed);
+    // Cascos: sincronizados con animación vía horseManager.onHoofTouch
 
     // Noche: grillos on/off
     if (nightNow && !_wasNight)  { Audio.startCrickets(); Audio.stopBirds();  _wasNight = true;  _wasDawn = false; }

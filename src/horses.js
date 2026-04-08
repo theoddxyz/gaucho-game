@@ -151,6 +151,9 @@ export class HorseManager {
     this._nearestHorseId = null;
     this._anim = null;
     this._mountLandPos = null;
+    /** Called when a hoof hits the ground on the local player's horse.
+     *  Signature: (speed: number, sprint: boolean) => void */
+    this.onHoofTouch = null;
     this._init();
   }
 
@@ -293,7 +296,7 @@ export class HorseManager {
       horse._prevZ = horse.z;
       if (moved) horse.walkTime += dt;
       else       horse.walkTime  = 0;
-      this._animateLegs(horse, moved);
+      this._animateLegs(horse, moved, id === this.myHorseId, speed);
 
       // Smooth horse rotation — shortest path to avoid snapping through 360°
       let ryDiff = horse._targetRY - horse._displayRY;
@@ -320,7 +323,7 @@ export class HorseManager {
     this._nearestHorseId = nearest;
   }
 
-  _animateLegs(horse, moving) {
+  _animateLegs(horse, moving, isLocal = false, speed = 0) {
     const sprint = horse._sprinting;
     const freq   = sprint ? WALK_FREQ_SPRINT : WALK_FREQ;
     const amp    = WALK_AMP * (sprint ? 1.35 : 1.0);
@@ -360,6 +363,16 @@ export class HorseManager {
     //   power stroke:   sin < 0 region (hoof on ground, driving forward)
     for (const leg of horse.legs) {
       const s = Math.sin(freq * t + leg.phase);
+
+      // ── Hoof touchdown detection: sin crosses from + to - ────────────
+      // Positive sin = leg lifting; negative sin = leg on ground (power stroke).
+      // The exact moment of contact is the zero-crossing going downward.
+      const prevS = leg._prevS ?? s;
+      if (isLocal && prevS > 0.05 && s <= 0 && this.onHoofTouch) {
+        this.onHoofTouch(speed, sprint);
+      }
+      leg._prevS = s;
+
       const swing = s > 0 ? s * amp : s * amp * 0.65;
       // Forward swing scaled by forward component, lateral swing by strafe component
       leg.pivot.rotation.x = swing * Math.max(0.08, Math.abs(forwardRatio));
