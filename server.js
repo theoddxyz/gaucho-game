@@ -335,8 +335,8 @@ async function runStoryCycle(roomId) {
 
   console.log(`[STORY] Ciclo ${sb.cycle} sala ${roomId} — jugadores: ${playerState}`);
 
-  // ── Ciclos 1-2: solo observar, sin narrar ────────────────────────────────────
-  if (sb.cycle <= 2) {
+  // ── Ciclo 1: solo observar, sin narrar ───────────────────────────────────────
+  if (sb.cycle <= 1) {
     const obsPrompt = `Sos el Game Master de GAUCHO, un western gaucho argentino. Estás OBSERVANDO la partida antes de empezar la historia.
 
 ESTADO:
@@ -440,7 +440,7 @@ setInterval(() => {
     if (humans.length === 0) continue;
     runStoryCycle(roomId).catch(e => console.warn('[STORY interval]', e.message));
   }
-}, 2 * 60 * 1000);
+}, 20 * 1000); // TEST: 20s — cambiar a 2*60*1000 en producción
 
 function _resolveNpc(roomId) {
   const s = npcSessions.get(roomId);
