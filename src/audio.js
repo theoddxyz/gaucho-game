@@ -744,6 +744,365 @@ export function stopLobbyMusic() {
   _lobbyNodes = [];
 }
 
+// ── GALLINA idle ──────────────────────────────────────────────────────────────
+export function chickenCluck() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Dos sílabas: "coc-co"
+  [[0, 680, 0.13], [0.11, 820, 0.09]].forEach(([delay, freq, dur]) => {
+    const o = c.createOscillator();
+    o.type = 'square';
+    o.frequency.setValueAtTime(freq, t + delay);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.65, t + delay + dur);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 1400;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t + delay);
+    g.gain.linearRampToValueAtTime(0.09, t + delay + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + dur + 0.04);
+    o.connect(lp); lp.connect(g); _toOut(g, 0.08);
+    o.start(t + delay); o.stop(t + delay + dur + 0.06);
+  });
+}
+
+// ── GALLINA pánico ────────────────────────────────────────────────────────────
+export function chickenPanic() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Ráfaga rápida de cackles
+  for (let i = 0; i < 5; i++) {
+    const delay = i * 0.09;
+    const freq  = 700 + Math.random() * 400;
+    const o = c.createOscillator();
+    o.type = 'square';
+    o.frequency.setValueAtTime(freq, t + delay);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.5, t + delay + 0.08);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 1600;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t + delay);
+    g.gain.linearRampToValueAtTime(0.11, t + delay + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.10);
+    o.connect(lp); lp.connect(g); _toOut(g, 0.06);
+    o.start(t + delay); o.stop(t + delay + 0.12);
+  }
+  // Aleteo — ruido de alta frecuencia
+  const n = _noise(0.4, 3800, 0.6);
+  if (n) { _env(n.gain, 0.01, 0.05, 0.2, 0.28, 0.12); _toOut(n.gain, 0.04); n.src.start(t + 0.05); }
+}
+
+// ── AVESTRUZ ──────────────────────────────────────────────────────────────────
+// Sonido profundo extraño — booming drum interno
+export function ostrichCall() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Boom profundo resonante (como un bombo de cuello)
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(48, t);
+  o.frequency.linearRampToValueAtTime(62, t + 0.18);
+  o.frequency.exponentialRampToValueAtTime(35, t + 0.65);
+  const g = c.createGain();
+  _env(g, 0.015, 0.08, 0.5, 0.55, 0.30);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 200;
+  o.connect(lp); lp.connect(g); _toOut(g, 0.20);
+  o.start(t); o.stop(t + 0.80);
+  // Textura áspera encima
+  const n = _noise(0.5, 380, 2.0);
+  if (n) { _env(n.gain, 0.01, 0.06, 0.3, 0.38, 0.12); _toOut(n.gain, 0.10); n.src.start(t); }
+}
+
+// ── CABALLO resopla (idle cerca) ──────────────────────────────────────────────
+export function horseSnort() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Soplo nasal — ruido grave filtrado con ataque suave
+  const n = _noise(0.28, 320, 1.2);
+  if (!n) return;
+  _env(n.gain, 0.008, 0.05, 0.4, 0.20, 0.22);
+  _toOut(n.gain, 0.12);
+  n.src.start(t);
+  // Sub-gravedad del hocico
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(88, t);
+  o.frequency.exponentialRampToValueAtTime(55, t + 0.22);
+  const g = c.createGain();
+  _env(g, 0.01, 0.04, 0.3, 0.18, 0.16);
+  o.connect(g); _toOut(g, 0.08);
+  o.start(t); o.stop(t + 0.30);
+}
+
+// ── IMPACTO BALA EN TIERRA ────────────────────────────────────────────────────
+export function bulletImpactDirt() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Puff seco + micro-thud
+  const n = _noise(0.12, 450, 0.8);
+  if (n) { _env(n.gain, 0.001, 0.015, 0.1, 0.09, 0.18); _toOut(n.gain, 0.06); n.src.start(t); }
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(95, t);
+  o.frequency.exponentialRampToValueAtTime(38, t + 0.10);
+  const g = c.createGain();
+  _env(g, 0.002, 0.02, 0.0, 0.08, 0.16);
+  o.connect(g); _toOut(g, 0.05);
+  o.start(t); o.stop(t + 0.11);
+}
+
+// ── IMPACTO BALA EN MADERA ────────────────────────────────────────────────────
+export function bulletImpactWood() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const n = _noise(0.08, 1200, 1.5);
+  if (n) { _env(n.gain, 0.001, 0.008, 0.0, 0.06, 0.22); _toOut(n.gain, 0.10); n.src.start(t); }
+  const o = c.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(180, t);
+  o.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+  const g = c.createGain();
+  _env(g, 0.001, 0.012, 0.0, 0.06, 0.20);
+  o.connect(g); _toOut(g, 0.08);
+  o.start(t); o.stop(t + 0.09);
+}
+
+// ── IMPACTO BALA EN CARNE ─────────────────────────────────────────────────────
+export function bulletImpactFlesh() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const n = _noise(0.09, 320, 1.0);
+  if (n) { _env(n.gain, 0.001, 0.012, 0.0, 0.07, 0.26); _toOut(n.gain, 0.08); n.src.start(t); }
+}
+
+// ── CUERPO CAE ────────────────────────────────────────────────────────────────
+export function bodyFall() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Thud pesado + polvo
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(58, t);
+  o.frequency.exponentialRampToValueAtTime(22, t + 0.22);
+  const g = c.createGain();
+  _env(g, 0.004, 0.05, 0.0, 0.20, 0.38);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 180;
+  o.connect(lp); lp.connect(g); _toOut(g, 0.15);
+  o.start(t); o.stop(t + 0.28);
+  // Polvo/ropa
+  const n = _noise(0.25, 580, 0.7);
+  if (n) { _env(n.gain, 0.005, 0.03, 0.15, 0.18, 0.22); _toOut(n.gain, 0.06); n.src.start(t + 0.02); }
+}
+
+// ── ATERRIZAR SALTO ───────────────────────────────────────────────────────────
+export function jumpLand() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(75, t);
+  o.frequency.exponentialRampToValueAtTime(28, t + 0.14);
+  const g = c.createGain();
+  _env(g, 0.003, 0.03, 0.0, 0.12, 0.26);
+  o.connect(g); _toOut(g, 0.08);
+  o.start(t); o.stop(t + 0.16);
+  const n = _noise(0.10, 650, 0.6);
+  if (n) { _env(n.gain, 0.002, 0.015, 0.0, 0.08, 0.18); _toOut(n.gain, 0.05); n.src.start(t); }
+}
+
+// ── RESPIRACIÓN AGITADA (sprint) ──────────────────────────────────────────────
+export function sprintExhale() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const n = _noise(0.22, 900, 0.5);
+  if (!n) return;
+  _env(n.gain, 0.02, 0.06, 0.3, 0.12, 0.10);
+  _toOut(n.gain, 0.02);
+  n.src.start(t);
+}
+
+// ── TRUENO LEJANO (random, sin lluvia) ───────────────────────────────────────
+export function distantThunder() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  // Rumble largo que crece y cae
+  const dur = 2.8 + Math.random() * 1.5;
+  const n1 = _noise(dur, 55 + Math.random() * 30, 0.4);
+  if (!n1) return;
+  // Forma: sube rápido, sostiene, baja lento
+  const g = n1.gain;
+  g.gain.cancelScheduledValues(t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.28, t + 0.18);
+  g.gain.linearRampToValueAtTime(0.22, t + 0.6);
+  g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  _toOut(g, 0.55);
+  n1.src.start(t);
+  // Segunda capa sub-baja
+  const n2 = _noise(dur * 0.8, 28, 0.3);
+  if (n2) {
+    const g2 = n2.gain;
+    g2.gain.setValueAtTime(0.0001, t + 0.1);
+    g2.gain.linearRampToValueAtTime(0.18, t + 0.35);
+    g2.gain.linearRampToValueAtTime(0.0001, t + dur * 0.8);
+    _toOut(g2, 0.40);
+    n2.src.start(t + 0.1);
+  }
+}
+
+// ── PÁJAROS AMANECER (loop) ───────────────────────────────────────────────────
+let _birdsTimer = null;
+
+export function startBirds() {
+  if (_birdsTimer) return;
+  const patterns = [
+    // [delay, freq, dur, vol] — silbidos de distintos pájaros
+    [0,    1800, 0.12, 0.07],
+    [0.18, 2200, 0.08, 0.05],
+    [0.5,  1600, 0.18, 0.06],
+    [1.1,  2600, 0.06, 0.04],
+    [1.4,  1900, 0.14, 0.06],
+    [2.2,  2100, 0.10, 0.05],
+  ];
+  const playBirds = () => {
+    if (!_birdsTimer) return;
+    const c = _ctx_(); if (!c) return;
+    const base = _now();
+    patterns.forEach(([delay, freq, dur, vol]) => {
+      if (Math.random() > 0.55) return; // no todos suenan siempre
+      const o = c.createOscillator();
+      o.type = 'sine';
+      // Gorjeo: vibrato rápido
+      const vib = c.createOscillator();
+      vib.type = 'sine'; vib.frequency.value = 18 + Math.random() * 8;
+      const vibG = c.createGain(); vibG.gain.value = freq * 0.04;
+      vib.connect(vibG); vibG.connect(o.frequency);
+      o.frequency.value = freq * (0.92 + Math.random() * 0.16);
+      const lp = c.createBiquadFilter();
+      lp.type = 'bandpass'; lp.frequency.value = freq; lp.Q.value = 4;
+      const g = c.createGain();
+      const tt = base + delay;
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.linearRampToValueAtTime(vol, tt + 0.018);
+      g.gain.linearRampToValueAtTime(vol * 0.7, tt + dur * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, tt + dur + 0.05);
+      o.connect(lp); lp.connect(g); _toOut(g, 0.30);
+      vib.start(tt); o.start(tt);
+      vib.stop(tt + dur + 0.1); o.stop(tt + dur + 0.1);
+    });
+    const next = 2200 + Math.random() * 2800;
+    _birdsTimer = setTimeout(playBirds, next);
+  };
+  _birdsTimer = setTimeout(playBirds, 400);
+}
+
+export function stopBirds() {
+  clearTimeout(_birdsTimer);
+  _birdsTimer = null;
+}
+
+// ── DRONE PAMPA (loop, capa base siempre presente) ────────────────────────────
+// La vastedad del campo — frecuencias muy bajas, casi imperceptibles
+let _droneNodes = [];
+
+export function startAmbientDrone() {
+  if (_droneNodes.length) return;
+  const c = _ctx_(); if (!c) return;
+
+  // Dos drones graves detuneados que forman batimiento lento
+  [36.7, 37.4, 55.0].forEach((freq, i) => {
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    const lfo = c.createOscillator();
+    lfo.type = 'sine'; lfo.frequency.value = 0.04 + i * 0.02;
+    const lfoG = c.createGain(); lfoG.gain.value = 0.018;
+    lfo.connect(lfoG); lfoG.connect(o.frequency);
+    const g = c.createGain();
+    g.gain.value = 0.055 - i * 0.012;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 120;
+    o.connect(lp); lp.connect(g); _toOut(g, 0.0); g.connect(_out);
+    o.start(); lfo.start();
+    _droneNodes.push({ stop: () => { try { o.stop(); lfo.stop(); } catch(e) {} } });
+  });
+
+  // Ruido de campo — casi inaudible, como el silencio que tiene textura
+  const sr  = c.sampleRate;
+  const len = sr * 6;
+  const buf = c.createBuffer(1, len, sr);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 200;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 600;
+  const g  = c.createGain(); g.gain.value = 0.018;
+  src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(_out);
+  src.start();
+  _droneNodes.push({ stop: () => { try { src.stop(); } catch(e) {} } });
+}
+
+export function stopAmbientDrone() {
+  _droneNodes.forEach(n => n.stop?.());
+  _droneNodes = [];
+}
+
+// ── ESTAMPIDA (ruido de manada) ───────────────────────────────────────────────
+export function stampedeRumble() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const dur = 4.5;
+  // Múltiples capas de cascos — ruido que crece y pasa
+  [60, 90, 130, 200].forEach((freq, i) => {
+    const n = _noise(dur - i * 0.3, freq, 0.5 + i * 0.1);
+    if (!n) return;
+    const g = n.gain;
+    const start = t + i * 0.05;
+    g.gain.cancelScheduledValues(start);
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(0.22 - i * 0.04, start + 0.6);
+    g.gain.linearRampToValueAtTime(0.18 - i * 0.03, start + 2.0);
+    g.gain.linearRampToValueAtTime(0.0001, start + dur - i * 0.3);
+    _toOut(g, 0.25);
+    n.src.start(start);
+  });
+  // Múltiples mugidos rápidos
+  setTimeout(() => cowMoo(true), 200);
+  setTimeout(() => cowMoo(true), 600);
+  setTimeout(() => cowMoo(true), 1100);
+}
+
+// ── CRUJIDO MADERA (edificios) ────────────────────────────────────────────────
+export function woodCreak() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const o = c.createOscillator();
+  o.type = 'sawtooth';
+  const f0 = 180 + Math.random() * 80;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.linearRampToValueAtTime(f0 * 0.6, t + 0.18);
+  o.frequency.linearRampToValueAtTime(f0 * 0.8, t + 0.32);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 2;
+  const g = c.createGain();
+  _env(g, 0.005, 0.04, 0.3, 0.22, 0.10);
+  o.connect(lp); lp.connect(g); _toOut(g, 0.10);
+  o.start(t); o.stop(t + 0.38);
+}
+
+// ── PASTO ROZANDO (al caminar en hierba alta) ─────────────────────────────────
+export function grassRustle() {
+  const c = _ctx_(); if (!c) return;
+  const t = _now();
+  const n = _noise(0.18, 2800, 1.8);
+  if (!n) return;
+  _env(n.gain, 0.008, 0.03, 0.2, 0.12, 0.08);
+  _toOut(n.gain, 0.03);
+  n.src.start(t);
+}
+
 // ── VOLUMEN MASTER ────────────────────────────────────────────────────────────
 
 export function setMasterVolume(v) {

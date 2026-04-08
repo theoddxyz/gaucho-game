@@ -41,6 +41,8 @@ document.addEventListener('keydown', (e) => {
   cowSystem?.yell(pos.x, pos.z);
   chickenSystem?.yell(pos.x, pos.z);
   Network.sendYell(pos.x, pos.z);
+  Audio.chickenPanic();
+  Audio.cowMoo(true);
   UI.showYell(false);
 });
 
@@ -182,6 +184,7 @@ function startGame(name) {
   Audio.initAudio();
   Audio.stopLobbyMusic();
   Audio.startWind();
+  Audio.startAmbientDrone();
   const roomId = Network.getRoomId() || Network.generateRoomId();
   UI.hideLobby();
   UI.showCoords();
@@ -215,7 +218,7 @@ Network.onJoined((data) => {
   Network.onBottleHit(({ key, dir }) => hitBottleByKey(key, dir));
 
   // Avestruz sincronizada
-  Network.onOstrichKill(({ idx } = {}) => ostrichSystem.kill(idx ?? 0));
+  Network.onOstrichKill(({ idx } = {}) => { ostrichSystem.kill(idx ?? 0); Audio.ostrichCall(); });
 
   // Vacas — init with already-corralled state from server
   cowSystem = new CowSystem(scene);
@@ -279,7 +282,7 @@ Network.onPlayerShot((data) => {
   muzzleFlash(scene, data.origin);
   const remoteDir = new THREE.Vector3(data.direction.x, data.direction.y, data.direction.z);
   spawnBullet(scene, data.origin, remoteDir, 0xff6644);
-  // Silbido si la bala pasa cerca del jugador local
+  // Silbido + impacto en tierra
   if (myId && controls) {
     const p = controls.getPosition();
     if (p) {
@@ -288,6 +291,8 @@ Network.onPlayerShot((data) => {
       if (dist < 18) Audio.bulletWhiz();
     }
   }
+  // Impacto en tierra ~200ms después (viaja a BULLET_SPEED)
+  setTimeout(() => Audio.bulletImpactDirt(), 180 + Math.random() * 80);
 });
 
 Network.onPlayerHit((data) => {
@@ -303,7 +308,7 @@ Network.onPlayerHit((data) => {
     remotePlayers.get(data.id)?.detachHat();
     remotePlayers.get(data.id)?.setHP(data.hp);
   }
-  if (data.attackerId === myId) { UI.showHitmarker(); Audio.hitMarker(); }
+  if (data.attackerId === myId) { UI.showHitmarker(); Audio.hitMarker(); Audio.bulletImpactFlesh(); }
 });
 
 Network.onPlayerKilled((data) => {
@@ -318,6 +323,7 @@ Network.onPlayerKilled((data) => {
     UI.updateScore(myData.kills, myData.deaths);
     UI.showDeathScreen();
     Audio.playerDeath();
+    Audio.bodyFall();
     Audio.stopHeartbeat();
   }
   if (data.killerId === myId) {
@@ -376,8 +382,9 @@ Network.onGmCommand((cmd) => {
       break;
 
     case 'stampede':
-      cowSystem?.yellAt(0, 0, 99999);  // max radius yell at origin
+      cowSystem?.yellAt(0, 0, 99999);
       chickenSystem?.yell(0, 0);
+      Audio.stampedeRumble();
       break;
 
     case 'storm': {
@@ -727,9 +734,16 @@ let sendTimer  = 0;
 // ── Timers de sonido ambiente ─────────────────────────────────────────────────
 let _stepTimer    = 0;           // pasos
 let _moooTimer    = 8 + Math.random() * 12;   // mugido random
-let _coyoteTimer  = 30 + Math.random() * 60;  // aullido nocturno
-let _wasNight     = false;
-let _wasGalloping = false;
+let _coyoteTimer   = 30 + Math.random() * 60;
+let _thunderTimer  = 45 + Math.random() * 90;  // trueno lejano ocasional
+let _chickenTimer  = 6  + Math.random() * 10;  // cloqueo idle
+let _snortTimer    = 12 + Math.random() * 18;  // resoplido caballo montado
+let _woodTimer     = 20 + Math.random() * 30;  // crujido de edificio
+let _sprintBreath  = 0;
+let _wasNight      = false;
+let _wasDawn       = false;   // para pajaros al amanecer
+let _wasGalloping  = false;
+let _wasInAir      = false;
 
 function gameLoop() {
   requestAnimationFrame(gameLoop);
@@ -985,14 +999,19 @@ function gameLoop() {
     if ((!onHorse || !isMoving) && _wasGalloping) { Audio.stopGallop(); _wasGalloping = false; }
 
     // Noche: grillos on/off
-    if (nightNow && !_wasNight) { Audio.startCrickets(); _wasNight = true; }
-    if (!nightNow && _wasNight) { Audio.stopCrickets();  _wasNight = false; }
+    if (nightNow && !_wasNight)  { Audio.startCrickets(); Audio.stopBirds();  _wasNight = true;  _wasDawn = false; }
+    if (!nightNow && _wasNight)  { Audio.stopCrickets();  _wasNight = false; }
+
+    // Amanecer: pájaros (t ≈ 0.25 dawn)
+    const dawn = getDayProgress() > 0.24 && getDayProgress() < 0.38;
+    if (dawn && !_wasDawn)  { Audio.startBirds(); _wasDawn = true; }
+    if (!dawn && _wasDawn)  { Audio.stopBirds();  _wasDawn = false; }
 
     // Mugido random de vaca
     _moooTimer -= dt;
     if (_moooTimer <= 0) {
       Audio.cowMoo(false);
-      _moooTimer = 8 + Math.random() * 14;
+      _moooTimer = 7 + Math.random() * 13;
     }
 
     // Aullido coyote (solo de noche)
@@ -1002,6 +1021,54 @@ function gameLoop() {
         Audio.coyoteHowl();
         _coyoteTimer = 35 + Math.random() * 55;
       }
+    }
+
+    // Trueno lejano (bajo, random, incluso sin tormenta)
+    _thunderTimer -= dt;
+    if (_thunderTimer <= 0) {
+      if (Math.random() < 0.4) Audio.distantThunder();  // no siempre
+      _thunderTimer = 40 + Math.random() * 80;
+    }
+
+    // Cloqueo gallina idle
+    if (chickenSystem) {
+      _chickenTimer -= dt;
+      if (_chickenTimer <= 0) {
+        Audio.chickenCluck();
+        _chickenTimer = 5 + Math.random() * 9;
+      }
+    }
+
+    // Crujido de madera (edificios)
+    _woodTimer -= dt;
+    if (_woodTimer <= 0) {
+      Audio.woodCreak();
+      _woodTimer = 18 + Math.random() * 28;
+    }
+
+    // Resoplido de caballo (cuando estás montado, idle)
+    if (onHorse) {
+      _snortTimer -= dt;
+      if (_snortTimer <= 0) {
+        Audio.horseSnort();
+        _snortTimer = 10 + Math.random() * 16;
+      }
+    }
+
+    // Jump landing
+    const inAir = controls.isInAir?.() ?? false;
+    if (_wasInAir && !inAir) Audio.jumpLand();
+    _wasInAir = inAir;
+
+    // Sprint breath — cada ~3s si corriendo
+    if (isMoving && controls.isSprinting()) {
+      _sprintBreath -= dt;
+      if (_sprintBreath <= 0) {
+        Audio.sprintExhale();
+        _sprintBreath = 2.8 + Math.random() * 1.2;
+      }
+    } else {
+      _sprintBreath = 0;
     }
   }
 
