@@ -637,13 +637,15 @@ export function distantThunder() {
 // ── ESTAMPIDA ────────────────────────────────────────────────────────────────
 export function stampedeRumble() {
   const c = _ctx_(); if (!c) return; const t = _now(); const dur = 4.5;
+  // Usa buffers cortos con loop para evitar bloquear el hilo principal
   [60,90,130,200].forEach((freq, i) => {
-    const n = _noise(dur-i*0.3, freq, 0.5+i*0.1); if (!n) return;
+    const n = _noise(0.8, freq, 0.5+i*0.1); if (!n) return; // 0.8s max, loop
+    n.src.loop = true; n.src.loopEnd = 0.8;
     const g = n.gain.gain;
     g.cancelScheduledValues(t+i*0.05); g.setValueAtTime(0.0001,t+i*0.05);
     g.linearRampToValueAtTime(0.22-i*0.04,t+i*0.05+0.6);
     g.linearRampToValueAtTime(0.0001,t+i*0.05+dur-i*0.3);
-    _toOut(n.gain,0.25); n.src.start(t+i*0.05);
+    _toOut(n.gain,0.25); n.src.start(t+i*0.05); n.src.stop(t+i*0.05+dur-i*0.3+0.1);
   });
   setTimeout(()=>cowMoo(true),200);
   setTimeout(()=>cowMoo(true),700);
@@ -654,39 +656,42 @@ export function stampedeRumble() {
 export function woodCreak() {
   _playRandom(['ambient/wood_creak_1.mp3','ambient/wood_creak_2.mp3',
                'ambient/creak_1.mp3','ambient/creak_2.mp3','ambient/creak_3.mp3'],
-    { volume: 0.35, reverb: 0.12, pitch: 0.85+Math.random()*0.3 });
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const o = c.createOscillator(); o.type='sawtooth';
-  const f0 = 180+Math.random()*80;
-  o.frequency.setValueAtTime(f0,t); o.frequency.linearRampToValueAtTime(f0*0.6,t+0.18);
-  o.frequency.linearRampToValueAtTime(f0*0.8,t+0.32);
-  const lp = _lp(900); lp.Q = {value:2};
-  const g = c.createGain(); _env(g,0.005,0.04,0.3,0.22,0.10);
-  o.connect(lp); lp.connect(g); _toOut(g,0.10); o.start(t); o.stop(t+0.38);
+    { volume: 0.35, reverb: 0.12, pitch: 0.85+Math.random()*0.3 }, () => {
+    const c = _ctx_(); if (!c) return; const t = _now();
+    const o = c.createOscillator(); o.type='sawtooth';
+    const f0 = 180+Math.random()*80;
+    o.frequency.setValueAtTime(f0,t); o.frequency.linearRampToValueAtTime(f0*0.6,t+0.18);
+    o.frequency.linearRampToValueAtTime(f0*0.8,t+0.32);
+    const lp = _lp(900); lp.Q.value = 2;
+    const g = c.createGain(); _env(g,0.005,0.04,0.3,0.22,0.10);
+    o.connect(lp); lp.connect(g); _toOut(g,0.10); o.start(t); o.stop(t+0.38);
+  });
 }
 
 // ── GM BELL ───────────────────────────────────────────────────────────────────
 export function gmBell() {
-  _playFile('ambient/bell_gm.mp3', { volume: 0.55, reverb: 0.45 });
-  const c = _ctx_(); if (!c) return; const t = _now();
-  [[0,880],[0.16,1108],[0.30,660]].forEach(([delay,freq]) => {
-    const o = c.createOscillator(); o.type='sine'; o.frequency.value=freq;
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t+delay); g.gain.linearRampToValueAtTime(0.11,t+delay+0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+delay+1.0);
-    o.connect(g); _toOut(g,0.40); o.start(t+delay); o.stop(t+delay+1.1);
+  _playFile('ambient/bell_gm.mp3', { volume: 0.55, reverb: 0.45 }, () => {
+    const c = _ctx_(); if (!c) return; const t = _now();
+    [[0,880],[0.16,1108],[0.30,660]].forEach(([delay,freq]) => {
+      const o = c.createOscillator(); o.type='sine'; o.frequency.value=freq;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001,t+delay); g.gain.linearRampToValueAtTime(0.11,t+delay+0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+delay+1.0);
+      o.connect(g); _toOut(g,0.40); o.start(t+delay); o.stop(t+delay+1.1);
+    });
   });
 }
 
 // ── CORRAL ────────────────────────────────────────────────────────────────────
 export function corralBell() {
-  _playFile('ambient/corral_bell.mp3', { volume: 0.65, reverb: 0.50 });
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const o = c.createOscillator(); o.type='sine'; o.frequency.value=648;
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.22,t+0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001,t+1.5);
-  o.connect(g); _toOut(g,0.42); o.start(t); o.stop(t+1.6);
+  _playFile('ambient/corral_bell.mp3', { volume: 0.65, reverb: 0.50 }, () => {
+    const c = _ctx_(); if (!c) return; const t = _now();
+    const o = c.createOscillator(); o.type='sine'; o.frequency.value=648;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.22,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+1.5);
+    o.connect(g); _toOut(g,0.42); o.start(t); o.stop(t+1.6);
+  });
 }
 export function victory() {
   // Tres acordes de guitarra — C maj → G maj → C maj
