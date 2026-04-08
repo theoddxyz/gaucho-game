@@ -203,6 +203,13 @@ export class IsoControls {
     return this.getAimDirection();
   }
 
+  /** Returns the camera raycaster aimed at the current mouse position (for hit detection). */
+  getCameraRaycaster() {
+    this.camera.updateMatrixWorld();
+    this.raycaster.setFromCamera(this.mouseNDC, this.camera);
+    return this.raycaster;
+  }
+
   setPosition(x, y, z) {
     this.position.set(x, 0, z);
     this._vy      = 0;

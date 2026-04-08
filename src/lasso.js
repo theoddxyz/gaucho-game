@@ -2,6 +2,10 @@
 import * as THREE from 'three';
 
 const THROW_SPEED  = 26;       // m/s velocidad de punta
+const MIN_THROW_SPEED = 12;
+const MAX_THROW_SPEED = 38;
+const CHARGE_TIME     = 1.2;   // seconds to reach full charge
+const PULL_STEP       = 6;     // units per pull click
 const ROPE_NODES   = 16;
 const ROPE_LEN     = 20;       // metros máx
 const SEG_LEN      = ROPE_LEN / (ROPE_NODES - 1);
@@ -19,7 +23,11 @@ export class LassoSystem {
     this._line   = null;
     this._tip    = null;
     this._loop   = null;     // visual loop at tip
+    this._charging    = false;
+    this._chargeT     = 0;      // 0..1
+    this._chargeEl    = null;   // DOM charge indicator
     this._build();
+    this._buildChargeUI();
   }
 
   _build() {
@@ -53,8 +61,41 @@ export class LassoSystem {
     }
   }
 
-  /** Lanzar el lazo desde origin en la dirección dir (XZ). */
-  throw(origin, dir) {
+  _buildChargeUI() {
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed', 'bottom:120px', 'left:50%',
+      'transform:translateX(-50%)',
+      'width:120px', 'height:12px',
+      'background:rgba(0,0,0,0.5)',
+      'border:1px solid #c8a23c',
+      'border-radius:6px', 'overflow:hidden',
+      'display:none', 'z-index:100',
+    ].join(';');
+    const fill = document.createElement('div');
+    fill.style.cssText = 'height:100%;width:0%;background:#f0c040;border-radius:6px;transition:width 0.05s;';
+    el.appendChild(fill);
+    document.body.appendChild(el);
+    this._chargeEl   = el;
+    this._chargeFill = fill;
+  }
+
+  startCharge() {
+    if (this._state !== 'idle') return;
+    this._charging = true;
+    this._chargeT  = 0;
+    if (this._chargeEl) this._chargeEl.style.display = 'block';
+  }
+
+  releaseCharge(origin, dir) {
+    if (!this._charging) return;
+    this._charging = false;
+    if (this._chargeEl) { this._chargeEl.style.display = 'none'; this._chargeFill.style.width = '0%'; }
+    const speed = MIN_THROW_SPEED + (MAX_THROW_SPEED - MIN_THROW_SPEED) * this._chargeT;
+    this._throwWithSpeed(origin, dir, speed);
+  }
+
+  _throwWithSpeed(origin, dir, speed) {
     if (this._state !== 'idle') this.release();
     this._state = 'flying';
     this._line.visible = true;
@@ -65,11 +106,38 @@ export class LassoSystem {
       this._nodes[i].pos.copy(origin);
       this._nodes[i].prev.copy(origin);
     }
-    // Give tip initial velocity (store as displacement so Verlet picks it up)
+    const flatDir = new THREE.Vector3(dir.x, 0.12, dir.z).normalize();
     const tip = this._nodes[ROPE_NODES - 1];
-    const flatDir = new THREE.Vector3(dir.x, 0.15, dir.z).normalize();
-    tip.prev.sub(flatDir.multiplyScalar(THROW_SPEED * 0.016));
+    tip.prev.sub(flatDir.clone().multiplyScalar(speed * 0.016));
   }
+
+  pull(gunPos) {
+    if (this._state !== 'caught' || !this._caught) return;
+    const c = this._caught;
+    if (c.type === 'cow' && c.obj && !c.obj.removed) {
+      const dx = gunPos.x - c.obj.mesh.position.x;
+      const dz = gunPos.z - c.obj.mesh.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+      const step = Math.min(PULL_STEP, dist - 1);
+      if (step > 0) {
+        c.obj.mesh.position.x += (dx / dist) * step;
+        c.obj.mesh.position.z += (dz / dist) * step;
+        c.obj.panicTimer = 0.8;
+      }
+    } else if (c.type === 'ostrich') {
+      // Ostriches: handled via vx/vz, pull is continuous in update()
+    }
+    // Release if entity is close enough
+    const entity = c.obj?.mesh ?? c.obj?.group;
+    if (entity) {
+      const dx = gunPos.x - entity.position.x;
+      const dz = gunPos.z - entity.position.z;
+      if (dx * dx + dz * dz < 4) this.release();
+    }
+  }
+
+  /** Lanzar el lazo desde origin en la dirección dir (XZ). */
+  throw(origin, dir) { this._throwWithSpeed(origin, dir, THROW_SPEED); }
 
   release() {
     this._state = 'idle';
@@ -92,6 +160,11 @@ export class LassoSystem {
    */
   update(dt, gunPos, cowSystem, ostrichSystem, remotePlayers) {
     if (this._state === 'idle') return;
+
+    if (this._charging) {
+      this._chargeT = Math.min(1, this._chargeT + dt / CHARGE_TIME);
+      if (this._chargeFill) this._chargeFill.style.width = `${this._chargeT * 100}%`;
+    }
 
     // Anchor first node to gun
     this._nodes[0].pos.copy(gunPos);

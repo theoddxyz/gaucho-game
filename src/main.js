@@ -20,6 +20,8 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
+import { WindParticles } from './wind-particles.js';
+import { createHeatPass } from './heat-shader.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -81,6 +83,8 @@ ssaoPass.kernelRadius = 12;
 ssaoPass.minDistance  = 0.002;
 ssaoPass.maxDistance  = 0.08;
 composer.addPass(ssaoPass);
+const heatPass = createHeatPass();
+composer.addPass(heatPass);
 composer.addPass(new OutputPass());
 
 window.addEventListener('resize', () => {
@@ -124,6 +128,7 @@ const ostrichSystem = new OstrichSystem(scene);
 let currentWeapon = 'shotgun';
 const radialMenu  = new RadialMenu();
 const lassoSystem = new LassoSystem(scene);
+const windParticles = new WindParticles(scene);
 
 // Vacas
 let cowSystem = null;
@@ -241,6 +246,7 @@ Network.onPlayerHit((data) => {
     localPlayerModel?.detachHat();
   } else {
     remotePlayers.get(data.id)?.detachHat();
+    remotePlayers.get(data.id)?.setHP(data.hp);
   }
   if (data.attackerId === myId) UI.showHitmarker();
 });
@@ -292,8 +298,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const origin = fp
       ? new THREE.Vector3(fp.x, fp.y, fp.z)
       : new THREE.Vector3(pos.x, gunY, pos.z);
-    const dir = controls.getFreshAimDirection(gunY);
-    lassoSystem.throw(origin, dir);
+    lassoSystem.startCharge();
     return;
   }
 
@@ -306,7 +311,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
   // Dirección XZ al punto apuntado + componente Y descendente según altura del arma
   const dir = controls.getFreshAimDirection(gunY);
-  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
+  const camRay = controls.getCameraRaycaster();
+  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin, camRay);
   if (!result) return;
   controls.applyRecoil();
   localPlayerModel?.triggerGunRecoil();
@@ -318,11 +324,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (cowSystem) {
     const cHitboxes = cowSystem.getCowHitboxes();
     if (cHitboxes.length > 0) {
-      const cRay = new THREE.Raycaster(
-        new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
-        dir.clone(), 0, 80
-      );
-      const cHits = cRay.intersectObjects(cHitboxes, false);
+      const cHits = camRay.intersectObjects(cHitboxes, false);
       if (cHits.length > 0) {
         const cowId = cowSystem.getCowIdByHitbox(cHits[0].object);
         if (cowId >= 0) cowSystem.killCow(cowId);
@@ -334,12 +336,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   {
     const oHitboxes = ostrichSystem.getHitboxes();
     if (oHitboxes.length > 0) {
-      const oRay = new THREE.Raycaster(
-        new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z),
-        dir.clone(),   // dirección 3D con componente Y
-        0, 80
-      );
-      const oHits = oRay.intersectObjects(oHitboxes, false);
+      const oHits = camRay.intersectObjects(oHitboxes, false);
       if (oHits.length > 0) {
         const idx = ostrichSystem.getIndexByHitbox(oHits[0].object);
         ostrichSystem.kill(idx);
@@ -380,6 +377,33 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 // Right-click releases lasso
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 2 && currentWeapon === 'lasso') lassoSystem.release();
+});
+
+renderer.domElement.addEventListener('mouseup', (e) => {
+  if (e.button !== 0) return;
+  if (currentWeapon === 'lasso') {
+    if (lassoSystem._charging) {
+      const pos    = controls.getPosition();
+      const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+      const gunY   = riderY + 0.55;
+      const fp     = localPlayerModel?.getFirepointWorldPos();
+      const origin = fp
+        ? new THREE.Vector3(fp.x, fp.y, fp.z)
+        : new THREE.Vector3(pos.x, gunY, pos.z);
+      const dir = controls.getFreshAimDirection(gunY);
+      lassoSystem.releaseCharge(origin, dir);
+    } else if (lassoSystem.isCaught()) {
+      // Pull caught entity toward player
+      const pos    = controls.getPosition();
+      const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+      const gunY   = riderY + 0.55;
+      const fp     = localPlayerModel?.getFirepointWorldPos();
+      const gunPos = fp
+        ? new THREE.Vector3(fp.x, fp.y, fp.z)
+        : new THREE.Vector3(pos.x, gunY, pos.z);
+      lassoSystem.pull(gunPos);
+    }
+  }
 });
 
 // --- Game loop ---
@@ -541,6 +565,17 @@ function gameLoop() {
       Network.sendCowCorralled(id);
     }
     UI.updateStableWaypoint(pos.x, pos.z);
+  }
+
+  // ── Wind particles ─────────────────────────────────────────────────────
+  windParticles.update(dt, pos);
+
+  // ── Heat distortion ───────────────────────────────────────────────────
+  {
+    const temp = getTemperature();
+    const intensity = temp > 35 ? Math.min(1, (temp - 35) / 15) : 0;
+    heatPass.uniforms.uIntensity.value = intensity;
+    heatPass.uniforms.uTime.value += dt;
   }
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────

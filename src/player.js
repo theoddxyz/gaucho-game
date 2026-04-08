@@ -136,6 +136,8 @@ export class PlayerModel {
     this._firepoint = null;
     this._gunRecoil  = 0;
     this._gunRestPos = null; // local position stored once gun is found
+    this._hpBar  = null;
+    this._maxHp  = 200;
 
     // Muerte / caída
     this._dying  = false;
@@ -181,6 +183,8 @@ export class PlayerModel {
         this._hitboxes = model._hitboxes || [];
       }
       this.group.add(model);
+      // HP bar for bots
+      if (this._isBot) this._buildHPBar();
     });
   }
 
@@ -313,6 +317,45 @@ export class PlayerModel {
     sprite.scale.set(2, 0.5, 1);
     sprite.position.y = 2.2;
     this.group.add(sprite);
+  }
+
+  _buildHPBar() {
+    const canvas = document.createElement('canvas');
+    canvas.width  = 128;
+    canvas.height = 18;
+    this._hpBarCanvas = canvas;
+    const tex     = new THREE.CanvasTexture(canvas);
+    const sprite  = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sprite.scale.set(1.4, 0.20, 1);
+    sprite.position.y = 2.6;
+    this.group.add(sprite);
+    this._hpBar    = sprite;
+    this._hpBarTex = tex;
+    this._drawHPBar(this.hp ?? 200);
+  }
+
+  _drawHPBar(hp) {
+    if (!this._hpBarCanvas) return;
+    const canvas = this._hpBarCanvas;
+    const ctx    = canvas.getContext('2d');
+    const ratio  = Math.max(0, Math.min(1, hp / this._maxHp));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Background
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.roundRect(0, 0, canvas.width, canvas.height, 4);
+    ctx.fill();
+    // HP fill
+    const fillW = Math.round((canvas.width - 4) * ratio);
+    const hue   = ratio * 120;  // red→green
+    ctx.fillStyle = `hsl(${hue},90%,45%)`;
+    ctx.roundRect(2, 2, fillW, canvas.height - 4, 3);
+    ctx.fill();
+    if (this._hpBarTex) this._hpBarTex.needsUpdate = true;
+  }
+
+  setHP(hp) {
+    this.hp = hp;
+    if (this._isBot) this._drawHPBar(hp);
   }
 
   /** Dispara la animación de caída (se queda en el suelo, no desaparece). */

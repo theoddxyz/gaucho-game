@@ -8,7 +8,7 @@ const BULLET_RANGE = 80;
 let lastShot = 0;
 const activeBullets = [];
 
-export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55, explicitOrigin = null) {
+export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55, explicitOrigin = null, cameraRay = null) {
   if (now - lastShot < COOLDOWN) return null;
   lastShot = now;
 
@@ -19,14 +19,16 @@ export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.5
     z: playerPos.z + aimDirection.z * 0.8,
   };
 
-  // Raycast for hit detection against remote players
-  const ray = new THREE.Raycaster(
-    new THREE.Vector3(origin.x, origin.y, origin.z),
-    aimDirection.clone().normalize(),
-    0,
-    BULLET_RANGE
-  );
-
+  // Use camera ray if provided (exact crosshair hit detection), else fall back to aim direction
+  let ray;
+  if (cameraRay) {
+    ray = cameraRay;
+  } else {
+    ray = new THREE.Raycaster(
+      new THREE.Vector3(origin.x, origin.y, origin.z),
+      aimDirection.clone().normalize(), 0, BULLET_RANGE
+    );
+  }
   const hitTargets = [];
   const idMap = new Map();
   for (const [id, pm] of remotePlayers) {
@@ -35,7 +37,6 @@ export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.5
       idMap.set(mesh.uuid, id);
     }
   }
-
   const intersects = ray.intersectObjects(hitTargets, false);
   const hitId = intersects.length > 0 ? idMap.get(intersects[0].object.uuid) : null;
 
