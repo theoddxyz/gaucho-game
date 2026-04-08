@@ -328,14 +328,12 @@ Network.onPlayerRespawned((data) => {
 
 // ── GM narration display ──────────────────────────────────────────────────────
 Network.onGmMessage(({ text }) => {
-  const box  = document.getElementById('gm-box');
-  const txt  = document.getElementById('gm-text');
-  if (!box || !txt) return;
+  console.log('[GM]', text);   // visible en DevTools aunque falle la UI
+  const box = document.getElementById('gm-box');
+  const txt = document.getElementById('gm-text');
+  if (!box || !txt) { console.warn('[GM] no gm-box found in DOM'); return; }
   txt.textContent = text;
-  box.style.display   = 'flex';
-  box.style.flexDirection = 'column';
-  box.style.opacity   = '1';
-  box.style.transition = 'opacity 0.6s';
+  box.style.cssText += ';display:flex !important;flex-direction:column;opacity:1;transition:opacity 0.6s;';
   clearTimeout(box._hideT);
   box._hideT = setTimeout(() => {
     box.style.opacity = '0';
