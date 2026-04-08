@@ -88,19 +88,30 @@ async function _load(path) {
 
 // Preload silencioso de todos los archivos al arrancar
 const MANIFEST = [
-  'weapons/shotgun.mp3','weapons/bullet_whiz.mp3','weapons/impact_dirt.mp3',
-  'weapons/impact_flesh.mp3','weapons/impact_wood.mp3','weapons/shell.mp3',
+  // weapons (Kenney + CC0 SFX)
+  'weapons/shotgun.mp3','weapons/bullet_whiz.mp3',
+  'weapons/impact_dirt.mp3','weapons/impact_flesh.mp3','weapons/impact_flesh_2.mp3',
+  'weapons/impact_glass.mp3','weapons/impact_glass_2.mp3','weapons/impact_metal.mp3',
+  'weapons/shell.mp3','weapons/shell_2.mp3','weapons/shell_3.mp3',
+  // player (Kenney impact-sounds + CC0)
   'player/step_dirt_1.mp3','player/step_dirt_2.mp3','player/step_dirt_3.mp3','player/step_dirt_4.mp3',
-  'player/step_grass_1.mp3','player/step_grass_2.mp3',
-  'player/hurt_1.mp3','player/hurt_2.mp3',
-  'player/death.mp3','player/land.mp3','player/eat.mp3','player/exhale.mp3',
+  'player/step_dirt_5.mp3','player/step_dirt_6.mp3','player/step_dirt_7.mp3','player/step_dirt_8.mp3',
+  'player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3',
+  'player/hurt_1.mp3','player/hurt_2.mp3','player/hurt_3.mp3',
+  'player/death.mp3','player/land.mp3','player/eat.mp3','player/body_fall.mp3',
+  'player/mount_leather.mp3','player/cloth.mp3',
+  // animals (colocar manualmente desde Pixabay)
   'animals/cow_1.mp3','animals/cow_2.mp3','animals/cow_3.mp3','animals/cow_panic.mp3',
   'animals/horse_neigh.mp3','animals/horse_snort.mp3','animals/horse_gallop.mp3',
   'animals/chicken_1.mp3','animals/chicken_2.mp3','animals/chicken_panic.mp3',
   'animals/ostrich.mp3','animals/coyote.mp3',
+  // ambient (Kenney + CC0 + colocar loops desde Pixabay)
   'ambient/wind.mp3','ambient/crickets.mp3','ambient/birds.mp3',
   'ambient/thunder_1.mp3','ambient/thunder_2.mp3','ambient/thunder_3.mp3',
   'ambient/rain.mp3','ambient/fire.mp3',
+  'ambient/bell_gm.mp3','ambient/corral_bell.mp3',
+  'ambient/wood_creak_1.mp3','ambient/wood_creak_2.mp3',
+  'ambient/creak_1.mp3','ambient/creak_2.mp3','ambient/creak_3.mp3',
 ];
 function _preloadAll() {
   MANIFEST.forEach(p => _load(p).catch(() => {}));
@@ -186,9 +197,10 @@ function _lp(freq) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── PASOS ─────────────────────────────────────────────────────────────────────
-const _stepDirt  = ['player/step_dirt_1.mp3','player/step_dirt_2.mp3',
-                    'player/step_dirt_3.mp3','player/step_dirt_4.mp3'];
-const _stepGrass = ['player/step_grass_1.mp3','player/step_grass_2.mp3'];
+const _stepDirt  = ['player/step_dirt_1.mp3','player/step_dirt_2.mp3','player/step_dirt_3.mp3',
+                    'player/step_dirt_4.mp3','player/step_dirt_5.mp3','player/step_dirt_6.mp3',
+                    'player/step_dirt_7.mp3','player/step_dirt_8.mp3'];
+const _stepGrass = ['player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3'];
 
 export function footstep(surface = 'dirt') {
   const pitch = 0.9 + Math.random() * 0.2;
@@ -282,7 +294,7 @@ export function hitMarker() {
 }
 
 export function playerHurt() {
-  _playRandom(['player/hurt_1.mp3','player/hurt_2.mp3'],
+  _playRandom(['player/hurt_1.mp3','player/hurt_2.mp3','player/hurt_3.mp3'],
     { volume: 0.70, reverb: 0.05, pitch: 0.9 + Math.random()*0.2 }, () => {
       const c = _ctx_(); if (!c) return; const t = _now();
       const o = c.createOscillator(); o.type = 'sine';
@@ -305,6 +317,7 @@ export function playerDeath() {
 }
 
 export function bodyFall() {
+  _playFile('player/body_fall.mp3', { volume: 0.75, reverb: 0.12 });
   const c = _ctx_(); if (!c) return; const t = _now();
   const o = c.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(58,t); o.frequency.exponentialRampToValueAtTime(22,t+0.22);
@@ -446,9 +459,10 @@ function _startGallopSynth() {
 }
 
 export function mountSound() {
+  _playFile('player/mount_leather.mp3', { volume: 0.55, reverb: 0.08 });
   const c = _ctx_(); if (!c) return; const t = _now();
   const n = _noise(0.20, 580, 1.1);
-  if (n) { _env(n.gain,0.012,0.04,0.28,0.12,0.20); _toOut(n.gain,0.07); n.src.start(t); }
+  if (n) { _env(n.gain,0.012,0.04,0.28,0.12,0.20); _toOut(n.gain,0.05); n.src.start(t); }
   const o = c.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(65,t+0.05); o.frequency.exponentialRampToValueAtTime(28,t+0.18);
   const g = c.createGain(); _env(g,0.004,0.04,0.0,0.12,0.18);
@@ -610,7 +624,7 @@ export function stopAmbientDrone() { _droneNodes.forEach(n=>n.stop?.()); _droneN
 // ── TRUENO ────────────────────────────────────────────────────────────────────
 export function distantThunder() {
   _playRandom(['ambient/thunder_1.mp3','ambient/thunder_2.mp3','ambient/thunder_3.mp3'],
-    { volume: 0.58, reverb: 0.65, pitch: 0.85+Math.random()*0.3 }, () => {
+    { volume: 0.58, reverb: 0.65, pitch: 0.7+Math.random()*0.3 }, () => {
       const c = _ctx_(); if (!c) return; const t = _now(); const dur = 2.8+Math.random()*1.5;
       const n = _noise(dur, 55+Math.random()*30, 0.4); if (!n) return;
       const g = n.gain.gain;
@@ -638,6 +652,9 @@ export function stampedeRumble() {
 
 // ── CRUJIDO MADERA ────────────────────────────────────────────────────────────
 export function woodCreak() {
+  _playRandom(['ambient/wood_creak_1.mp3','ambient/wood_creak_2.mp3',
+               'ambient/creak_1.mp3','ambient/creak_2.mp3','ambient/creak_3.mp3'],
+    { volume: 0.35, reverb: 0.12, pitch: 0.85+Math.random()*0.3 });
   const c = _ctx_(); if (!c) return; const t = _now();
   const o = c.createOscillator(); o.type='sawtooth';
   const f0 = 180+Math.random()*80;
@@ -650,6 +667,7 @@ export function woodCreak() {
 
 // ── GM BELL ───────────────────────────────────────────────────────────────────
 export function gmBell() {
+  _playFile('ambient/bell_gm.mp3', { volume: 0.55, reverb: 0.45 });
   const c = _ctx_(); if (!c) return; const t = _now();
   [[0,880],[0.16,1108],[0.30,660]].forEach(([delay,freq]) => {
     const o = c.createOscillator(); o.type='sine'; o.frequency.value=freq;
@@ -662,6 +680,7 @@ export function gmBell() {
 
 // ── CORRAL ────────────────────────────────────────────────────────────────────
 export function corralBell() {
+  _playFile('ambient/corral_bell.mp3', { volume: 0.65, reverb: 0.50 });
   const c = _ctx_(); if (!c) return; const t = _now();
   const o = c.createOscillator(); o.type='sine'; o.frequency.value=648;
   const g = c.createGain();
