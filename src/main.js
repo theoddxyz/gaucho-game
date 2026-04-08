@@ -40,6 +40,24 @@ document.addEventListener('keydown', (e) => {
   UI.showYell(false);
 });
 
+// --- I key: modo invisible/invencible (debug) ---
+let isInvincible = false;
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyI' || !myId) return;
+  isInvincible = !isInvincible;
+  Network.sendToggleInvincible();
+  // Visual feedback — tint local model
+  const tint = isInvincible ? 0x88bbff : null;
+  if (localPlayerModel) {
+    localPlayerModel.group.traverse(o => {
+      if (o.isMesh && o.material) {
+        if (tint !== null) { o.material.transparent = true; o.material.opacity = 0.4; }
+        else { o.material.transparent = false; o.material.opacity = 1.0; }
+      }
+    });
+  }
+});
+
 // Alt key: menú radial de armas
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Alt') {
@@ -310,9 +328,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const fp     = localPlayerModel?.getFirepointWorldPos();
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
   // Dirección XZ al punto apuntado + componente Y descendente según altura del arma
-  const dir = controls.getFreshAimDirection(gunY);
-  const camRay = controls.getCameraRaycaster();
-  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin, camRay);
+  const dir    = controls.getFreshAimDirection(gunY);
+  const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   controls.applyRecoil();
   localPlayerModel?.triggerGunRecoil();
@@ -320,11 +337,12 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   spawnBullet(scene, result.origin, result.direction, 0xffff00);
   Network.sendShoot(result);
 
-  // Cow hit check
+  // Cow hit check (flat XZ ray at gunY)
   if (cowSystem) {
     const cHitboxes = cowSystem.getCowHitboxes();
     if (cHitboxes.length > 0) {
-      const cHits = camRay.intersectObjects(cHitboxes, false);
+      const cRay  = new THREE.Raycaster(new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z), new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(), 0, 80);
+      const cHits = cRay.intersectObjects(cHitboxes, false);
       if (cHits.length > 0) {
         const cowId = cowSystem.getCowIdByHitbox(cHits[0].object);
         if (cowId >= 0) cowSystem.killCow(cowId);
@@ -332,11 +350,12 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
   }
 
-  // Ostrich hit check — usa la dirección 3D completa (incluye Y) para acertar desde caballo
+  // Ostrich hit check (flat XZ ray at gunY)
   {
     const oHitboxes = ostrichSystem.getHitboxes();
     if (oHitboxes.length > 0) {
-      const oHits = camRay.intersectObjects(oHitboxes, false);
+      const oRay  = new THREE.Raycaster(new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z), new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(), 0, 80);
+      const oHits = oRay.intersectObjects(oHitboxes, false);
       if (oHits.length > 0) {
         const idx = ostrichSystem.getIndexByHitbox(oHits[0].object);
         ostrichSystem.kill(idx);
@@ -417,7 +436,8 @@ function gameLoop() {
 
   let pos = null;
   if (!isDead && myId) {
-    controls.update(dt, colliders, horseManager?.speedMultiplier(controls.isSprinting()) ?? (controls.isSprinting() ? 1.9 : 1.0));
+    const _onHorse = horseManager?.isMounted() ?? false;
+    controls.update(dt, colliders, horseManager?.speedMultiplier(controls.isSprinting()) ?? (controls.isSprinting() ? 1.9 : 1.0), _onHorse);
 
     pos = controls.getPosition();
     const rot = controls.getRotation();
@@ -565,6 +585,17 @@ function gameLoop() {
       Network.sendCowCorralled(id);
     }
     UI.updateStableWaypoint(pos.x, pos.z);
+  }
+
+  // ── Crosshair color: roja si hay blanco bajo la mira ─────────────────────
+  if (myId && !isDead && controls.isAiming() && pos) {
+    const cr = controls.getCameraRaycaster();
+    const chTargets = [];
+    for (const [, pm] of remotePlayers) chTargets.push(...pm.getHitboxes());
+    if (cowSystem) chTargets.push(...cowSystem.getCowHitboxes());
+    chTargets.push(...ostrichSystem.getHitboxes());
+    const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
+    UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }
 
   // ── Wind particles ─────────────────────────────────────────────────────

@@ -49,7 +49,8 @@ export function onOstrichKill(cb)    { socket.on('ostrichKill', cb); }
 export function sendCowCorralled(id) { socket.emit('cowCorralled', { id }); }
 export function onCowCorralled(cb)   { socket.on('cowCorralled', cb); }
 
-export function sendYell(x, z)  { socket.emit('yell', { x, z }); }
+export function sendYell(x, z)          { socket.emit('yell', { x, z }); }
+export function sendToggleInvincible()  { socket.emit('toggleInvincible'); }
 export function onYell(cb)      { socket.on('yell', cb); }
 
 export function getRoomId() {

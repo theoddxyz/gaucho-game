@@ -54,6 +54,12 @@ export function showGame() {
 }
 
 // ─── Crosshair ────────────────────────────────────────────────────────────────
+/** color: '#ff2222' for red, null/undefined to reset to default gold */
+export function setCrosshairColor(color) {
+  if (els.crosshair)    els.crosshair.style.setProperty('--ch-color', color ?? 'rgba(184,138,58,0.85)');
+  if (els.crosshairDot) els.crosshairDot.style.background = color ?? 'rgba(232,200,112,0.9)';
+}
+
 export function moveCrosshair(x, y) {
   if (els.crosshair) {
     els.crosshair.style.left    = x + 'px';

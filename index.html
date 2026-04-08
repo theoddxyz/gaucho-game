@@ -31,9 +31,11 @@
       z-index: 50; pointer-events: none; display: none;
       width: 0; height: 0;
     }
+    #crosshair { --ch-color: rgba(184, 138, 58, 0.85); }
     #crosshair::before, #crosshair::after {
       content: ''; position: absolute;
-      background: rgba(184, 138, 58, 0.85);
+      background: var(--ch-color);
+      transition: background 0.08s;
     }
     #crosshair::before { width: 1px; height: 14px; left: -1px; top: -7px; }
     #crosshair::after  { width: 14px; height: 1px; left: -7px; top: -1px; }

@@ -69,7 +69,7 @@ export class IsoControls {
   /** Trigger gun recoil — call once per shot. */
   applyRecoil() { this._recoil = 1; }
 
-  update(dt, colliders, speedMult = 1.0) {
+  update(dt, colliders, speedMult = 1.0, onHorse = false) {
     const sprint = this._sprinting ? SPRINT_MULT : 1.0;
 
     // --- Horizontal movement with smooth acceleration ---
@@ -88,10 +88,18 @@ export class IsoControls {
 
     const targetX = dir.x * SPEED * speedMult * sprint;
     const targetZ = dir.z * SPEED * speedMult * sprint;
-    // Moderate acceleration — reduced to avoid overly snappy horse feel
-    const accel = dir.length() > 0 ? 5 : 8;
-    this._velX += (targetX - this._velX) * Math.min(1, accel * dt);
-    this._velZ += (targetZ - this._velZ) * Math.min(1, accel * dt);
+
+    if (onHorse) {
+      // Exponential approach — heavy inertia: builds and sheds speed slowly
+      const tau   = dir.length() > 0 ? 2.2 : 3.0;   // seconds time-constant
+      const alpha = 1 - Math.exp(-dt / tau);
+      this._velX += (targetX - this._velX) * alpha;
+      this._velZ += (targetZ - this._velZ) * alpha;
+    } else {
+      const accel = dir.length() > 0 ? 5 : 8;
+      this._velX += (targetX - this._velX) * Math.min(1, accel * dt);
+      this._velZ += (targetZ - this._velZ) * Math.min(1, accel * dt);
+    }
 
     this.position.x += this._velX * dt;
     this.position.z += this._velZ * dt;

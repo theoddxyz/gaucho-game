@@ -114,6 +114,7 @@ setInterval(() => {
         // Visual: muzzle flash + bullet for all clients
         io.to(roomId).emit('playerShot', { id: bot.id, origin, direction });
 
+        if (target.invincible) continue;
         target.hp -= 25;
         if (target.hp <= 0) {
           target.hp = 0;
@@ -263,7 +264,7 @@ io.on('connection', (socket) => {
     if (data.hitId) {
       const room = getRoom(currentRoom);
       const target = room.get(data.hitId);
-      if (target && target.hp > 0) {
+      if (target && target.hp > 0 && !target.invincible) {
         target.hp -= 25;
         if (target.hp <= 0) {
           target.hp = 0;
@@ -329,6 +330,13 @@ io.on('connection', (socket) => {
   socket.on('bottleHit', (data) => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('bottleHit', data);
+  });
+
+  socket.on('toggleInvincible', () => {
+    if (!currentRoom) return;
+    const room = rooms.get(currentRoom);
+    const player = room?.get(socket.id);
+    if (player) player.invincible = !player.invincible;
   });
 
   socket.on('ostrichKill', ({ idx } = {}) => {
