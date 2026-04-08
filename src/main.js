@@ -18,6 +18,8 @@ import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight } 
 import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
 import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
+import { RadialMenu } from './radial-menu.js';
+import { LassoSystem } from './lasso.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -34,6 +36,26 @@ document.addEventListener('keydown', (e) => {
   cowSystem?.yell(pos.x, pos.z);
   Network.sendYell(pos.x, pos.z);
   UI.showYell(false);
+});
+
+// Alt key: menú radial de armas
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt') {
+    e.preventDefault();
+    if (!radialMenu._visible) radialMenu.show(currentWeapon);
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') {
+    e.preventDefault();
+    const selected = radialMenu.getSelected();
+    radialMenu.hide();
+    if (selected !== currentWeapon) {
+      currentWeapon = selected;
+      radialMenu.setHUD(currentWeapon);
+      if (currentWeapon !== 'lasso') lassoSystem.release();
+    }
+  }
 });
 
 // --- Renderer ---
@@ -97,6 +119,11 @@ let _facingAngle = 0;
 
 // Avestruz
 const ostrichSystem = new OstrichSystem(scene);
+
+// Armas
+let currentWeapon = 'shotgun';
+const radialMenu  = new RadialMenu();
+const lassoSystem = new LassoSystem(scene);
 
 // Vacas
 let cowSystem = null;
@@ -253,7 +280,25 @@ Network.onPlayerRespawned((data) => {
 
 // --- Shooting (left-click, only while right-click aim is held) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button !== 0 || isDead || !myId || !controls.isAiming()) return;
+  if (e.button !== 0 || isDead || !myId) return;
+
+  // === LAZO ===
+  if (currentWeapon === 'lasso') {
+    if (!controls.isAiming()) return;
+    const pos    = controls.getPosition();
+    const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+    const gunY   = riderY + 0.55;
+    const fp     = localPlayerModel?.getFirepointWorldPos();
+    const origin = fp
+      ? new THREE.Vector3(fp.x, fp.y, fp.z)
+      : new THREE.Vector3(pos.x, gunY, pos.z);
+    const dir = controls.getFreshAimDirection(gunY);
+    lassoSystem.throw(origin, dir);
+    return;
+  }
+
+  // === ESCOPETA ===
+  if (!controls.isAiming()) return;
   const pos    = controls.getPosition();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
   const gunY   = riderY + 0.55;
@@ -330,6 +375,11 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       if (key) Network.sendBottleHit(key, result.direction);
     }
   }
+});
+
+// Right-click releases lasso
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.button === 2 && currentWeapon === 'lasso') lassoSystem.release();
 });
 
 // --- Game loop ---
@@ -446,6 +496,17 @@ function gameLoop() {
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);
   updateBullets(scene, dt);
+
+  // ── Lazo ─────────────────────────────────────────────────────────────────
+  if (lassoSystem.isActive() && pos) {
+    const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+    const gunY   = riderY + 0.55;
+    const fp     = localPlayerModel?.getFirepointWorldPos();
+    const gunPos = fp
+      ? new THREE.Vector3(fp.x, fp.y, fp.z)
+      : new THREE.Vector3(pos.x, gunY, pos.z);
+    lassoSystem.update(dt, gunPos, cowSystem, ostrichSystem, remotePlayers);
+  }
 
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);

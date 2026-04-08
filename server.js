@@ -131,7 +131,7 @@ setInterval(() => {
           setTimeout(() => {
             if (room.has(target.id)) {
               const sp = randomSpawn();
-              target.hp = 100; target.x = sp.x; target.y = sp.y; target.z = sp.z;
+              target.hp = 200; target.x = sp.x; target.y = sp.y; target.z = sp.z;
               io.to(roomId).emit('playerRespawned', { id: target.id, ...target });
             }
           }, 2000);
@@ -220,7 +220,7 @@ io.on('connection', (socket) => {
       color: COLORS[colorIndex],
       x: spawn.x, y: spawn.y, z: spawn.z,
       rx: 0, ry: 0,
-      hp: 100,
+      hp: 200,
       kills: 0,
       deaths: 0,
     };
@@ -283,7 +283,7 @@ io.on('connection', (socket) => {
             setTimeout(() => {
               if (room.has(data.hitId)) {
                 const spawn = randomSpawn();
-                target.hp = 100;
+                target.hp = 200;
                 target.x = spawn.x;
                 target.y = spawn.y;
                 target.z = spawn.z;
