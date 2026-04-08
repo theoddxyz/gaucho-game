@@ -186,6 +186,7 @@ const _geminiKey  = process.env.GEMINI_API_KEY || '';
 const _genAI      = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
 const _gmModel    = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.0-flash' }) : null;
 const _gmState    = new Map(); // roomId → { lastCallTime, totalKills, corralled, history[] }
+console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO key=...'+_geminiKey.slice(-4) : 'INACTIVO (sin API key)'}`);
 
 function _getGmState(roomId) {
   if (!_gmState.has(roomId)) {
@@ -195,11 +196,14 @@ function _getGmState(roomId) {
 }
 
 async function callGM(roomId, eventDesc) {
-  if (!_gmModel) return; // no API key configured
+  console.log(`[GM] callGM llamado: model=${!!_gmModel} event="${eventDesc.slice(0,40)}"`);
+  if (!_gmModel) { console.warn('[GM] Sin modelo — falta GEMINI_API_KEY'); return; }
   const gm = _getGmState(roomId);
   const now = Date.now();
-  if (now - gm.lastCallTime < 14000) return; // throttle: 1 mensaje cada 14s por sala
+  const elapsed = now - gm.lastCallTime;
+  if (elapsed < 14000) { console.log(`[GM] Throttled (${Math.round(elapsed/1000)}s < 14s)`); return; }
   gm.lastCallTime = now;
+  console.log(`[GM] Llamando a Gemini para sala ${roomId}...`);
 
   const room        = getRoom(roomId);
   const playerNames = [...room.values()].filter(p => !p.isBot).map(p => p.name).join(', ') || 'nadie';
@@ -495,6 +499,7 @@ io.on('connection', (socket) => {
 
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
   socket.on('gameEvent', ({ type, detail }) => {
+    console.log(`[GM] gameEvent recibido: type=${type}`);
     if (!currentRoom || !playerData) return;
     const EVENT_DESCS = {
       night_fell:   `Cayó la noche en la pampa. La oscuridad cubre el campo.`,
