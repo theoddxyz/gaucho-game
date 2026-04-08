@@ -4,8 +4,8 @@ import * as THREE from 'three';
 
 const DAY_DURATION = 600; // seconds
 
-// Start at late afternoon (dusk) to match original mood
-let _t = 0.72;
+// Start at 5 PM (17:00 = 17/24 ≈ 0.708)
+let _t = 0.708;
 
 // ─── Keyframe tables ─────────────────────────────────────────────────────────
 // Each entry: [t, r, g, b]  (r/g/b in 0-255)
@@ -80,7 +80,7 @@ function _lerp3(keys, t) {
 
 // ─── Main update ──────────────────────────────────────────────────────────────
 export function updateDayNight(dt, scene, sun, ambient, moon = null) {
-  _t = (_t + dt / DAY_DURATION) % 1;
+  if (!_locked) _t = (_t + dt / DAY_DURATION) % 1;
 
   // Sky + fog
   const [sr, sg, sb] = _lerp3(SKY_KEYS, _t);
@@ -123,6 +123,11 @@ const MOON_INT_KEYS = [
 
 /** 0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk */
 export function getDayProgress() { return _t; }
+
+/** Override the current time (0–1). Pauses natural progression while held. */
+let _locked = false;
+export function setDayProgress(t) { _t = Math.max(0, Math.min(1, t)); _locked = true; }
+export function unlockDayProgress() { _locked = false; }
 
 /** Temperature in °C — cold at night (~5°), hot at noon (~40°) */
 export function getTemperature() {

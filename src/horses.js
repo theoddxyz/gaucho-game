@@ -296,7 +296,7 @@ export class HorseManager {
       let ryDiff = horse._targetRY - horse._displayRY;
       while (ryDiff >  Math.PI) ryDiff -= Math.PI * 2;
       while (ryDiff < -Math.PI) ryDiff += Math.PI * 2;
-      horse._displayRY += ryDiff * Math.min(1, 14 * dt);
+      horse._displayRY += ryDiff * Math.min(1, 5 * dt);
       horse.mesh.rotation.y = horse._displayRY;
 
       // Apply bob offset on top of base Y

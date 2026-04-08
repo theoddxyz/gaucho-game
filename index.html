@@ -305,7 +305,41 @@
     position:fixed; bottom:6px; left:50%; transform:translateX(-50%);
     z-index:200; font-size:9px; color:#3a2808; letter-spacing:2px;
     pointer-events:none; user-select:none;
-  ">BUILD 2026-04-08 · v8</div>
+  ">BUILD 2026-04-08 · v13</div>
+
+  <!-- ── Time-of-day slider (toggle with ` backtick) ─────────────────────── -->
+  <div id="time-panel" style="
+    position:fixed; bottom:60px; left:50%; transform:translateX(-50%);
+    z-index:300; display:none; flex-direction:column; align-items:center; gap:8px;
+    background:rgba(8,5,2,0.88); border:1px solid #4a3010; padding:14px 22px;
+    font-family:'Share Tech Mono',monospace;
+  ">
+    <!-- Arc: sun/moon visual -->
+    <canvas id="sky-arc" width="220" height="70" style="display:block;"></canvas>
+    <!-- Slider -->
+    <div style="display:flex;align-items:center;gap:10px;width:220px;">
+      <span style="font-size:10px;color:#6a5030;letter-spacing:1px;">00:00</span>
+      <input id="time-slider" type="range" min="0" max="1440" step="1" value="1019"
+        style="flex:1;accent-color:#c8a050;cursor:pointer;">
+      <span style="font-size:10px;color:#6a5030;letter-spacing:1px;">24:00</span>
+    </div>
+    <div id="time-label" style="font-size:13px;color:#c8a050;letter-spacing:3px;">17:00</div>
+    <div style="font-size:9px;color:#3a2808;letter-spacing:2px;">` PARA CERRAR</div>
+  </div>
+
+  <!-- ── Game Master narration box ───────────────────────────────────────── -->
+  <div id="gm-box" style="
+    position:fixed; top:22px; left:50%; transform:translateX(-50%);
+    z-index:150; display:none; max-width:480px; width:90%;
+    background:rgba(6,3,1,0.90); border:1px solid #5a3a14;
+    padding:12px 20px; font-family:'Share Tech Mono',monospace;
+    font-size:12px; color:#d4aa60; letter-spacing:1px; line-height:1.7;
+    text-align:center; pointer-events:none;
+    box-shadow:0 0 18px rgba(180,130,40,0.12);
+  ">
+    <div style="font-size:9px;color:#4a3010;letter-spacing:3px;margin-bottom:6px;">▸ NARRADOR ◂</div>
+    <div id="gm-text"></div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

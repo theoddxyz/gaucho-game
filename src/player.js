@@ -27,16 +27,46 @@ function loadTemplate(isBot = false) {
 function buildFallbackModel(color) {
   const group = new THREE.Group();
   const c = new THREE.Color(color);
-  const bodyMat = new THREE.MeshStandardMaterial({ color: c });
-  const headMat = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0xffffff), 0.3) });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.55), bodyMat);
-  body.position.y = 0.6;
+  const bodyMat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0xffffff), 0.3), roughness: 0.85 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0x000000), 0.25), roughness: 0.9 });
+
+  // Torso
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.10, 0.50), bodyMat);
+  body.position.set(0, 0.62, 0);
+  body.name = 'body';
   body.castShadow = true;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.48, 0.48), headMat);
-  head.position.y = 1.44;
+
+  // Head
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.46), skinMat);
+  head.position.set(0, 1.44, 0);
+  head.name = 'head';
   head.castShadow = true;
-  group.add(body, head);
-  group._hitboxes = [body, head];
+
+  // Arms (left / right)
+  const armGeo = new THREE.BoxGeometry(0.22, 0.85, 0.22);
+  const leftArm = new THREE.Mesh(armGeo, bodyMat.clone());
+  leftArm.position.set(-0.50, 0.58, 0);
+  leftArm.castShadow = true;
+  const rightArm = new THREE.Mesh(armGeo, bodyMat.clone());
+  rightArm.position.set(0.50, 0.58, 0);
+  rightArm.castShadow = true;
+
+  // Legs (left / right)
+  const legGeo = new THREE.BoxGeometry(0.26, 0.78, 0.26);
+  const leftLeg = new THREE.Mesh(legGeo, darkMat.clone());
+  leftLeg.position.set(-0.19, -0.22, 0);
+  leftLeg.name = 'leg_left';
+  leftLeg.castShadow = true;
+  const rightLeg = new THREE.Mesh(legGeo, darkMat.clone());
+  rightLeg.position.set(0.19, -0.22, 0);
+  rightLeg.name = 'leg_right';
+  rightLeg.castShadow = true;
+
+  group.add(body, head, leftArm, rightArm, leftLeg, rightLeg);
+  group._hitboxes  = [body, head];
+  group._headMesh  = head;
+  group._legMeshes = [leftLeg, rightLeg];
   return group;
 }
 
@@ -67,12 +97,14 @@ function buildBotModel() {
 
   // Torso
   const body = mk(0.80, 1.10, 0.50, CLOTH, 0, 0.55, 0);
+  body.name = 'body';
   // Detalles de tela en el pecho
   mk(0.78, 0.12, 0.52, TECH,  0, 0.88, 0.01);  // banda tecnológica
   mk(0.78, 0.12, 0.52, PAINT, 0, 0.72, 0.01);  // banda roja
 
   // Cabeza
   const head = mk(0.48, 0.46, 0.46, SKIN, 0, 1.43, 0);
+  head.name = 'head';
   // Pintura de guerra — rayas rojas en la cara
   mk(0.50, 0.08, 0.10, PAINT, 0, 1.50,  0.24);
   mk(0.50, 0.08, 0.10, PAINT, 0, 1.36,  0.24);
@@ -94,9 +126,11 @@ function buildBotModel() {
   mk(0.24, 0.07, 0.24, BONE,  0.51, 0.15, 0);
   mk(0.24, 0.07, 0.24, BONE, -0.51, 0.15, 0);
 
-  // Piernas
-  mk(0.28, 0.80, 0.28, CLOTH,  0.20, -0.40, 0);
-  mk(0.28, 0.80, 0.28, CLOTH, -0.20, -0.40, 0);
+  // Piernas (guardamos referencias para poder volarlas)
+  const leftLeg  = mk(0.28, 0.80, 0.28, CLOTH,  0.20, -0.40, 0);
+  const rightLeg = mk(0.28, 0.80, 0.28, CLOTH, -0.20, -0.40, 0);
+  leftLeg.name  = 'leg_left';
+  rightLeg.name = 'leg_right';
   // Mocasines
   mk(0.30, 0.10, 0.36, BONE,  0.20, -0.85, 0.04);
   mk(0.30, 0.10, 0.36, BONE, -0.20, -0.85, 0.04);
@@ -104,7 +138,9 @@ function buildBotModel() {
   // Collar de huesos
   mk(0.72, 0.10, 0.10, BONE, 0, 1.10, 0.26);
 
-  grp._hitboxes = [body, head];
+  grp._hitboxes  = [body, head];
+  grp._headMesh  = head;
+  grp._legMeshes = [leftLeg, rightLeg];
   return grp;
 }
 
@@ -128,6 +164,13 @@ export class PlayerModel {
     this._hatFlying = false;
     this._hatVel = new THREE.Vector3();
     this._hatAngVel = new THREE.Vector3();
+
+    // Impact physics
+    this._headMesh      = null;
+    this._legMeshes     = [];
+    this._detachedParts = [];   // flying body parts
+    this._staggerVel    = 0;    // spring-damper bodyshot stagger
+    this._staggerPos    = 0;
 
     // Name label
     if (data.name) this._addNameLabel(data.name);
@@ -172,15 +215,21 @@ export class PlayerModel {
             if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
           }
         });
-        // Collect hitboxes
+        // Collect hitboxes + impact-physics mesh refs from GLB
         model.traverse((obj) => {
-          if (obj.isMesh && (obj.name === 'body' || obj.name === 'head')) {
-            this._hitboxes.push(obj);
+          if (!obj.isMesh) return;
+          const n = obj.name.toLowerCase();
+          if (n === 'body' || n === 'head') this._hitboxes.push(obj);
+          if (n === 'head') this._headMesh = obj;
+          if (n.includes('leg') || n.includes('pierna') || n.includes('thigh') || n.includes('shin')) {
+            this._legMeshes.push(obj);
           }
         });
       } else {
         model = this._isBot ? buildBotModel() : buildFallbackModel(this.color);
-        this._hitboxes = model._hitboxes || [];
+        this._hitboxes  = model._hitboxes  || [];
+        this._headMesh  = model._headMesh  || null;
+        this._legMeshes = model._legMeshes || [];
       }
       this.group.add(model);
       // HP bar for bots
@@ -366,6 +415,51 @@ export class PlayerModel {
   }
 
   update(dt) {
+    // ── Flying body-part physics ─────────────────────────────────────────────
+    for (let i = this._detachedParts.length - 1; i >= 0; i--) {
+      const p = this._detachedParts[i];
+      p.t += dt;
+      if (p.t >= p.maxT) {
+        this._scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        this._detachedParts.splice(i, 1);
+        continue;
+      }
+      // Gravity
+      p.vel.y -= 20 * dt;
+      p.mesh.position.addScaledVector(p.vel, dt);
+      p.mesh.rotation.x += p.angVel.x * dt;
+      p.mesh.rotation.y += p.angVel.y * dt;
+      p.mesh.rotation.z += p.angVel.z * dt;
+      // Ground bounce
+      if (p.mesh.position.y < 0.04) {
+        p.mesh.position.y = 0.04;
+        p.vel.y  *= -0.28;
+        p.vel.x  *= 0.60;
+        p.vel.z  *= 0.60;
+        p.angVel.multiplyScalar(0.45);
+      }
+      // Fade out last 0.6 s
+      if (p.t > p.maxT - 0.6) {
+        p.mesh.material.opacity = Math.max(0, (p.maxT - p.t) / 0.6);
+      }
+    }
+
+    // ── Spring-damper bodyshot stagger ───────────────────────────────────────
+    if (Math.abs(this._staggerVel) > 0.001 || Math.abs(this._staggerPos) > 0.001) {
+      const K = 32, D = 7;
+      this._staggerVel -= this._staggerPos * K * dt;
+      this._staggerVel *= (1 - D * dt);
+      this._staggerPos += this._staggerVel * dt;
+      if (!this._dying) this.group.rotation.z = this._staggerPos * 0.07;
+      if (Math.abs(this._staggerPos) < 0.004 && Math.abs(this._staggerVel) < 0.004) {
+        this._staggerVel = 0;
+        this._staggerPos = 0;
+        if (!this._dying) this.group.rotation.z = 0;
+      }
+    }
+
     if (this._dying) {
       this._dyingT += dt;
       // Caer de costado en ~0.6 s
@@ -402,11 +496,122 @@ export class PlayerModel {
     return null;
   }
 
+  /**
+   * Apply visual impact reaction — purely local, no network sync.
+   * @param {'head'|'leg'|'body'} hitZone
+   * @param {THREE.Vector3} hitPoint  — world position of impact
+   */
+  applyImpact(hitZone, hitPoint) {
+    if (hitZone === 'head') {
+      // Determine world position of head
+      let headWorldPos;
+      if (this._headMesh) {
+        this._headMesh.updateWorldMatrix(true, false);
+        headWorldPos = this._headMesh.getWorldPosition(new THREE.Vector3());
+        const geo = this._headMesh.geometry.clone();
+        const col = this._headMesh.material?.color?.getHex?.() ?? 0x8b6040;
+        this._headMesh.visible = false;
+        this._spawnFlyingPart(headWorldPos, geo, col, hitPoint, 3.5);
+      } else {
+        headWorldPos = this.group.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+        this._spawnFlyingPart(
+          headWorldPos,
+          new THREE.BoxGeometry(0.46, 0.46, 0.46),
+          0x8b6040, hitPoint, 3.5
+        );
+      }
+
+    } else if (hitZone === 'leg') {
+      let legMesh = null;
+      if (this._legMeshes.length > 0) {
+        // Pick a still-visible leg
+        const visible = this._legMeshes.filter(l => l.visible);
+        legMesh = visible.length > 0
+          ? visible[Math.floor(Math.random() * visible.length)]
+          : this._legMeshes[Math.floor(Math.random() * this._legMeshes.length)];
+      }
+
+      let legWorldPos;
+      if (legMesh) {
+        legMesh.updateWorldMatrix(true, false);
+        legWorldPos = legMesh.getWorldPosition(new THREE.Vector3());
+        const geo = legMesh.geometry.clone();
+        const col = legMesh.material?.color?.getHex?.() ?? 0x2a1a08;
+        legMesh.visible = false;
+        this._spawnFlyingPart(legWorldPos, geo, col, hitPoint, 3.5);
+      } else {
+        // Fallback: spawn chunk at lower body
+        legWorldPos = this.group.position.clone().add(
+          new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.35, 0)
+        );
+        this._spawnFlyingPart(
+          legWorldPos,
+          new THREE.BoxGeometry(0.26, 0.70, 0.26),
+          0x2a1a08, hitPoint, 3.5
+        );
+      }
+
+    } else {
+      // bodyshot — spring-damper rotation stagger
+      this._staggerPos = 0;
+      this._staggerVel = 5.0 * (Math.random() < 0.5 ? 1 : -1);
+    }
+  }
+
+  /**
+   * Spawn a body part that flies through the air with physics.
+   */
+  _spawnFlyingPart(worldPos, geo, color, hitPoint, maxT = 3.0) {
+    const mat  = new THREE.MeshStandardMaterial({ color, roughness: 0.85, transparent: true, opacity: 1 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(worldPos);
+    mesh.castShadow = true;
+    this._scene.add(mesh);
+
+    // Launch: mostly away from hit point + upward jolt
+    const away = new THREE.Vector3().subVectors(worldPos, hitPoint).normalize();
+    const vel  = new THREE.Vector3(
+      away.x * 6 + (Math.random() - 0.5) * 5,
+      Math.abs(away.y) * 2 + 5 + Math.random() * 4,
+      away.z * 6 + (Math.random() - 0.5) * 5
+    );
+    const angVel = new THREE.Vector3(
+      (Math.random() - 0.5) * 20,
+      (Math.random() - 0.5) * 20,
+      (Math.random() - 0.5) * 20
+    );
+
+    this._detachedParts.push({ mesh, vel, angVel, t: 0, maxT });
+  }
+
+  /**
+   * Reset all impact state — call on respawn.
+   */
+  resetImpact() {
+    if (this._headMesh) this._headMesh.visible = true;
+    for (const leg of this._legMeshes) leg.visible = true;
+    for (const p of this._detachedParts) {
+      this._scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+    }
+    this._detachedParts = [];
+    this._staggerVel    = 0;
+    this._staggerPos    = 0;
+  }
+
   remove(scene) {
     scene.remove(this.group);
     if (this._hat && this._hatFlying) {
       scene.remove(this._hat);
     }
+    // Clean up any flying parts
+    for (const p of this._detachedParts) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+    }
+    this._detachedParts = [];
   }
 
   getHitboxes() {

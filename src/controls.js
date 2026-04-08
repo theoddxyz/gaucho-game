@@ -81,6 +81,14 @@ export class IsoControls {
 
     if (dir.length() > 0) {
       dir.normalize();
+      // Rotate WASD to match isometric camera angle.
+      // Camera sits at (+20, 25, +20) relative to player → yaw = 45°.
+      // Rotating input by 45° makes W = visually "up", D = visually "right", etc.
+      const C = 0.7071067811865476; // cos(45°) = sin(45°) = √2/2
+      const rx = dir.x * C + dir.z * C;
+      const rz = -dir.x * C + dir.z * C;
+      dir.x = rx;
+      dir.z = rz;
       const raw  = Math.atan2(dir.x, dir.z);
       const step = Math.PI / 4;
       this._lastMoveAngle = Math.round(raw / step) * step;
@@ -91,7 +99,7 @@ export class IsoControls {
 
     if (onHorse) {
       // Exponential approach — heavy inertia: builds and sheds speed slowly
-      const tau   = dir.length() > 0 ? 2.2 : 3.0;   // seconds time-constant
+      const tau   = dir.length() > 0 ? 0.65 : 3.5;  // seconds time-constant
       const alpha = 1 - Math.exp(-dt / tau);
       this._velX += (targetX - this._velX) * alpha;
       this._velZ += (targetZ - this._velZ) * alpha;

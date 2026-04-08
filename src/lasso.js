@@ -26,6 +26,7 @@ export class LassoSystem {
     this._charging    = false;
     this._chargeT     = 0;      // 0..1
     this._chargeEl    = null;   // DOM charge indicator
+    this._reeling     = false;  // right-mouse held → reel in
     this._build();
     this._buildChargeUI();
   }
@@ -41,8 +42,8 @@ export class LassoSystem {
     this._line.frustumCulled = false;
     this._scene.add(this._line);
 
-    // Tip sphere
-    const tGeo  = new THREE.SphereGeometry(0.13, 6, 4);
+    // Tip: oval/torus loop (the flying lasso ring)
+    const tGeo  = new THREE.TorusGeometry(0.38, 0.045, 6, 18);
     const tMat  = new THREE.MeshBasicMaterial({ color: 0xf0c040 });
     this._tip   = new THREE.Mesh(tGeo, tMat);
     this._tip.visible = false;
@@ -152,9 +153,11 @@ export class LassoSystem {
       this._nodes[i].pos.copy(origin);
       this._nodes[i].prev.copy(origin);
     }
-    const flatDir = new THREE.Vector3(dir.x, 0.12, dir.z).normalize();
+    // Use full 3D direction (including slight upward arc), preserving any Y aim
+    const launchY = dir.y !== undefined ? Math.max(0.08, dir.y) : 0.12;
+    const throwDir = new THREE.Vector3(dir.x, launchY, dir.z).normalize();
     const tip = this._nodes[ROPE_NODES - 1];
-    tip.prev.sub(flatDir.clone().multiplyScalar(speed * 0.016));
+    tip.prev.sub(throwDir.clone().multiplyScalar(speed * 0.016));
   }
 
   pull(gunPos) {
@@ -199,6 +202,8 @@ export class LassoSystem {
   isActive()   { return this._state !== 'idle'; }
   isCharging() { return this._state === 'charging'; }
   getCaught()  { return this._caught; }
+  startReel()  { this._reeling = true; }
+  stopReel()   { this._reeling = false; }
 
   /**
    * @param {THREE.Vector3} gunPos
@@ -261,6 +266,8 @@ export class LassoSystem {
       const c = this._caught;
       let entityPos = null;
 
+      const reelForce = this._reeling ? PULL_FORCE * 4 : PULL_FORCE;
+
       if (c.type === 'cow' && cowSystem && !c.obj.removed) {
         entityPos = c.obj.mesh.position;
         // Pull force on cow
@@ -268,16 +275,26 @@ export class LassoSystem {
         const dz = gunPos.z - entityPos.z;
         const dist = Math.sqrt(dx * dx + dz * dz) || 1;
         if (dist > 2) {
-          c.obj.vx += (dx / dist) * PULL_FORCE * dt;
-          c.obj.vz += (dz / dist) * PULL_FORCE * dt;
+          c.obj.vx += (dx / dist) * reelForce * dt;
+          c.obj.vz += (dz / dist) * reelForce * dt;
           c.obj.panicTimer = Math.max(c.obj.panicTimer, 0.3);
         }
+        if (this._reeling && dist < 3) this.release();
       } else if (c.type === 'ostrich' && ostrichSystem) {
         const e = ostrichSystem._entities[c.id];
         if (e && !e.dead && e.mesh) {
           entityPos = e.mesh.position;
-          // Slow ostrich
-          e.vx *= 0.5; e.vz *= 0.5;
+          // Slow and reel ostrich
+          const pullMult = this._reeling ? 0.08 : 0.5;
+          e.vx *= pullMult; e.vz *= pullMult;
+          if (this._reeling) {
+            const dx = gunPos.x - entityPos.x;
+            const dz = gunPos.z - entityPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+            e.vx += (dx / dist) * reelForce * dt;
+            e.vz += (dz / dist) * reelForce * dt;
+            if (dist < 3) this.release();
+          }
         } else { this.release(); return; }
       } else if (c.type === 'player' && remotePlayers) {
         const pm = remotePlayers.get(c.id);
@@ -302,9 +319,20 @@ export class LassoSystem {
     attr.needsUpdate = true;
     this._line.geometry.computeBoundingSphere();
 
-    // Update tip mesh
+    // Update tip mesh: spinning oval ring oriented to face travel direction
     const tip = this._nodes[ROPE_NODES - 1];
     this._tip.position.copy(tip.pos);
+    // Compute travel direction from Verlet velocity (pos - prev)
+    const _tipVel = new THREE.Vector3().subVectors(tip.pos, tip.prev);
+    if (_tipVel.lengthSq() > 0.0001) {
+      // Point ring face toward travel direction (TorusGeometry ring-face is XY plane → normal = Z)
+      // We want ring normal = travel direction, so rotate Z axis to travel dir
+      const _travelDir = _tipVel.normalize();
+      const _zAxis = new THREE.Vector3(0, 0, 1);
+      this._tip.quaternion.setFromUnitVectors(_zAxis, _travelDir);
+    }
+    // Spin the ring around its normal axis for a dynamic lasso feel
+    this._tip.rotateZ(dt * 9.0);
 
     // === Catch detection (only while flying) ===
     if (this._state === 'flying') {

@@ -14,10 +14,11 @@ import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
-import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight } from './daynight.js';
+import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight, setDayProgress, unlockDayProgress } from './daynight.js';
 import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
 import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
+import { ChickenSystem } from './chickens.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
@@ -36,6 +37,7 @@ document.addEventListener('keydown', (e) => {
   const pos = controls?.getPosition();
   if (!pos) return;
   cowSystem?.yell(pos.x, pos.z);
+  chickenSystem?.yell(pos.x, pos.z);
   Network.sendYell(pos.x, pos.z);
   UI.showYell(false);
 });
@@ -155,6 +157,9 @@ let _facingAngle = 0;
 // Avestruz
 const ostrichSystem = new OstrichSystem(scene);
 
+// Gallinas
+const chickenSystem = new ChickenSystem(scene);
+
 // Armas
 let currentWeapon = 'shotgun';
 const radialMenu  = new RadialMenu();
@@ -266,7 +271,9 @@ Network.onPlayerMoved((data) => {
 
 Network.onPlayerShot((data) => {
   muzzleFlash(scene, data.origin);
-  spawnBullet(scene, data.origin, data.direction, 0xff6644);
+  // data.direction comes from JSON — convert to Vector3 so spawnBullet doesn't throw
+  const remoteDir = new THREE.Vector3(data.direction.x, data.direction.y, data.direction.z);
+  spawnBullet(scene, data.origin, remoteDir, 0xff6644);
 });
 
 Network.onPlayerHit((data) => {
@@ -311,8 +318,29 @@ Network.onPlayerRespawned((data) => {
     localPlayerModel?.respawnHat();
   } else {
     const pm = remotePlayers.get(data.id);
-    if (pm) { pm.setTarget(data.x, data.y, data.z, 0); pm.respawnHat(); }
+    if (pm) {
+      pm.setTarget(data.x, data.y, data.z, 0);
+      pm.respawnHat();
+      pm.resetImpact();   // restore head/leg visibility, clear flying parts
+    }
   }
+});
+
+// ── GM narration display ──────────────────────────────────────────────────────
+Network.onGmMessage(({ text }) => {
+  const box  = document.getElementById('gm-box');
+  const txt  = document.getElementById('gm-text');
+  if (!box || !txt) return;
+  txt.textContent = text;
+  box.style.display   = 'flex';
+  box.style.flexDirection = 'column';
+  box.style.opacity   = '1';
+  box.style.transition = 'opacity 0.6s';
+  clearTimeout(box._hideT);
+  box._hideT = setTimeout(() => {
+    box.style.opacity = '0';
+    setTimeout(() => { box.style.display = 'none'; box.style.opacity = '1'; }, 650);
+  }, 9000);
 });
 
 // --- Shooting (left-click — no right-click required) ---
@@ -362,6 +390,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const oIdx = ostrichSystem.getIndexByHitbox(hb);
     if (oIdx >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: oIdx, type: 'ostrich' }); }
   }
+  for (const hb of chickenSystem.getHitboxes()) {
+    const cIdx = chickenSystem.getIdByHitbox(hb);
+    if (cIdx >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: cIdx, type: 'chicken' }); }
+  }
 
   const scanHit = hitscan(ray, allHitboxes, infoMap);
 
@@ -383,12 +415,50 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (scanHit) {
     const gunDist  = gunVec.distanceTo(scanHit.point);
     const travelMs = Math.max(30, (gunDist / BULLET_SPEED) * 1000);
+
+    // Determine hit zone for local impact visuals (purely decorative, no network)
+    let hitZone = 'body';
+    if (scanHit.target.type === 'player') {
+      const hitName = scanHit.hitObject?.name ?? '';
+      if (hitName === 'head') {
+        hitZone = 'head';
+      } else {
+        const pm = remotePlayers.get(scanHit.target.id);
+        const baseY = pm ? pm.group.position.y : 0;
+        hitZone = (scanHit.point.y - baseY < 0.5) ? 'leg' : 'body';
+      }
+    } else if (scanHit.target.type === 'cow') {
+      // Cow at scale 1.4: head ~y>1.5, leg ~y<0.65
+      hitZone = scanHit.point.y > 1.5 ? 'head' : (scanHit.point.y < 0.65 ? 'leg' : 'body');
+    } else if (scanHit.target.type === 'ostrich') {
+      // Ostrich: head ~y>1.8, leg ~y<0.65
+      hitZone = scanHit.point.y > 1.8 ? 'head' : (scanHit.point.y < 0.65 ? 'leg' : 'body');
+    } else if (scanHit.target.type === 'chicken') {
+      // Chicken small: head ~y>0.30, leg ~y<0.12
+      hitZone = scanHit.point.y > 0.30 ? 'head' : (scanHit.point.y < 0.12 ? 'leg' : 'body');
+    }
+
     setTimeout(() => {
-      if (scanHit.target.type === 'player')      { Network.sendBulletHit(scanHit.target.id); }
-      else if (scanHit.target.type === 'cow')     { cowSystem?.killCow(scanHit.target.id); }
+      if (scanHit.target.type === 'player') {
+        Network.sendBulletHit(scanHit.target.id);
+        remotePlayers.get(scanHit.target.id)?.applyImpact(hitZone, scanHit.point);
+      }
+      else if (scanHit.target.type === 'cow') {
+        // Body shots on animals also tear a limb
+        const cowZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
+        cowSystem?.hitCow(scanHit.target.id, scanHit.point, cowZone);
+      }
       else if (scanHit.target.type === 'ostrich') {
-        ostrichSystem.kill(scanHit.target.id);
-        Network.sendOstrichKill(scanHit.target.id);
+        const oIdx = scanHit.target.id;
+        const ostZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
+        ostrichSystem.hit(oIdx, scanHit.point, ostZone);
+        // Only send kill to network when ostrich actually dies (hp==0)
+        const e = ostrichSystem._entities[oIdx];
+        if (e && (e.wounded || e.dying || e.dead)) Network.sendOstrichKill(oIdx);
+      }
+      else if (scanHit.target.type === 'chicken') {
+        const chicZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
+        chickenSystem.hit(scanHit.target.id, scanHit.point, chicZone);
       }
     }, travelMs);
   }
@@ -428,9 +498,18 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   }
 });
 
-// Right-click releases lasso
+// Right-click: while caught → reel in (hold); otherwise release lasso
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button === 2 && currentWeapon === 'lasso') lassoSystem.release();
+  if (e.button === 2 && currentWeapon === 'lasso') {
+    if (lassoSystem.isCaught()) {
+      lassoSystem.startReel();
+    } else {
+      lassoSystem.release();
+    }
+  }
+});
+renderer.domElement.addEventListener('mouseup', (e) => {
+  if (e.button === 2) lassoSystem.stopReel();
 });
 
 renderer.domElement.addEventListener('mouseup', (e) => {
@@ -578,6 +657,19 @@ function gameLoop() {
     lassoSystem.update(dt, gunPos, cowSystem, ostrichSystem, remotePlayers);
   }
 
+  // ── Gallinas ──────────────────────────────────────────────────────────────
+  if (myId && !isDead) {
+    const ppList = pos ? [{ x: pos.x, z: pos.z }] : [];
+    for (const [, pm] of remotePlayers) ppList.push({ x: pm.group.position.x, z: pm.group.position.z });
+    const chickenPickup = chickenSystem.update(dt, ppList);
+    if (chickenPickup && pos && !isDead) {
+      restoreHunger(chickenPickup.hunger);
+      myData.hp = Math.min(200, myData.hp + chickenPickup.hp);
+      UI.updateHP(myData.hp);
+      UI.showEatEffect();
+    }
+  }
+
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);
   if (pickup && myId && !isDead) {
@@ -620,6 +712,7 @@ function gameLoop() {
     for (const [, pm] of remotePlayers) chTargets.push(...pm.getHitboxes());
     if (cowSystem) chTargets.push(...cowSystem.getCowHitboxes());
     chTargets.push(...ostrichSystem.getHitboxes());
+    chTargets.push(...chickenSystem.getHitboxes());
     const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
     UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }
@@ -653,5 +746,93 @@ if (Network.getRoomId()) {
   const hintEl = document.querySelector('.lobby-hint');
   if (hintEl) hintEl.textContent = 'Te uniste a una sala. Ingresa tu nombre y presiona JUGAR';
 }
+
+// ── Time slider ───────────────────────────────────────────────────────────────
+(function initTimeSlider() {
+  const panel  = document.getElementById('time-panel');
+  const slider = document.getElementById('time-slider');
+  const label  = document.getElementById('time-label');
+  const arcCvs = document.getElementById('sky-arc');
+  if (!panel || !slider || !label || !arcCvs) return;
+
+  const ctx = arcCvs.getContext('2d');
+  const W = arcCvs.width, H = arcCvs.height;
+
+  function drawArc(t) {
+    ctx.clearRect(0, 0, W, H);
+    // Horizon line
+    ctx.strokeStyle = '#3a2808';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.moveTo(0, H - 12); ctx.lineTo(W, H - 12); ctx.stroke();
+
+    // Arc path (semicircle)
+    const cx = W / 2, cy = H - 12, r = W / 2 - 10;
+    ctx.strokeStyle = '#2a1a06';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 0); ctx.stroke();
+
+    // Sun position: t=0.25 dawn (left), t=0.5 noon (top), t=0.75 dusk (right)
+    // Map t 0.25→0 to 1.0 (day arc). 0 or 1 = night (below horizon)
+    const sunAngle = Math.PI - ((t - 0.25) / 0.5) * Math.PI; // 0.25→π, 0.5→π/2, 0.75→0
+    const isDaySun = t >= 0.22 && t <= 0.80;
+    const sx = cx + r * Math.cos(sunAngle);
+    const sy = (cy - r * Math.sin(sunAngle));
+
+    if (isDaySun) {
+      ctx.fillStyle = '#f0e040';
+      ctx.shadowColor = '#f0e040'; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Moon: opposite of sun
+    const moonAngle = sunAngle + Math.PI;
+    const mx = cx + r * Math.cos(moonAngle);
+    const my = cy - r * Math.sin(moonAngle);
+    const isNightMoon = !isDaySun || t < 0.25 || t > 0.75;
+    if (my < cy) { // above horizon
+      ctx.fillStyle = '#c0c8e0';
+      ctx.shadowColor = '#c0c8e0'; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Time label on arc
+    const hh = String(Math.floor(t * 24)).padStart(2, '0');
+    const mm = String(Math.floor((t * 1440) % 60)).padStart(2, '0');
+    label.textContent = `${hh}:${mm}`;
+  }
+
+  // Toggle with backtick key
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Backquote') return;
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'flex';
+    if (!visible) {
+      // Sync slider to current game time
+      const cur = getDayProgress();
+      slider.value = Math.round(cur * 1440);
+      drawArc(cur);
+    }
+  });
+
+  let _dragging = false;
+  slider.addEventListener('mousedown', () => { _dragging = true; });
+  slider.addEventListener('mouseup',   () => { _dragging = false; unlockDayProgress(); });
+  slider.addEventListener('input', () => {
+    const t = slider.valueAsNumber / 1440;
+    setDayProgress(t);
+    drawArc(t);
+  });
+
+  // Live update arc while panel is open
+  setInterval(() => {
+    if (panel.style.display === 'none') return;
+    if (_dragging) return;
+    const t = getDayProgress();
+    slider.value = Math.round(t * 1440);
+    drawArc(t);
+  }, 500);
+})();
 
 gameLoop();

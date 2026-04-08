@@ -84,7 +84,12 @@ export function hitscan(ray, hitboxes, infoMap) {
   if (hits.length === 0) return null;
   const info = infoMap.get(hits[0].object.uuid);
   if (!info) return null;
-  return { target: info, point: hits[0].point.clone(), dist: hits[0].distance };
+  return {
+    target:    info,
+    point:     hits[0].point.clone(),
+    dist:      hits[0].distance,
+    hitObject: hits[0].object,   // mesh that was hit (name tells us head/body/leg)
+  };
 }
 
 /**
@@ -102,13 +107,12 @@ export function spawnBullet(scene, origin, dir3D, color = 0xffff00, maxDist = BU
   const mat    = new THREE.MeshBasicMaterial({ color });
   const bullet = new THREE.Mesh(geo, mat);
   bullet.position.set(origin.x, origin.y, origin.z);
+  // Accept either THREE.Vector3 or plain {x,y,z} (e.g. from network JSON)
+  const dir = (dir3D && typeof dir3D.clone === 'function')
+    ? dir3D.clone().normalize()
+    : new THREE.Vector3(dir3D.x, dir3D.y, dir3D.z).normalize();
   scene.add(bullet);
-  activeBullets.push({
-    mesh:    bullet,
-    dir:     dir3D.clone().normalize(),
-    dist:    0,
-    maxDist,
-  });
+  activeBullets.push({ mesh: bullet, dir, dist: 0, maxDist });
 }
 
 export function updateBullets(scene, dt) {

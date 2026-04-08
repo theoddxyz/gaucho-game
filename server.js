@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import localtunnel from 'localtunnel';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -180,6 +181,50 @@ const COLORS = ['#ff4444', '#44aaff', '#44ff44', '#ffaa00', '#ff44ff', '#00ffcc'
 // (new players who join mid-dialogue don't block resolution)
 const npcSessions = new Map();
 
+// ─── Gemini Game Master ───────────────────────────────────────────────────────
+const _geminiKey  = process.env.GEMINI_API_KEY || '';
+const _genAI      = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
+const _gmModel    = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.0-flash' }) : null;
+const _gmState    = new Map(); // roomId → { lastCallTime, totalKills, corralled, history[] }
+
+function _getGmState(roomId) {
+  if (!_gmState.has(roomId)) {
+    _gmState.set(roomId, { lastCallTime: 0, totalKills: 0, corralled: 0, history: [] });
+  }
+  return _gmState.get(roomId);
+}
+
+async function callGM(roomId, eventDesc) {
+  if (!_gmModel) return; // no API key configured
+  const gm = _getGmState(roomId);
+  const now = Date.now();
+  if (now - gm.lastCallTime < 14000) return; // throttle: 1 mensaje cada 14s por sala
+  gm.lastCallTime = now;
+
+  const room        = getRoom(roomId);
+  const playerNames = [...room.values()].filter(p => !p.isBot).map(p => p.name).join(', ') || 'nadie';
+  const recentHist  = gm.history.slice(-3).join(' | ');
+
+  const prompt = `Sos el narrador épico de GAUCHO, un juego de acción western gaucho argentino en la pampa infinita. Tu estilo: crudo, poético, con humor oscuro y metáforas rurales. Respondé solo con 1 o 2 oraciones cortas en español, sin saludos ni explicaciones.
+
+Estado del juego — jugadores en partida: ${playerNames}. Vacas corraladas: ${gm.corralled}/33. Muertes totales en la sesión: ${gm.totalKills}. Contexto reciente: ${recentHist || 'ninguno'}.
+
+Evento actual: ${eventDesc}`;
+
+  try {
+    const result = await _gmModel.generateContent(prompt);
+    const text   = result.response.text().trim();
+    if (text) {
+      gm.history.push(eventDesc);
+      if (gm.history.length > 10) gm.history.shift();
+      io.to(roomId).emit('gmMessage', { text });
+      console.log(`[GM ${roomId}] ${text}`);
+    }
+  } catch (err) {
+    console.warn('[GM] Gemini error:', err.message);
+  }
+}
+
 function _resolveNpc(roomId) {
   const s = npcSessions.get(roomId);
   if (!s) return;
@@ -248,6 +293,10 @@ io.on('connection', (socket) => {
 
     socket.to(currentRoom).emit('playerJoined', playerData);
     console.log(`[${currentRoom}] ${playerData.name} joined (${room.size} players)`);
+    const humanCount = [...room.values()].filter(p => !p.isBot).length;
+    if (humanCount >= 2) {
+      callGM(currentRoom, `${playerData.name} acaba de llegar a la partida. Ahora hay ${humanCount} gauchos en el campo.`);
+    }
   });
 
   socket.on('move', (data) => {
@@ -312,6 +361,8 @@ io.on('connection', (socket) => {
             victimName:   target.name,
             victimDeaths: target.deaths,
           });
+          _getGmState(currentRoom).totalKills++;
+          callGM(currentRoom, `${playerData.name} mató a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
         } else {
           io.to(currentRoom).emit('playerHit', {
             id: data.hitId,
@@ -361,6 +412,8 @@ io.on('connection', (socket) => {
         victimName:   target.name,
         victimDeaths: target.deaths,
       });
+      _getGmState(currentRoom).totalKills++;
+      callGM(currentRoom, `${playerData.name} eliminó a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
     } else {
       io.to(currentRoom).emit('playerHit', { id: hitId, hp: target.hp, attackerId: socket.id });
     }
@@ -406,6 +459,15 @@ io.on('connection', (socket) => {
     set.add(id);
     io.to(currentRoom).emit('cowCorralled', { id, total: set.size });
     console.log(`[${currentRoom}] Vaca ${id} corralada (${set.size}/33)`);
+    const gm = _getGmState(currentRoom);
+    gm.corralled = set.size;
+    const milestones = [1, 5, 10, 20, 33];
+    if (milestones.includes(set.size)) {
+      const desc = set.size === 33
+        ? `¡TODAS las 33 vacas fueron corraladas! El campo quedó limpio.`
+        : `${playerData?.name ?? 'Un gaucho'} corraló la vaca número ${set.size}. Van ${set.size} de 33 en el corral.`;
+      callGM(currentRoom, desc);
+    }
   });
 
   // ── NPC Dialogue ─────────────────────────────────────────────────────────────
@@ -429,6 +491,20 @@ io.on('connection', (socket) => {
     if (!currentRoom || typeof x !== 'number' || typeof z !== 'number') return;
     // Relay yell to other clients so their cow simulations react too
     socket.to(currentRoom).emit('yell', { x, z });
+  });
+
+  // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
+  socket.on('gameEvent', ({ type, detail }) => {
+    if (!currentRoom || !playerData) return;
+    const EVENT_DESCS = {
+      night_fell:   `Cayó la noche en la pampa. La oscuridad cubre el campo.`,
+      dawn:         `Amaneció. El sol asoma detrás del horizonte.`,
+      horse_mounted:`${playerData.name} montó un caballo y cabalga por el campo.`,
+      lasso_catch:  `${playerData.name} enlazó un animal con el lazo.`,
+      player_died:  `${playerData.name} cayó muerto en el campo.`,
+    };
+    const desc = EVENT_DESCS[type] || detail || `Evento: ${type}`;
+    callGM(currentRoom, desc);
   });
 
   socket.on('disconnect', () => {

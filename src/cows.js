@@ -66,12 +66,66 @@ function _rng(seed) {
   };
 }
 
-// ─── Build a single cow mesh (3 draw calls: body / spot / horn) ───────────────
+// ─── Flying-part physics helpers (shared by cows + chickens) ─────────────────
+const _tmpV3 = new THREE.Vector3();
+
+function spawnFlyingPart(scene, worldPos, geo, color, detachedParts, hitPoint) {
+  const mat  = new THREE.MeshStandardMaterial({ color, roughness: 0.85, transparent: true, opacity: 1, depthWrite: false });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(worldPos);
+  mesh.castShadow = true;
+  scene.add(mesh);
+  // Launch away from hit point + upward
+  const away = hitPoint
+    ? new THREE.Vector3().subVectors(worldPos, hitPoint).normalize()
+    : new THREE.Vector3((Math.random()-0.5)*2, 1, (Math.random()-0.5)*2).normalize();
+  const vel = new THREE.Vector3(
+    away.x * 5 + (Math.random()-0.5) * 4,
+    Math.abs(away.y) * 2 + 5 + Math.random() * 4,
+    away.z * 5 + (Math.random()-0.5) * 4
+  );
+  const angVel = new THREE.Vector3(
+    (Math.random()-0.5)*20, (Math.random()-0.5)*20, (Math.random()-0.5)*20
+  );
+  detachedParts.push({ mesh, vel, angVel, t: 0, maxT: 7.0 });
+}
+
+function tickFlyingParts(scene, detachedParts, dt) {
+  for (let i = detachedParts.length - 1; i >= 0; i--) {
+    const p = detachedParts[i];
+    p.t += dt;
+    if (p.t >= p.maxT) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+      detachedParts.splice(i, 1);
+      continue;
+    }
+    p.vel.y -= 20 * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    p.mesh.rotation.x += p.angVel.x * dt;
+    p.mesh.rotation.y += p.angVel.y * dt;
+    p.mesh.rotation.z += p.angVel.z * dt;
+    if (p.mesh.position.y < 0.04) {
+      p.mesh.position.y = 0.04;
+      p.vel.y *= -0.25;
+      p.vel.x *= 0.60;
+      p.vel.z *= 0.60;
+      p.angVel.multiplyScalar(0.4);
+    }
+    if (p.t > p.maxT - 0.6) {
+      p.mesh.material.opacity = Math.max(0, (p.maxT - p.t) / 0.6);
+    }
+  }
+}
+
+// ─── Build a single cow mesh (body group + separate head group) ───────────────
 function buildCow(rng) {
   const palIdx = Math.floor(rng() * PALETTES.length);
   const mat    = MATS[palIdx];
 
   const bodyG = [], spotG = [], hornG = [];
+  const headBodyG = [], headSpotG = [], headHornG = [];
 
   const b = (arr, w, h, d, x, y, z) => {
     const g = new THREE.BoxGeometry(w, h, d);
@@ -79,35 +133,29 @@ function buildCow(rng) {
     arr.push(g);
   };
 
-  // ─ Body
+  // ─ Body (torso, neck, tail — no head/ears, no legs)
   b(bodyG, 1.55, 0.82, 0.68,  0.00, 0.92,  0.00);   // torso
   b(bodyG, 0.28, 0.40, 0.26,  0.80, 1.18,  0.00);   // neck
-  b(bodyG, 0.48, 0.40, 0.36,  1.10, 1.44,  0.00);   // head
-  b(bodyG, 0.07, 0.14, 0.05,  1.03, 1.66,  0.20);   // ear R
-  b(bodyG, 0.07, 0.14, 0.05,  1.03, 1.66, -0.20);   // ear L
   b(bodyG, 0.09, 0.55, 0.08, -0.85, 0.98,  0.00);   // tail
-  b(bodyG, 0.16, 0.70, 0.14,  0.48, 0.35,  0.27);   // leg FR
-  b(bodyG, 0.16, 0.70, 0.14,  0.48, 0.35, -0.27);   // leg FL
-  b(bodyG, 0.16, 0.70, 0.14, -0.48, 0.35,  0.27);   // leg BR
-  b(bodyG, 0.16, 0.70, 0.14, -0.48, 0.35, -0.27);   // leg BL
 
-  // ─ Spots / light parts (ligeramente desplazados en Z/Y para evitar z-fighting)
+  // ─ Body spots / light parts (no snout — that goes on headGroup)
   b(spotG, 0.58, 0.80, 0.71,  0.18, 0.92,  0.001);  // body patch
-  b(spotG, 0.20, 0.19, 0.30,  1.32, 1.38,  0.001);  // snout
   b(spotG, 0.30, 0.13, 0.26, -0.10, 0.518, 0.001);  // udder
-  b(spotG, 0.17, 0.05, 0.15,  0.48, 0.008, 0.27);   // hoof FR
-  b(spotG, 0.17, 0.05, 0.15,  0.48, 0.008,-0.27);   // hoof FL
-  b(spotG, 0.17, 0.05, 0.15, -0.48, 0.008, 0.27);   // hoof BR
-  b(spotG, 0.17, 0.05, 0.15, -0.48, 0.008,-0.27);   // hoof BL
 
-  // ─ Horns
-  b(hornG, 0.05, 0.17, 0.04,  0.98, 1.72,  0.18);
-  b(hornG, 0.05, 0.17, 0.04,  0.98, 1.72, -0.18);
+  // ─ Head group geometries (same positions as before)
+  b(headBodyG, 0.48, 0.40, 0.36,  1.10, 1.44,  0.00);   // head
+  b(headBodyG, 0.07, 0.14, 0.05,  1.03, 1.66,  0.20);   // ear R
+  b(headBodyG, 0.07, 0.14, 0.05,  1.03, 1.66, -0.20);   // ear L
 
-  const mk = (geos, mat) => {
+  b(headSpotG, 0.20, 0.19, 0.30,  1.32, 1.38,  0.001);  // snout
+
+  b(headHornG, 0.05, 0.17, 0.04,  0.98, 1.72,  0.18);   // horn R
+  b(headHornG, 0.05, 0.17, 0.04,  0.98, 1.72, -0.18);   // horn L
+
+  const mk = (geos, material) => {
     const merged = mergeGeometries(geos);
     geos.forEach(g => g.dispose());
-    const m = new THREE.Mesh(merged, mat);
+    const m = new THREE.Mesh(merged, material);
     m.castShadow = true;
     return m;
   };
@@ -115,7 +163,55 @@ function buildCow(rng) {
   const grp = new THREE.Group();
   grp.add(mk(bodyG, mat.B));
   grp.add(mk(spotG, mat.S));
-  grp.add(mk(hornG, mat.H));
+
+  // Head group (horns not in body group anymore)
+  const headGroup = new THREE.Group();
+  const headBodyMesh = mk(headBodyG, mat.B);
+  const headSpotMesh = mk(headSpotG, mat.S);
+  const headHornMesh = mk(headHornG, mat.H);
+  headGroup.add(headBodyMesh);
+  headGroup.add(headSpotMesh);
+  headGroup.add(headHornMesh);
+
+  grp.add(headGroup);
+
+  // ─ Leg pivots (separate from body so they can be animated)
+  // Each pivot sits at the top of the leg (where leg meets body).
+  // Leg mesh hangs down from pivot; hoof is at the bottom.
+  const legDefs = [
+    { x:  0.48, z:  0.27, phase: 0 },          // FR
+    { x:  0.48, z: -0.27, phase: Math.PI },     // FL
+    { x: -0.48, z:  0.27, phase: Math.PI },     // BR
+    { x: -0.48, z: -0.27, phase: 0 },           // BL
+  ];
+  const cowLegs = [];
+  for (const def of legDefs) {
+    const pivot = new THREE.Group();
+    pivot.position.set(def.x, 0.70, def.z);
+    // Leg body
+    const legMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.70, 0.14),
+      mat.B
+    );
+    legMesh.position.set(0, -0.35, 0);
+    legMesh.castShadow = true;
+    pivot.add(legMesh);
+    // Hoof
+    const hoofMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.17, 0.05, 0.15),
+      mat.S
+    );
+    hoofMesh.position.set(0, -0.725, 0);
+    hoofMesh.castShadow = true;
+    pivot.add(hoofMesh);
+    grp.add(pivot);
+    cowLegs.push({ pivot, phase: def.phase });
+  }
+  grp._legs = cowLegs;
+
+  grp._headGroup  = headGroup;
+  grp._headColor  = mat.B.color.getHex();
+
   return grp;
 }
 
@@ -139,6 +235,7 @@ export class CowSystem {
     this._corralled = new Set();
     this._hitboxMap = new Map();   // hitboxMesh → cowId
     this._meats     = [];          // { mesh, t, bobPhase }
+    this._bloodSpots = [];
 
     const rng = _rng(98765);
     for (let i = 0; i < N_COWS; i++) {
@@ -177,6 +274,13 @@ export class CowSystem {
         panicTimer:   0,
         removed:      false,
 
+        // ── HP / wound state ─────────────────────────────────────────────────
+        hp:            2,
+        wounded:       false,
+        woundedT:      0,
+        woundedMaxT:   5 + rng() * 3,
+        detachedParts: [],
+
         // ── dBBMM state ──────────────────────────────────────────────────────
         bbState:      initState,
         waypoint:     {
@@ -208,9 +312,8 @@ export class CowSystem {
     return id !== undefined ? id : -1;
   }
 
-  /** Matar vaca: la saca de la escena y suelta 8 pedazos de carne. */
-  killCow(id) {
-    const cow = this._cows[id];
+  /** Internal removal + meat drop (used by hitCow wounded path and killCow wrapper). */
+  _killCowInternal(cow) {
     if (!cow || cow.removed) return;
     const wx = cow.mesh.position.x;
     const wz = cow.mesh.position.z;
@@ -229,6 +332,98 @@ export class CowSystem {
       this._scene.add(m);
       this._meats.push({ mesh: m, t: 0, bobPhase: Math.random() * Math.PI * 2 });
     }
+  }
+
+  /** Public wrapper: matar vaca por id (usable externamente, p.ej. disparo instantáneo). */
+  killCow(id) {
+    this._killCowInternal(this._cows[id]);
+  }
+
+  /** Disparar vaca: pierde vida, vuela un miembro, eventual estado herida → muerte. */
+  hitCow(id, hitPoint, hitZone) {
+    const cow = this._cows[id];
+    if (!cow || cow.removed || cow.wounded) return;
+    cow.hp = Math.max(0, cow.hp - 1);
+
+    // Spawn flying part based on hit zone
+    const scale = 1.4;   // cow mesh scale
+    const mx = cow.mesh.position.x, mz = cow.mesh.position.z;
+
+    if (hitZone === 'head' && cow.mesh._headGroup && !cow._headDetached) {
+      // Hide the head group and spawn a flying chunk in its place
+      cow._headDetached = true;
+      cow.mesh._headGroup.visible = false;
+      const headWorldPos = new THREE.Vector3(
+        mx + Math.cos(cow.mesh.rotation.y) * 1.10 * scale,
+        1.44 * scale,
+        mz - Math.sin(cow.mesh.rotation.y) * 1.10 * scale
+      );
+      spawnFlyingPart(
+        this._scene, headWorldPos,
+        new THREE.BoxGeometry(0.48 * scale, 0.40 * scale, 0.36 * scale),
+        cow.mesh._headColor ?? 0x5c2e0a,
+        cow.detachedParts, hitPoint
+      );
+    } else {
+      // Leg/body hit: spawn chunk at a random leg position
+      const side  = Math.random() < 0.5 ? 0.27 : -0.27;
+      const front = Math.random() < 0.5 ? 0.48 : -0.48;
+      const legWorldPos = new THREE.Vector3(
+        mx + Math.cos(cow.mesh.rotation.y) * front * scale - Math.sin(cow.mesh.rotation.y) * side * scale,
+        0.35 * scale,
+        mz - Math.sin(cow.mesh.rotation.y) * front * scale - Math.cos(cow.mesh.rotation.y) * side * scale
+      );
+      spawnFlyingPart(
+        this._scene, legWorldPos,
+        new THREE.BoxGeometry(0.16 * scale, 0.70 * scale, 0.14 * scale),
+        cow.mesh._headColor ?? 0x5c2e0a,
+        cow.detachedParts, hitPoint
+      );
+    }
+
+    if (cow.hp <= 0) {
+      // Enter wounded state
+      cow.wounded  = true;
+      cow.woundedT = 0;
+      cow.vx = 0; cow.vz = 0;
+      // Deactivate hitbox
+      this._hitboxMap.delete(cow.hitbox);
+      cow.hitbox.visible = false;
+    } else {
+      // Panic flee after being hit
+      cow.bbState      = 'fleeing';
+      cow.panicTimer   = Math.max(cow.panicTimer, 5.0);
+      cow.waypointTimer = cow.panicTimer + 2;
+      const dx = hitPoint ? cow.mesh.position.x - hitPoint.x : (Math.random()-0.5);
+      const dz = hitPoint ? cow.mesh.position.z - hitPoint.z : (Math.random()-0.5);
+      const d  = Math.sqrt(dx * dx + dz * dz) || 1;
+      cow.waypoint = {
+        x: cow.mesh.position.x + (dx / d) * 50,
+        z: cow.mesh.position.z + (dz / d) * 50,
+      };
+    }
+  }
+
+  _spawnBloodSpot(x, z) {
+    if (this._bloodSpots.length > 150) {
+      const old = this._bloodSpots.shift();
+      this._scene.remove(old);
+      old.geometry?.dispose();
+    }
+    const geo  = new THREE.CircleGeometry(0.25 + Math.random() * 0.35, 7);
+    const mat  = new THREE.MeshBasicMaterial({
+      color: 0x550000, transparent: true, opacity: 0.75 + Math.random() * 0.2,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(
+      x + (Math.random() - 0.5) * 0.5,
+      0.012,
+      z + (Math.random() - 0.5) * 0.5
+    );
+    this._scene.add(mesh);
+    this._bloodSpots.push(mesh);
   }
 
   /** Tick de los pedazos de carne flotantes. Retorna pickup si el jugador recoge uno. */
@@ -363,6 +558,11 @@ export class CowSystem {
   update(dt, playerPositions) {
     const newlyCorralled = [];
 
+    // ── Tick detached flying parts for all cows (including wounded/removed) ──
+    for (const cow of this._cows) {
+      if (cow.detachedParts.length > 0) tickFlyingParts(this._scene, cow.detachedParts, dt);
+    }
+
     // ── 1. Compute per-herd centroids ─────────────────────────────────────────
     const herdSum = new Map();
     for (const cow of this._cows) {
@@ -381,6 +581,33 @@ export class CowSystem {
     // ── 2. Per-cow update ─────────────────────────────────────────────────────
     for (const cow of this._cows) {
       if (cow.removed) continue;
+
+      // ── Wounded state: cow lies on ground then dies ───────────────────────
+      if (cow.wounded) {
+        cow.woundedT += dt;
+        // Fall on side
+        cow.mesh.rotation.z = Math.min(Math.PI / 2, cow.woundedT * 2.5);
+        // Struggle twitch
+        if (Math.floor(cow.woundedT * 3) % 7 === 0) {
+          cow.mesh.rotation.z += Math.sin(cow.woundedT * 15) * 0.04;
+        }
+        // Slow crawl (drag forward while dying)
+        const crawlSpeed = Math.max(0, 0.45 - cow.woundedT * 0.08);
+        const crawlDir   = cow.mesh.rotation.y;
+        cow.mesh.position.x += Math.cos(crawlDir) * crawlSpeed * dt;
+        cow.mesh.position.z -= Math.sin(crawlDir) * crawlSpeed * dt;
+        cow.mesh.position.y = 0;
+        // Blood trail every 0.35 s
+        cow._bloodTimer = (cow._bloodTimer ?? 0) + dt;
+        if (cow._bloodTimer >= 0.35) {
+          cow._bloodTimer = 0;
+          this._spawnBloodSpot(cow.mesh.position.x, cow.mesh.position.z);
+        }
+        if (cow.woundedT >= cow.woundedMaxT) {
+          this._killCowInternal(cow);
+        }
+        continue;
+      }
 
       const cx = cow.mesh.position.x;
       const cz = cow.mesh.position.z;
@@ -485,18 +712,33 @@ export class CowSystem {
       cow.mesh.position.x += cow.vx * dt;
       cow.mesh.position.z += cow.vz * dt;
 
-      // ── Rotate & body-bob ─────────────────────────────────────────────────
+      // ── Rotate & horse-like leg animation ────────────────────────────────
       const spd = Math.sqrt(cow.vx * cow.vx + cow.vz * cow.vz);
       if (spd > 0.10) {
-        const targetRY = Math.atan2(cow.vx, cow.vz);
+        const targetRY = Math.atan2(-cow.vz, cow.vx);
         let diff = targetRY - cow.mesh.rotation.y;
         while (diff >  Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         cow.mesh.rotation.y += diff * Math.min(1, 7 * dt);
-        cow.walkTime += dt * spd * 2.2;
-        cow.mesh.position.y = Math.abs(Math.sin(cow.walkTime * 3)) * 0.045;
+        cow.walkTime += dt * spd * 1.6;
+        // Horse-like gait: diagonal pairs (FR+BL) opposite to (FL+BR)
+        const freq = Math.max(2.5, spd * 2.2);
+        const amp  = Math.min(0.55, 0.28 + spd * 0.04);
+        if (cow.mesh._legs) {
+          for (const leg of cow.mesh._legs) {
+            leg.pivot.rotation.z = Math.sin(cow.walkTime * freq + leg.phase) * amp;
+          }
+        }
+        // Subtle body bob (less than before — legs carry the motion)
+        cow.mesh.position.y = Math.abs(Math.sin(cow.walkTime * freq)) * 0.030;
       } else {
-        cow.mesh.position.y *= 0.88;
+        // Return legs smoothly to rest
+        if (cow.mesh._legs) {
+          for (const leg of cow.mesh._legs) {
+            leg.pivot.rotation.z *= 0.80;
+          }
+        }
+        cow.mesh.position.y *= 0.85;
       }
     }  // end per-cow loop
 
