@@ -23,6 +23,7 @@ import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
 import { createHeatPass } from './heat-shader.js';
+import { speakNpc, speakGm, stopSpeech } from './speech.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -328,7 +329,7 @@ Network.onPlayerRespawned((data) => {
 
 // ── GM narration display ──────────────────────────────────────────────────────
 Network.onGmMessage(({ text }) => {
-  console.log('[GM]', text);   // visible en DevTools aunque falle la UI
+  console.log('[GM]', text);
   const box = document.getElementById('gm-box');
   const txt = document.getElementById('gm-text');
   if (!box || !txt) { console.warn('[GM] no gm-box found in DOM'); return; }
@@ -339,6 +340,7 @@ Network.onGmMessage(({ text }) => {
     box.style.opacity = '0';
     setTimeout(() => { box.style.display = 'none'; box.style.opacity = '1'; }, 650);
   }, 9000);
+  speakGm(text);
 });
 
 // ── GM commands from server ───────────────────────────────────────────────────
@@ -462,7 +464,7 @@ Network.onNpcMoved(({ id, x, z }) => {
 
 Network.onNpcDialogue(({ id, name, text }) => {
   const npc = _storyNpcs.get(id);
-  // Also show in GM box
+  // Mostrar en gm-box
   const box = document.getElementById('gm-box');
   const txt = document.getElementById('gm-text');
   if (box && txt) {
@@ -474,11 +476,15 @@ Network.onNpcDialogue(({ id, name, text }) => {
       setTimeout(() => { box.style.display = 'none'; box.style.opacity = '1'; }, 650);
     }, 9000);
   }
-  if (!npc) return;
-  npc.bubbleDiv.textContent = `"${text}"`;
-  npc.bubbleDiv.style.display = 'block';
-  clearTimeout(npc._hideB);
-  npc._hideB = setTimeout(() => { npc.bubbleDiv.style.display = 'none'; }, 9000);
+  // Burbuja sobre el NPC
+  if (npc) {
+    npc.bubbleDiv.textContent = `"${text}"`;
+    npc.bubbleDiv.style.display = 'block';
+    clearTimeout(npc._hideB);
+    npc._hideB = setTimeout(() => { npc.bubbleDiv.style.display = 'none'; }, 9000);
+  }
+  // Voz robótica — habla el texto del NPC
+  speakNpc(text);
 });
 
 Network.onNpcRemoved(({ id }) => {

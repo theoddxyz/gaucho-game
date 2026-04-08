@@ -365,36 +365,25 @@ Respondé SOLO con JSON válido, sin texto extra, sin markdown:
   const promiseList = sb.promises.join(' | ') || 'ninguna';
   const worldNotes  = sb.worldEvents.slice(-5).join(' | ') || 'ninguna';
 
-  const mainPrompt = `Sos el Game Master de GAUCHO, un juego de acción western gaucho argentino en la pampa infinita.
-Estilo: crudo, épico, humor oscuro, metáforas rurales. Narrás y también das vida a los NPCs.
+  const mustSpawnNpc = sb.npcs.length === 0 || sb.cycle % 3 === 0;
 
-BIBLIA DE LA HISTORIA (ciclo ${sb.cycle}):
-- Fase: ${sb.phase}
+  const mainPrompt = `Sos el Game Master de GAUCHO, western gaucho argentino en la pampa.
+Estilo: MUY BREVE, crudo, western oscuro.
+
+ESTADO (ciclo ${sb.cycle}):
 - Jugadores: ${playerState}
-- Vacas corraladas: ${sb.corralled}/33
-- Muertes totales: ${sb.totalKills}
-- Hora del juego: ${sb.hour}:00hs
-- Notas del mundo: ${worldNotes}
-- NPCs activos:\n${npcList}
-- Promesas narrativas pendientes: ${promiseList}
-- Historial de eventos (últimos 20):\n${history}
+- Hora: ${sb.hour}:00hs | Vacas: ${sb.corralled}/33 | Muertes: ${sb.totalKills}
+- NPCs activos: ${npcList}
+- Últimos eventos: ${sb.playerHistory.slice(-8).join(' | ') || 'ninguno'}
 
-COMANDOS DISPONIBLES (solo si tiene sentido narrativo):
-{"type":"set_time","hour":6} | {"type":"stampede"} | {"type":"storm","intensity":1}
-{"type":"blood_moon"} | {"type":"fog","density":0.8} | {"type":"day_speed","mult":3}
-{"type":"heal_all","amount":50} | {"type":"damage_all","amount":25}
+REGLAS ESTRICTAS:
+1. "narrative": máximo 12 palabras, estilo western seco. Sin explicaciones largas.
+2. ${mustSpawnNpc ? '⚠️ OBLIGATORIO: debés incluir un "spawn_npc" con un personaje que camine hacia los jugadores y les diga algo. No puede ser null.' : '"spawn_npc" solo si tiene sentido narrativo.'}
+3. El diálogo del NPC: máximo 10 palabras, algo que diría un gaucho, forastero, o personaje de pampa.
+4. Solo comandos si hay evento narrativo claro.
 
-Para introducir un NPC visible que camine hacia los jugadores, usá "spawn_npc":
-{"name":"Nombre","personality":"descripción corta","dialogue":"lo que dice al acercarse","color":"#hexcolor"}
-
-Respondé SOLO con JSON válido, sin texto extra, sin markdown:
-{
-  "narrative": "narración del GM en 1-2 oraciones",
-  "commands": [],
-  "spawn_npc": null,
-  "new_promises": [],
-  "fulfilled_promises": []
-}`;
+Respondé SOLO con JSON válido, sin texto extra:
+{"narrative":"frase corta","commands":[],"spawn_npc":${mustSpawnNpc ? '{"name":"NombreGaucho","personality":"una característica","dialogue":"frase corta al acercarse","color":"#8B6040"}' : 'null'},"new_promises":[],"fulfilled_promises":[]}`;
 
   try {
     const result = await _gmModel.generateContent(mainPrompt);
