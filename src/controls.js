@@ -29,6 +29,10 @@ export class IsoControls {
     this._aimRMB  = false;
     this._aimCtrl = false;
 
+    // Double-tap detection for emergency brake (on horse)
+    this._lastKeyTap = { w: 0, a: 0, s: 0, d: 0 };
+    this.onEmergencyBrake = null;
+
     document.addEventListener('mousedown', (e) => {
       if (e.button === 2) { this._aimRMB  = true;  this._isAiming = true; }
     });
@@ -48,7 +52,30 @@ export class IsoControls {
 
     document.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
-      if (k in this.keys) this.keys[k] = true;
+      if (k in this.keys) {
+        if (!e.repeat && !this.keys[k]) {
+          // Double-tap: detect emergency brake on horse
+          const now = performance.now();
+          if (now - this._lastKeyTap[k] < 250) {
+            const speed = Math.sqrt(this._velX * this._velX + this._velZ * this._velZ);
+            if (speed > 3) {
+              // Intended direction of this key after 45° isometric rotation
+              const C = 0.7071067811865476;
+              const _rd = { w:{x:0,z:-1}, s:{x:0,z:1}, a:{x:-1,z:0}, d:{x:1,z:0} }[k];
+              const intX = _rd.x * C + _rd.z * C;
+              const intZ = -_rd.x * C + _rd.z * C;
+              // Negative dot = moving opposite to this key → brake
+              if (intX * this._velX + intZ * this._velZ < -1.5) {
+                this._velX *= 0.12;
+                this._velZ *= 0.12;
+                this.onEmergencyBrake?.();
+              }
+            }
+          }
+          this._lastKeyTap[k] = now;
+        }
+        this.keys[k] = true;
+      }
       if (k === ' ') { e.preventDefault(); this._jumpTrigger = true; }
       if (k === 'shift') this._sprinting = true;
       if (k === 'e' && this.onEPress) this.onEPress();

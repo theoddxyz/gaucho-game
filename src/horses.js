@@ -222,7 +222,7 @@ export class HorseManager {
       this.horses.set(spawn.id, {
         mesh, legs, riderId: null, saddleNodes, isWild,
         x: spawn.x, z: spawn.z,
-        walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z,
+        walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z, _vx: 0, _vz: 0,
         _sprinting: false,
         _targetRY: mesh.rotation.y,
         _displayRY: mesh.rotation.y,
@@ -284,6 +284,9 @@ export class HorseManager {
       const dx = horse.x - horse._prevX;
       const dz = horse.z - horse._prevZ;
       const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);
+      // Store world-space velocity for strafe animation
+      horse._vx = dx / Math.max(dt, 0.001);
+      horse._vz = dz / Math.max(dt, 0.001);
       // Stop legs as soon as speed drops below threshold — don't keep animating during deceleration
       const moved = horse.riderId !== null && speed > 0.8;
       horse._prevX = horse.x;
@@ -327,6 +330,7 @@ export class HorseManager {
       // Smoothly return everything to rest
       for (const leg of horse.legs) {
         leg.pivot.rotation.x *= 0.85;
+        leg.pivot.rotation.z *= 0.85;
         if (leg.legObj) leg.legObj.rotation.x *= 0.85;
       }
       horse._bobY        *= 0.85;
@@ -336,22 +340,37 @@ export class HorseManager {
       return;
     }
 
+    // ── Strafe detection ─────────────────────────────────────────────────
+    // Project velocity onto horse's forward/right axes.
+    // Horse nose direction: since _targetRY = moveAngle + PI, forward = (-sin(ry), -cos(ry))
+    const ry = horse._displayRY;
+    const fwdX = -Math.sin(ry), fwdZ = -Math.cos(ry);
+    const rightX = fwdZ,        rightZ = -fwdX;   // 90° CW of forward in XZ
+    const spd = Math.sqrt((horse._vx || 0) ** 2 + (horse._vz || 0) ** 2);
+    let forwardRatio = 1, strafeRatio = 0;
+    if (spd > 0.5) {
+      const nvx = horse._vx / spd, nvz = horse._vz / spd;
+      forwardRatio = Math.max(-1, Math.min(1, nvx * fwdX + nvz * fwdZ));
+      strafeRatio  = Math.max(-1, Math.min(1, nvx * rightX + nvz * rightZ));
+    }
+
     // ── Leg swing (hip pivot) ────────────────────────────────────────────
     // Asymmetric waveform: faster lift forward, slower push back
     //   forward stroke: sin > 0 region
     //   power stroke:   sin < 0 region (hoof on ground, driving forward)
     for (const leg of horse.legs) {
       const s = Math.sin(freq * t + leg.phase);
-      // Bias: squash the power stroke so the leg spends longer on the ground
       const swing = s > 0 ? s * amp : s * amp * 0.65;
-      leg.pivot.rotation.x = swing;
+      // Forward swing scaled by forward component, lateral swing by strafe component
+      leg.pivot.rotation.x = swing * Math.max(0.08, Math.abs(forwardRatio));
+      // Lateral strafe: legs do a sideways shuffle (cosine = 90° phase offset from swing)
+      const strafeSwing = Math.cos(freq * t + leg.phase) * amp * 0.55;
+      leg.pivot.rotation.z = strafeSwing * strafeRatio;
 
       // ── Knee flex ─────────────────────────────────────────────────────
-      // Knee bends when leg is swinging forward (positive swing phase).
-      // max(0,…) → only bends in one direction (can't hyperextend backward).
       if (leg.legObj) {
         const kneeFlex = Math.max(0, Math.sin(freq * t + leg.phase + 0.55)) * amp * 0.55;
-        leg.legObj.rotation.x = -kneeFlex;
+        leg.legObj.rotation.x = -kneeFlex * Math.max(0.08, Math.abs(forwardRatio));
       }
     }
 

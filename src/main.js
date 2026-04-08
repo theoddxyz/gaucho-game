@@ -143,6 +143,13 @@ createLandmarks(scene);
 // --- Controls ---
 const controls = new IsoControls(camera);
 
+// Emergency brake sound — called by double-tap detection in controls.js
+controls.onEmergencyBrake = () => {
+  Audio.horseNeigh();
+  // Extra snort/exhale for drama
+  setTimeout(() => Audio.horseSnort(), 180);
+};
+
 // --- Coords display ---
 UI.initCoords();
 
@@ -742,7 +749,6 @@ let _woodTimer     = 20 + Math.random() * 30;  // crujido de edificio
 let _sprintBreath  = 0;
 let _wasNight      = false;
 let _wasDawn       = false;   // para pajaros al amanecer
-let _wasGalloping  = false;
 let _wasInAir      = false;
 
 function gameLoop() {
@@ -987,16 +993,16 @@ function gameLoop() {
     if (!onHorse && isMoving && !isDead) {
       _stepTimer -= dt;
       if (_stepTimer <= 0) {
-        Audio.footstep('dirt');
+        Audio.footstep('sand');
         _stepTimer = controls.isSprinting() ? 0.28 : 0.42;
       }
     } else {
       _stepTimer = 0;
     }
 
-    // Galope
-    if (onHorse && isMoving && !_wasGalloping) { Audio.startGallop(); _wasGalloping = true; }
-    if ((!onHorse || !isMoving) && _wasGalloping) { Audio.stopGallop(); _wasGalloping = false; }
+    // Cascos procedurales (speed-reactive)
+    const horseSpeed = onHorse ? Math.hypot(controls._velX ?? 0, controls._velZ ?? 0) : 0;
+    Audio.updateHoofbeats(horseSpeed);
 
     // Noche: grillos on/off
     if (nightNow && !_wasNight)  { Audio.startCrickets(); Audio.stopBirds();  _wasNight = true;  _wasDawn = false; }

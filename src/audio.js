@@ -425,37 +425,57 @@ export function horseSnort() {
   });
 }
 
-// Galope: usa archivo loop si existe, sino síntesis
-let _gallopSrc = null, _gallopTimer = null;
-export function startGallop() {
-  if (_gallopSrc || _gallopTimer) return;
-  _load('animals/horse_gallop.mp3').then(buf => {
-    if (buf) {
-      _gallopSrc = _play(buf, { volume: 0.62, reverb: 0.14, loop: true });
-    } else {
-      _startGallopSynth();
-    }
-  });
+// ── Cascos procedurales — reactivos a la velocidad ───────────────────────────
+// updateHoofbeats(speed) se llama cada frame desde main.js.
+// speed: m/s del caballo (0=parado, ~5=paso, ~15=trote, ~25+=galope)
+let _hoofTimer = null;
+let _hoofSpeed = 0;
+let _hoofBeat  = 0;   // 0..3 — qué casco toca ahora
+
+function _playHoof(vol, hard) {
+  const c = _ctx_(); if (!c) return; const t = _now();
+  // Thud bajo
+  const o = c.createOscillator(); o.type = 'sine';
+  const base = hard ? 80 + Math.random() * 20 : 55 + Math.random() * 15;
+  o.frequency.setValueAtTime(base, t);
+  o.frequency.exponentialRampToValueAtTime(22, t + (hard ? 0.075 : 0.115));
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (hard ? 0.085 : 0.13));
+  o.connect(g); _toOut(g, hard ? 0.08 : 0.05); o.start(t); o.stop(t + (hard ? 0.1 : 0.15));
+  // Click de casco (ruido filtrado agudo)
+  const n = _noise(0.05, hard ? 900 : 650, 0.4);
+  if (n) {
+    _env(n.gain, 0.001, 0.008, 0.02, 0.03, hard ? 0.18 : 0.12);
+    _toOut(n.gain, 0.04); n.src.start(t);
+  }
 }
-export function stopGallop() {
-  if (_gallopSrc) { try { _gallopSrc.stop(); } catch(e) {} _gallopSrc = null; }
-  if (_gallopTimer) { clearTimeout(_gallopTimer); _gallopTimer = null; }
+
+function _scheduleHoof() {
+  const speed = _hoofSpeed;
+  if (speed < 0.8) { _hoofTimer = null; _hoofBeat = 0; return; }
+  const galloping = speed > 16;
+  const trotting  = speed > 7;
+  const beatMs    = galloping ? 210 : (trotting ? 370 : 610);
+  const vol       = galloping ? 0.28 : (trotting ? 0.20 : 0.14);
+  const jitter    = (Math.random() - 0.5) * beatMs * 0.06;
+  _hoofBeat = (_hoofBeat + 1) % 4;
+  _hoofTimer = setTimeout(() => { _playHoof(vol, galloping); _scheduleHoof(); }, beatMs + jitter);
 }
-function _startGallopSynth() {
-  const hoof = () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(85+Math.random()*15,t); o.frequency.exponentialRampToValueAtTime(34,t+0.092);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.28,t+0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.10);
-    o.connect(g); _toOut(g,0.10); o.start(t); o.stop(t+0.11);
-    const n = _noise(0.07, 580, 0.5);
-    if (n) { _env(n.gain,0.002,0.012,0.04,0.05,0.14); _toOut(n.gain,0.05); n.src.start(t); }
-  };
-  [0, 0.13, 0.24, 0.34].forEach(off => setTimeout(hoof, off * 1000));
-  _gallopTimer = setTimeout(() => { _gallopTimer = null; if (_gallopSrc === null) _startGallopSynth(); }, 460);
+
+export function updateHoofbeats(speed) {
+  _hoofSpeed = speed;
+  if (speed < 0.8) {
+    if (_hoofTimer) { clearTimeout(_hoofTimer); _hoofTimer = null; _hoofBeat = 0; }
+    return;
+  }
+  if (!_hoofTimer) _scheduleHoof();
 }
+
+// Stubs de compatibilidad
+export function startGallop() { updateHoofbeats(20); }
+export function stopGallop()  { updateHoofbeats(0);  }
 
 export function mountSound() {
   _playFile('player/mount_leather.mp3', { volume: 0.55, reverb: 0.08 }, () => {
