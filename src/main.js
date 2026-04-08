@@ -9,7 +9,7 @@ import { createWorld }  from './world.js';
 import { ChunkManager } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
-import { tryShoot, spawnBullet, updateBullets, muzzleFlash } from './shooting.js';
+import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
@@ -55,6 +55,19 @@ document.addEventListener('keydown', (e) => {
         else { o.material.transparent = false; o.material.opacity = 1.0; }
       }
     });
+  }
+});
+
+// Teclas 1/2: cambio directo de arma (sin menú radial)
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Digit1' && currentWeapon !== 'escopeta') {
+    currentWeapon = 'escopeta';
+    radialMenu.setHUD('escopeta');
+    lassoSystem.release();
+  }
+  if (e.code === 'Digit2' && currentWeapon !== 'lasso') {
+    currentWeapon = 'lasso';
+    radialMenu.setHUD('lasso');
   }
 });
 
@@ -302,67 +315,86 @@ Network.onPlayerRespawned((data) => {
   }
 });
 
-// --- Shooting (left-click, only while right-click aim is held) ---
+// --- Shooting (left-click — no right-click required) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
 
   // === LAZO ===
   if (currentWeapon === 'lasso') {
-    if (!controls.isAiming()) return;
-    const pos    = controls.getPosition();
-    const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
-    const gunY   = riderY + 0.55;
-    const fp     = localPlayerModel?.getFirepointWorldPos();
-    const origin = fp
-      ? new THREE.Vector3(fp.x, fp.y, fp.z)
-      : new THREE.Vector3(pos.x, gunY, pos.z);
+    if (lassoSystem.isCaught() || lassoSystem._state === 'flying') return;
     lassoSystem.startCharge();
     return;
   }
 
-  // === ESCOPETA ===
-  if (!controls.isAiming()) return;
+  // === ESCOPETA — left-click always shoots, no right-click hold needed ===
+  try {
   const pos    = controls.getPosition();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
   const gunY   = riderY + 0.55;
   const fp     = localPlayerModel?.getFirepointWorldPos();
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
-  // Dirección XZ al punto apuntado + componente Y descendente según altura del arma
   const dir    = controls.getFreshAimDirection(gunY);
   const result = tryShoot(pos, dir, remotePlayers, performance.now() / 1000, gunY, origin);
   if (!result) return;
   controls.applyRecoil();
   localPlayerModel?.triggerGunRecoil();
   muzzleFlash(scene, result.origin);
-  spawnBullet(scene, result.origin, result.direction, 0xffff00);
-  Network.sendShoot(result);
 
-  // Cow hit check (flat XZ ray at gunY)
+  // ── Camera-ray hitscan — SAME ray used by red crosshair ────────────────────
+  // If crosshair is red, hit is guaranteed.
+  const ray = controls.getCameraRaycaster();
+  const allHitboxes = [];
+  const infoMap = new Map();
+
+  for (const [id, pm] of remotePlayers) {
+    for (const hb of pm.getHitboxes()) {
+      allHitboxes.push(hb);
+      infoMap.set(hb.uuid, { id, type: 'player' });
+    }
+  }
   if (cowSystem) {
-    const cHitboxes = cowSystem.getCowHitboxes();
-    if (cHitboxes.length > 0) {
-      const cRay  = new THREE.Raycaster(new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z), new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(), 0, 80);
-      const cHits = cRay.intersectObjects(cHitboxes, false);
-      if (cHits.length > 0) {
-        const cowId = cowSystem.getCowIdByHitbox(cHits[0].object);
-        if (cowId >= 0) cowSystem.killCow(cowId);
-      }
+    for (const hb of cowSystem.getCowHitboxes()) {
+      const cowId = cowSystem.getCowIdByHitbox(hb);
+      if (cowId >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: cowId, type: 'cow' }); }
     }
+  }
+  for (const hb of ostrichSystem.getHitboxes()) {
+    const oIdx = ostrichSystem.getIndexByHitbox(hb);
+    if (oIdx >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: oIdx, type: 'ostrich' }); }
   }
 
-  // Ostrich hit check (flat XZ ray at gunY)
-  {
-    const oHitboxes = ostrichSystem.getHitboxes();
-    if (oHitboxes.length > 0) {
-      const oRay  = new THREE.Raycaster(new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z), new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize(), 0, 80);
-      const oHits = oRay.intersectObjects(oHitboxes, false);
-      if (oHits.length > 0) {
-        const idx = ostrichSystem.getIndexByHitbox(oHits[0].object);
-        ostrichSystem.kill(idx);
-        Network.sendOstrichKill(idx);
-      }
-    }
+  const scanHit = hitscan(ray, allHitboxes, infoMap);
+
+  // ── Visual bullet — travels toward hit point (or in flat aim dir if miss) ──
+  const gunVec = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
+  let bulletDir3D, bulletMaxDist;
+  if (scanHit) {
+    bulletDir3D   = new THREE.Vector3().subVectors(scanHit.point, gunVec).normalize();
+    // Use GUN→hitpoint distance (not camera→hitpoint) so bullet stops at the right place
+    const gunDist = gunVec.distanceTo(scanHit.point);
+    bulletMaxDist = gunDist + 0.2;   // barely past impact — no overshoot
+  } else {
+    bulletDir3D   = new THREE.Vector3(result.direction.x, -gunY * 0.04, result.direction.z).normalize();
+    bulletMaxDist = BULLET_RANGE;
   }
+  spawnBullet(scene, result.origin, bulletDir3D, 0xffff00, bulletMaxDist);
+
+  // ── Delayed damage — timed from GUN origin to hit point ────────────────────
+  if (scanHit) {
+    const gunDist  = gunVec.distanceTo(scanHit.point);
+    const travelMs = Math.max(30, (gunDist / BULLET_SPEED) * 1000);
+    setTimeout(() => {
+      if (scanHit.target.type === 'player')      { Network.sendBulletHit(scanHit.target.id); }
+      else if (scanHit.target.type === 'cow')     { cowSystem?.killCow(scanHit.target.id); }
+      else if (scanHit.target.type === 'ostrich') {
+        ostrichSystem.kill(scanHit.target.id);
+        Network.sendOstrichKill(scanHit.target.id);
+      }
+    }, travelMs);
+  }
+
+  // Broadcast shot visual to other clients
+  Network.sendShoot(result);
 
   // Bottle physics — 3D line-distance check (works at any height, very forgiving)
   const bottleMeshes = getBottleMeshes();
@@ -391,6 +423,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       if (key) Network.sendBottleHit(key, result.direction);
     }
   }
+  } catch (err) {
+    console.error('[DISPARO ERROR]', err);
+  }
 });
 
 // Right-click releases lasso
@@ -401,7 +436,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 renderer.domElement.addEventListener('mouseup', (e) => {
   if (e.button !== 0) return;
   if (currentWeapon === 'lasso') {
-    if (lassoSystem._charging) {
+    if (lassoSystem._state === 'charging') {
+      // Release charge → throw lasso toward mouse cursor
       const pos    = controls.getPosition();
       const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
       const gunY   = riderY + 0.55;
@@ -411,16 +447,6 @@ renderer.domElement.addEventListener('mouseup', (e) => {
         : new THREE.Vector3(pos.x, gunY, pos.z);
       const dir = controls.getFreshAimDirection(gunY);
       lassoSystem.releaseCharge(origin, dir);
-    } else if (lassoSystem.isCaught()) {
-      // Pull caught entity toward player
-      const pos    = controls.getPosition();
-      const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
-      const gunY   = riderY + 0.55;
-      const fp     = localPlayerModel?.getFirepointWorldPos();
-      const gunPos = fp
-        ? new THREE.Vector3(fp.x, fp.y, fp.z)
-        : new THREE.Vector3(pos.x, gunY, pos.z);
-      lassoSystem.pull(gunPos);
     }
   }
 });
@@ -587,8 +613,8 @@ function gameLoop() {
     UI.updateStableWaypoint(pos.x, pos.z);
   }
 
-  // ── Crosshair color: roja si hay blanco bajo la mira ─────────────────────
-  if (myId && !isDead && controls.isAiming() && pos) {
+  // ── Crosshair color: roja si hay blanco bajo la mira (siempre activo) ──────
+  if (myId && !isDead && pos) {
     const cr = controls.getCameraRaycaster();
     const chTargets = [];
     for (const [, pm] of remotePlayers) chTargets.push(...pm.getHitboxes());

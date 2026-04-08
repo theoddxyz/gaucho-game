@@ -135,7 +135,7 @@ export class OstrichSystem {
 
   /** Dado un hitbox mesh, devuelve su índice en _entities (-1 si no se encuentra). */
   getIndexByHitbox(hitboxMesh) {
-    return this._entities.findIndex(e => e.mesh._hitbox === hitboxMesh);
+    return this._entities.findIndex(e => e.mesh && e.mesh._hitbox === hitboxMesh);
   }
 
   /** Matar avestruz por índice. */

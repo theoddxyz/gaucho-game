@@ -20,6 +20,18 @@ const WALK_SPEED  = 1.8;
 const FLEE_SPEED  = 5.0;
 const FLEE_RADIUS = 8;
 
+// ─── Brownian Bridge Movement Model parameters ────────────────────────────────
+// Inspired by dBBMM (Kranstauber et al. 2012) adapted for real-time simulation.
+// Each cow has a state that controls variance (sigma_m) and drift speed.
+const BB_STATES = {
+  grazing:   { sigma: 2.2,  speed: 0.40, wpRadius: [4,  12], timer: [5,  12] },
+  traveling: { sigma: 0.55, speed: 1.70, wpRadius: [20, 50], timer: [10, 20] },
+};
+// Cohesion: pull toward sub-herd centroid (strength per second)
+const HERD_COHESION = 0.12;
+// Smooth velocity time constant per state
+const TAU = { grazing: 0.9, traveling: 0.45 };
+
 // ─── Shared materials (5 palettes × 3 mats = 15 total) ───────────────────────
 const PICKUP_RADIUS = 2.5;
 
@@ -35,6 +47,14 @@ const MATS = PALETTES.map(p => ({
   S: new THREE.MeshStandardMaterial({ color: p.spot, roughness: 0.90 }),
   H: new THREE.MeshStandardMaterial({ color: p.horn, roughness: 0.80 }),
 }));
+
+// ─── Gaussian random (Box-Muller) ─────────────────────────────────────────────
+function _gaussian() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
 
 // ─── Seeded PRNG ──────────────────────────────────────────────────────────────
 function _rng(seed) {
@@ -139,18 +159,33 @@ export class CowSystem {
 
       scene.add(mesh);
 
+      // Initial BB state: 60% grazing, 40% traveling
+      const initState = rng() < 0.6 ? 'grazing' : 'traveling';
+      const initP     = BB_STATES[initState];
+      const initWPr   = initP.wpRadius;
+      const initWPang = rng() * Math.PI * 2;
+      const initWPd   = initWPr[0] + rng() * (initWPr[1] - initWPr[0]);
+
       this._cows.push({
         id:           i,
         mesh,
         hitbox:       hb,
         vx:           0,
         vz:           0,
-        wanderAngle:  rng() * Math.PI * 2,
-        wanderSpeed:  WALK_SPEED * (0.5 + rng() * 0.6),
-        wanderTimer:  rng() * 6,
         walkTime:     rng() * 10,
-        panicTimer:   0,    // seconds remaining of post-yell stampede
+        panicTimer:   0,
         removed:      false,
+
+        // ── dBBMM state ──────────────────────────────────────────────────────
+        bbState:      initState,
+        waypoint:     {
+          x: x + Math.cos(initWPang) * initWPd,
+          z: z + Math.sin(initWPang) * initWPd,
+        },
+        waypointTimer: rng() * initP.timer[1],
+        herdId:       Math.floor(i / 5),   // groups of ~5
+        // legacy (kept for panic/yell compatibility)
+        wanderAngle:  rng() * Math.PI * 2,
       });
     }
   }
@@ -278,102 +313,158 @@ export class CowSystem {
     }
   }
 
-  // playerPositions: array of {x, z}
-  // Returns array of cow IDs that entered the stable this frame
+  /**
+   * Brownian Bridge Movement Model (dBBMM-inspired) cow update.
+   *
+   * Each cow has a state (grazing / traveling) that controls:
+   *   - sigma_m  : Brownian motion variance — high = tortuous, low = directed
+   *   - drift speed toward its current waypoint
+   *   - waypoint radius and timer range
+   *
+   * Group cohesion: cows of the same herdId are pulled toward their centroid.
+   * Panic / flee override the BB model exactly as before.
+   *
+   * playerPositions: array of {x, z}
+   * Returns array of cow IDs that entered the stable this frame.
+   */
   update(dt, playerPositions) {
     const newlyCorralled = [];
 
+    // ── 1. Compute per-herd centroids ─────────────────────────────────────────
+    const herdSum = new Map();
+    for (const cow of this._cows) {
+      if (cow.removed) continue;
+      let s = herdSum.get(cow.herdId);
+      if (!s) { s = { x: 0, z: 0, n: 0 }; herdSum.set(cow.herdId, s); }
+      s.x += cow.mesh.position.x;
+      s.z += cow.mesh.position.z;
+      s.n += 1;
+    }
+    const herdCentroid = new Map();
+    for (const [hid, s] of herdSum) {
+      herdCentroid.set(hid, { x: s.x / s.n, z: s.z / s.n });
+    }
+
+    // ── 2. Per-cow update ─────────────────────────────────────────────────────
     for (const cow of this._cows) {
       if (cow.removed) continue;
 
       const cx = cow.mesh.position.x;
       const cz = cow.mesh.position.z;
 
-      // ── Corral arrival check ──────────────────────────────────────────────
+      // Corral arrival
       const dsx = cx - STABLE_X, dsz = cz - STABLE_Z;
       if (dsx * dsx + dsz * dsz < CORRAL_RADIUS * CORRAL_RADIUS) {
         newlyCorralled.push(cow.id);
         continue;
       }
 
-      // ── Flee if player nearby ─────────────────────────────────────────────
-      let fleeing = false;
-      let fleeX = 0, fleeZ = 0;
+      // ── Active flee (player in radius) ────────────────────────────────────
+      let fleeing = false, fleeX = 0, fleeZ = 0;
       for (const pp of playerPositions) {
         const pdx = cx - pp.x, pdz = cz - pp.z;
         const d2  = pdx * pdx + pdz * pdz;
         if (d2 < FLEE_RADIUS * FLEE_RADIUS && d2 > 0.001) {
           const inv = 1 / Math.sqrt(d2);
-          fleeX += pdx * inv;
-          fleeZ += pdz * inv;
-          fleeing = true;
+          fleeX += pdx * inv; fleeZ += pdz * inv; fleeing = true;
         }
       }
 
       let targetVX, targetVZ;
+
       if (fleeing) {
-        // Active flee — normalize and apply speed
         const fl = Math.sqrt(fleeX * fleeX + fleeZ * fleeZ);
         if (fl > 0.001) { fleeX /= fl; fleeZ /= fl; }
         targetVX = fleeX * FLEE_SPEED;
         targetVZ = fleeZ * FLEE_SPEED;
-        // Save flee direction so panic can continue it
         cow.wanderAngle = Math.atan2(fleeX, fleeZ);
         if (cow.panicTimer > 0) cow.panicTimer -= dt;
+
       } else if (cow.panicTimer > 0) {
-        // Stampede: keep running in saved flee direction even without player nearby
+        // ── Stampede: blend flee direction 70% + stable direction 30% ────────
         cow.panicTimer -= dt;
-        // Sesgar levemente hacia el establo para facilitar el arreo
-        const toDstX = STABLE_X - cx, toDstZ = STABLE_Z - cz;
+        const toDstX  = STABLE_X - cx, toDstZ = STABLE_Z - cz;
         const toDstLen = Math.sqrt(toDstX * toDstX + toDstZ * toDstZ) || 1;
-        const stableAngle = Math.atan2(toDstX / toDstLen, toDstZ / toDstLen);
-        // Blend 30 % hacia el establo, 70 % en dirección de huida
-        const blendAngle = cow.wanderAngle * 0.70 + stableAngle * 0.30;
-        targetVX = Math.sin(blendAngle) * FLEE_SPEED * 0.75;
-        targetVZ = Math.cos(blendAngle) * FLEE_SPEED * 0.75;
+        const stableAng = Math.atan2(toDstX / toDstLen, toDstZ / toDstLen);
+        const blendAng  = cow.wanderAngle * 0.70 + stableAng * 0.30;
+        targetVX = Math.sin(blendAng) * FLEE_SPEED * 0.75;
+        targetVZ = Math.cos(blendAng) * FLEE_SPEED * 0.75;
+
       } else {
-        // Normal wander
-        cow.wanderTimer -= dt;
-        if (cow.wanderTimer <= 0) {
-          cow.wanderAngle += (Math.random() - 0.5) * 2.8;
-          cow.wanderSpeed  = Math.random() < 0.05
-            ? 0
-            : WALK_SPEED * (0.5 + Math.random() * 0.8);
-          cow.wanderTimer  = 2.5 + Math.random() * 5.5;
+        // ── dBBMM: Brownian Bridge step ───────────────────────────────────────
+        const p = BB_STATES[cow.bbState];
+
+        // Waypoint timer
+        cow.waypointTimer -= dt;
+
+        // Distance to waypoint
+        const dwx  = cow.waypoint.x - cx;
+        const dwz  = cow.waypoint.z - cz;
+        const wDst = Math.sqrt(dwx * dwx + dwz * dwz) || 1;
+
+        // Arrived at waypoint OR timer expired → pick new waypoint, maybe switch state
+        if (wDst < p.wpRadius[0] * 0.5 || cow.waypointTimer <= 0) {
+          // State transition: 35% chance to switch
+          if (Math.random() < 0.35) {
+            cow.bbState = cow.bbState === 'grazing' ? 'traveling' : 'grazing';
+          }
+          const np   = BB_STATES[cow.bbState];
+          const ang  = Math.random() * Math.PI * 2;
+          const dist = np.wpRadius[0] + Math.random() * (np.wpRadius[1] - np.wpRadius[0]);
+          cow.waypoint      = { x: cx + Math.cos(ang) * dist, z: cz + Math.sin(ang) * dist };
+          cow.waypointTimer = np.timer[0] + Math.random() * (np.timer[1] - np.timer[0]);
         }
-        targetVX = Math.cos(cow.wanderAngle) * cow.wanderSpeed;
-        targetVZ = Math.sin(cow.wanderAngle) * cow.wanderSpeed;
+
+        // Deterministic drift component: toward waypoint
+        const driftX = (dwx / wDst) * p.speed;
+        const driftZ = (dwz / wDst) * p.speed;
+
+        // Group cohesion component: pull toward herd centroid
+        const hc   = herdCentroid.get(cow.herdId);
+        const cohX = hc ? (hc.x - cx) * HERD_COHESION : 0;
+        const cohZ = hc ? (hc.z - cz) * HERD_COHESION : 0;
+
+        // Stochastic (Brownian) noise — variance scales with sigma_m and sqrt(dt)
+        const sigma  = p.sigma * Math.sqrt(dt);
+        const noiseX = _gaussian() * sigma;
+        const noiseZ = _gaussian() * sigma;
+
+        // Target velocity = drift + cohesion + Brownian noise
+        targetVX = driftX + cohX + noiseX;
+        targetVZ = driftZ + cohZ + noiseZ;
+
+        // Clamp to max speed (1.5× drift speed)
+        const tspd    = Math.sqrt(targetVX * targetVX + targetVZ * targetVZ);
+        const maxSpd  = p.speed * 1.5;
+        if (tspd > maxSpd) { targetVX *= maxSpd / tspd; targetVZ *= maxSpd / tspd; }
       }
 
-      // Smooth velocity
-      const lerp = Math.min(1, 5 * dt);
-      cow.vx += (targetVX - cow.vx) * lerp;
-      cow.vz += (targetVZ - cow.vz) * lerp;
+      // ── Exponential velocity smoothing (tau depends on state) ─────────────
+      const tau   = (cow.panicTimer > 0 || fleeing) ? 0.3 : (TAU[cow.bbState] ?? 0.6);
+      const alpha = 1 - Math.exp(-dt / tau);
+      cow.vx += (targetVX - cow.vx) * alpha;
+      cow.vz += (targetVZ - cow.vz) * alpha;
 
       // Move
       cow.mesh.position.x += cow.vx * dt;
       cow.mesh.position.z += cow.vz * dt;
 
-      // Rotate toward movement
-      const speed = Math.sqrt(cow.vx * cow.vx + cow.vz * cow.vz);
-      if (speed > 0.12) {
+      // Rotate & body-bob
+      const spd = Math.sqrt(cow.vx * cow.vx + cow.vz * cow.vz);
+      if (spd > 0.10) {
         const targetRY = Math.atan2(cow.vx, cow.vz);
         let diff = targetRY - cow.mesh.rotation.y;
         while (diff >  Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         cow.mesh.rotation.y += diff * Math.min(1, 7 * dt);
-
-        // Body bob
-        cow.walkTime += dt * speed * 2.2;
+        cow.walkTime += dt * spd * 2.2;
         cow.mesh.position.y = Math.abs(Math.sin(cow.walkTime * 3)) * 0.045;
       } else {
         cow.mesh.position.y *= 0.88;
       }
     }
 
-    // Spread panic to nearby cows (flocking / contagion)
     this._spreadPanic();
-
     return newlyCorralled;
   }
 }

@@ -33,6 +33,7 @@ const rooms         = new Map();
 const corralledCows = new Map();   // roomId → Set<cowId>
 
 // ─── Bot system ───────────────────────────────────────────────────────────────
+const BOTS_ENABLED       = false;            // ← set true to re-enable enemies
 const BOT_SPEED          = 3.2;              // units/sec
 const BOT_SHOOT_RANGE    = 32;               // units
 const BOT_SHOOT_COOLDOWN = 1.8;              // seconds between shots
@@ -79,6 +80,7 @@ function _spawnBotWave(roomId) {
 
 // Bot AI tick — runs every 100 ms
 setInterval(() => {
+  if (!BOTS_ENABLED) return;
   for (const [roomId, room] of rooms) {
     const bots   = [...room.values()].filter(p => p.isBot  && p.hp > 0);
     const humans = [...room.values()].filter(p => !p.isBot && p.hp > 0);
@@ -151,6 +153,7 @@ setInterval(() => {
 
 // Wave spawner — checks every 30 s if it's time for a new wave
 setInterval(() => {
+  if (!BOTS_ENABLED) return;
   for (const [roomId, room] of rooms) {
     const humans = [...room.values()].filter(p => !p.isBot);
     if (humans.length === 0) continue;
@@ -227,6 +230,14 @@ io.on('connection', (socket) => {
     };
 
     room.set(socket.id, playerData);
+
+    // If bots disabled, evict any bots that crept in from a previous server run
+    if (!BOTS_ENABLED) {
+      for (const [bid, p] of [...room]) {
+        if (p.isBot) { room.delete(bid); }
+      }
+      botWaveStates.delete(currentRoom);
+    }
 
     socket.emit('joined', {
       self: playerData,
@@ -309,6 +320,49 @@ io.on('connection', (socket) => {
           });
         }
       }
+    }
+  });
+
+  // bulletHit — damage-only event (visual already shown via 'shoot')
+  socket.on('bulletHit', ({ hitId }) => {
+    if (!currentRoom || !playerData) return;
+    const room   = getRoom(currentRoom);
+    const target = room.get(hitId);
+    if (!target || target.hp <= 0 || target.invincible) return;
+
+    target.hp -= 25;
+    if (target.hp <= 0) {
+      target.hp       = 0;
+      target.deaths  += 1;
+      playerData.kills += 1;
+
+      if (target.isBot) {
+        setTimeout(() => {
+          if (room.has(hitId)) {
+            room.delete(hitId);
+            io.to(currentRoom).emit('playerLeft', hitId);
+          }
+        }, 1200);
+      } else {
+        setTimeout(() => {
+          if (room.has(hitId)) {
+            const sp = randomSpawn();
+            target.hp = 200; target.x = sp.x; target.y = sp.y; target.z = sp.z;
+            io.to(currentRoom).emit('playerRespawned', { id: hitId, ...target });
+          }
+        }, 2000);
+      }
+
+      io.to(currentRoom).emit('playerKilled', {
+        killerId:     socket.id,
+        killerName:   playerData.name,
+        killerKills:  playerData.kills,
+        victimId:     hitId,
+        victimName:   target.name,
+        victimDeaths: target.deaths,
+      });
+    } else {
+      io.to(currentRoom).emit('playerHit', { id: hitId, hp: target.hp, attackerId: socket.id });
     }
   });
 

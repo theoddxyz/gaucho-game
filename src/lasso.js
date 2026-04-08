@@ -62,35 +62,81 @@ export class LassoSystem {
   }
 
   _buildChargeUI() {
+    // Wrapper
+    const wrap = document.createElement('div');
+    wrap.style.cssText = [
+      'position:fixed', 'bottom:130px', 'left:50%',
+      'transform:translateX(-50%)',
+      'display:none', 'flex-direction:column', 'align-items:center',
+      'gap:4px', 'z-index:100',
+    ].join(';');
+
+    // Label
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'color:#f0c040;font:bold 12px monospace;text-shadow:0 1px 3px #000;letter-spacing:1px;';
+    lbl.textContent = 'CARGANDO LAZO';
+    wrap.appendChild(lbl);
+
+    // Bar container
     const el = document.createElement('div');
     el.style.cssText = [
-      'position:fixed', 'bottom:120px', 'left:50%',
-      'transform:translateX(-50%)',
-      'width:120px', 'height:12px',
-      'background:rgba(0,0,0,0.5)',
-      'border:1px solid #c8a23c',
-      'border-radius:6px', 'overflow:hidden',
-      'display:none', 'z-index:100',
+      'width:140px', 'height:14px',
+      'background:rgba(0,0,0,0.6)',
+      'border:2px solid #c8a23c',
+      'border-radius:7px', 'overflow:hidden',
     ].join(';');
     const fill = document.createElement('div');
-    fill.style.cssText = 'height:100%;width:0%;background:#f0c040;border-radius:6px;transition:width 0.05s;';
+    fill.style.cssText = 'height:100%;width:0%;background:linear-gradient(90deg,#c8a23c,#f0e040);border-radius:7px;';
     el.appendChild(fill);
-    document.body.appendChild(el);
-    this._chargeEl   = el;
-    this._chargeFill = fill;
+    wrap.appendChild(el);
+
+    // Status label (shown when caught)
+    const status = document.createElement('div');
+    status.style.cssText = 'color:#fff;font:11px monospace;text-shadow:0 1px 3px #000;display:none;';
+    wrap.appendChild(status);
+
+    document.body.appendChild(wrap);
+    this._chargeWrap  = wrap;
+    this._chargeLabel = lbl;
+    this._chargeEl    = el;
+    this._chargeFill  = fill;
+    this._statusLabel = status;
+  }
+
+  _showUI(mode) {
+    // mode: 'charging' | 'caught' | null
+    if (!this._chargeWrap) return;
+    if (!mode) {
+      this._chargeWrap.style.display = 'none';
+      return;
+    }
+    this._chargeWrap.style.display = 'flex';
+    if (mode === 'charging') {
+      this._chargeLabel.style.display = 'block';
+      this._chargeEl.style.display    = 'block';
+      this._statusLabel.style.display = 'none';
+    } else if (mode === 'caught') {
+      this._chargeLabel.style.display = 'none';
+      this._chargeEl.style.display    = 'none';
+      this._statusLabel.style.display = 'block';
+      this._statusLabel.textContent   = '🪢 LAZADO — Click der. para soltar';
+    }
   }
 
   startCharge() {
     if (this._state !== 'idle') return;
     this._charging = true;
     this._chargeT  = 0;
-    if (this._chargeEl) this._chargeEl.style.display = 'block';
+    this._state    = 'charging';   // ← NEW: keeps update() from returning early
+    this._showUI('charging');
   }
 
   releaseCharge(origin, dir) {
     if (!this._charging) return;
     this._charging = false;
-    if (this._chargeEl) { this._chargeEl.style.display = 'none'; this._chargeFill.style.width = '0%'; }
+    this._state    = 'idle';       // reset before _throwWithSpeed sets 'flying'
+    this._showUI(null);
+    if (this._chargeFill) this._chargeFill.style.width = '0%';
     const speed = MIN_THROW_SPEED + (MAX_THROW_SPEED - MIN_THROW_SPEED) * this._chargeT;
     this._throwWithSpeed(origin, dir, speed);
   }
@@ -140,16 +186,19 @@ export class LassoSystem {
   throw(origin, dir) { this._throwWithSpeed(origin, dir, THROW_SPEED); }
 
   release() {
-    this._state = 'idle';
+    this._charging = false;
+    this._state    = 'idle';
     this._line.visible = false;
     this._tip.visible  = false;
     this._loop.visible = false;
     this._caught = null;
+    this._showUI(null);
   }
 
-  isCaught()  { return this._state === 'caught'; }
-  isActive()  { return this._state !== 'idle'; }
-  getCaught() { return this._caught; }
+  isCaught()   { return this._state === 'caught'; }
+  isActive()   { return this._state !== 'idle'; }
+  isCharging() { return this._state === 'charging'; }
+  getCaught()  { return this._caught; }
 
   /**
    * @param {THREE.Vector3} gunPos
@@ -159,12 +208,14 @@ export class LassoSystem {
    * @param {Map} remotePlayers
    */
   update(dt, gunPos, cowSystem, ostrichSystem, remotePlayers) {
-    if (this._state === 'idle') return;
-
-    if (this._charging) {
+    // ── Charging: accumulate power bar, don't simulate rope yet ──────────────
+    if (this._state === 'charging') {
       this._chargeT = Math.min(1, this._chargeT + dt / CHARGE_TIME);
       if (this._chargeFill) this._chargeFill.style.width = `${this._chargeT * 100}%`;
+      return;
     }
+
+    if (this._state === 'idle') return;
 
     // Anchor first node to gun
     this._nodes[0].pos.copy(gunPos);
@@ -269,6 +320,7 @@ export class LassoSystem {
             this._state  = 'caught';
             this._caught = { type: 'cow', id: cow.id, obj: cow };
             this._loop.visible = true;
+            this._showUI('caught');
             return;
           }
         }
@@ -285,6 +337,7 @@ export class LassoSystem {
             this._state  = 'caught';
             this._caught = { type: 'ostrich', id: i, obj: e };
             this._loop.visible = true;
+            this._showUI('caught');
             return;
           }
         }
@@ -299,6 +352,7 @@ export class LassoSystem {
             this._state  = 'caught';
             this._caught = { type: 'player', id, obj: pm };
             this._loop.visible = true;
+            this._showUI('caught');
             return;
           }
         }
