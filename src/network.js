@@ -55,6 +55,11 @@ export function sendToggleInvincible()  { socket.emit('toggleInvincible'); }
 export function onYell(cb)      { socket.on('yell', cb); }
 export function onGmMessage(cb)  { socket.on('gmMessage', cb); }
 export function onGmCommand(cb)  { socket.on('gmCommand', cb); }
+
+export function onNpcSpawned(cb)  { socket.on('npcSpawned', cb); }
+export function onNpcMoved(cb)    { socket.on('npcMoved', cb); }
+export function onNpcDialogue(cb) { socket.on('npcDialogue', cb); }
+export function onNpcRemoved(cb)  { socket.on('npcRemoved', cb); }
 export function sendGameEvent(type, data = {}, hour) { socket.emit('gameEvent', { type, hour, ...data }); }
 
 export function getRoomId() {

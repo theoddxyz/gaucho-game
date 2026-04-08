@@ -182,18 +182,92 @@ const COLORS = ['#ff4444', '#44aaff', '#44ff44', '#ffaa00', '#ff44ff', '#00ffcc'
 const npcSessions = new Map();
 
 // ─── Gemini Game Master ───────────────────────────────────────────────────────
-const _geminiKey  = process.env.GEMINI_API_KEY || '';
-const _genAI      = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
-const _gmModel    = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }) : null;
-const _gmState    = new Map(); // roomId → { lastCallTime, totalKills, corralled, history[] }
+const _geminiKey = process.env.GEMINI_API_KEY || '';
+const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
+const _gmModel   = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }) : null;
 console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO key=...'+_geminiKey.slice(-4) : 'INACTIVO (sin API key)'}`);
 
-function _getGmState(roomId) {
-  if (!_gmState.has(roomId)) {
-    _gmState.set(roomId, { lastCallTime: 0, totalKills: 0, corralled: 0, history: [] });
+// ── Story Bible — persistent narrative state per room ────────────────────────
+const storyBibles = new Map();
+const npcEntities = new Map(); // roomId → Map<npcId, npc>
+let _npcSeq = 0;
+
+function getStory(roomId) {
+  if (!storyBibles.has(roomId)) {
+    storyBibles.set(roomId, {
+      phase: 'observing',  // observing → narrating
+      cycle: 0,
+      corralled: 0,
+      totalKills: 0,
+      hour: 17,
+      npcs: [],            // {name, alive, introduced, lastSaid, personality}
+      promises: [],        // strings of pending story promises
+      playerHistory: [],   // last 30 events (the "what happened" feed)
+      worldEvents: [],     // weather, time changes
+    });
   }
-  return _gmState.get(roomId);
+  return storyBibles.get(roomId);
 }
+
+function addEvent(roomId, text) {
+  const sb = getStory(roomId);
+  sb.playerHistory.push(text);
+  if (sb.playerHistory.length > 30) sb.playerHistory.shift();
+}
+
+// ── NPC spawning ──────────────────────────────────────────────────────────────
+function spawnStoryNPC(roomId, def, humans) {
+  if (!npcEntities.has(roomId)) npcEntities.set(roomId, new Map());
+  const npcs = npcEntities.get(roomId);
+  // Don't duplicate by name
+  for (const [, n] of npcs) if (n.name === def.name) return;
+
+  const id = `npc_${++_npcSeq}`;
+  const anchor = humans[Math.floor(Math.random() * humans.length)] ?? { x: 0, z: -70 };
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 28 + Math.random() * 12;
+  const npc = {
+    id, name: def.name,
+    x: anchor.x + Math.cos(angle) * dist,
+    z: anchor.z + Math.sin(angle) * dist,
+    dialogue: def.dialogue || '',
+    dialogueSent: false,
+    color: def.color || '#8B7355',
+    walkSpeed: 1.3,
+  };
+  npcs.set(id, npc);
+  getStory(roomId).npcs.push({ name: def.name, alive: true, introduced: `ciclo ${getStory(roomId).cycle}`, lastSaid: def.dialogue, personality: def.personality || '' });
+  io.to(roomId).emit('npcSpawned', { id, name: def.name, x: npc.x, z: npc.z, color: npc.color });
+  console.log(`[NPC] Spawned "${def.name}" en sala ${roomId}`);
+}
+
+// ── NPC movement tick (500ms) ─────────────────────────────────────────────────
+setInterval(() => {
+  for (const [roomId, npcs] of npcEntities) {
+    if (!npcs.size) continue;
+    const room   = getRoom(roomId);
+    const humans = [...room.values()].filter(p => !p.isBot && p.hp > 0);
+    if (!humans.length) continue;
+    for (const [npcId, npc] of npcs) {
+      // nearest human
+      let nearest = humans[0], minDist = Infinity;
+      for (const p of humans) {
+        const d = Math.hypot(p.x - npc.x, p.z - npc.z);
+        if (d < minDist) { minDist = d; nearest = p; }
+      }
+      if (minDist > 6) {
+        const dx = nearest.x - npc.x, dz = nearest.z - npc.z;
+        const d  = Math.hypot(dx, dz) || 1;
+        npc.x += (dx / d) * npc.walkSpeed * 0.5;
+        npc.z += (dz / d) * npc.walkSpeed * 0.5;
+        io.to(roomId).volatile.emit('npcMoved', { id: npcId, x: npc.x, z: npc.z });
+      } else if (npc.dialogue && !npc.dialogueSent) {
+        npc.dialogueSent = true;
+        io.to(roomId).emit('npcDialogue', { id: npcId, name: npc.name, text: npc.dialogue });
+      }
+    }
+  }
+}, 500);
 
 // ── Execute a GM command on all clients in the room ──────────────────────────
 function execGMCommand(roomId, cmd) {
@@ -249,80 +323,124 @@ function execGMCommand(roomId, cmd) {
   }
 }
 
-async function callGM(roomId, eventDesc) {
-  console.log(`[GM] callGM llamado: model=${!!_gmModel} event="${eventDesc.slice(0,40)}"`);
-  if (!_gmModel) { console.warn('[GM] Sin modelo — falta GEMINI_API_KEY'); return; }
-  const gm = _getGmState(roomId);
-  const now = Date.now();
-  const elapsed = now - gm.lastCallTime;
-  if (elapsed < 14000) { console.log(`[GM] Throttled (${Math.round(elapsed/1000)}s < 14s)`); return; }
-  gm.lastCallTime = now;
-  console.log(`[GM] Llamando a Gemini para sala ${roomId}...`);
+async function runStoryCycle(roomId) {
+  if (!_gmModel) return;
+  const sb   = getStory(roomId);
+  const room = getRoom(roomId);
+  sb.cycle  += 1;
 
-  const room        = getRoom(roomId);
-  const players     = [...room.values()].filter(p => !p.isBot);
-  const playerNames = players.map(p => p.name).join(', ') || 'nadie';
-  const playerHPs   = players.map(p => `${p.name}:${p.hp}HP`).join(', ') || 'nadie';
-  const recentHist  = gm.history.slice(-4).join(' | ');
-  const hourOfDay   = Math.floor(gm.hour ?? 17);
+  const humans      = [...room.values()].filter(p => !p.isBot);
+  const playerState = humans.map(p => `${p.name} HP:${p.hp} kills:${p.kills} muertes:${p.deaths}`).join(' | ') || 'nadie';
+  const history     = sb.playerHistory.slice(-20).join('\n') || 'ninguno';
 
-  const prompt = `Sos el Game Master de GAUCHO, un juego de acción western gaucho argentino en la pampa infinita.
-Tu estilo: crudo, épico, con humor oscuro y metáforas rurales.
+  console.log(`[STORY] Ciclo ${sb.cycle} sala ${roomId} — jugadores: ${playerState}`);
 
-ESTADO DEL JUEGO:
-- Hora: ${hourOfDay}:00hs
-- Jugadores: ${playerHPs}
-- Vacas corraladas: ${gm.corralled}/33
-- Muertes en sesión: ${gm.totalKills}
-- Historial reciente: ${recentHist || 'ninguno'}
+  // ── Ciclos 1-2: solo observar, sin narrar ────────────────────────────────────
+  if (sb.cycle <= 2) {
+    const obsPrompt = `Sos el Game Master de GAUCHO, un western gaucho argentino. Estás OBSERVANDO la partida antes de empezar la historia.
 
-EVENTO: ${eventDesc}
+ESTADO:
+- Hora: ${sb.hour}:00hs
+- Jugadores: ${playerState}
+- Eventos recientes: ${history}
 
-COMANDOS DISPONIBLES (opcionales, ejecutá solo si tiene sentido narrativo):
-- {"type":"set_time","hour":6}  → cambiar hora (0-24)
-- {"type":"stampede"}           → estampida general de vacas
-- {"type":"storm","intensity":1} → tormenta (0.5 suave, 1 fuerte)
-- {"type":"blood_moon"}         → luna de sangre (cielo rojo)
-- {"type":"fog","density":0.8}  → niebla espesa
-- {"type":"day_speed","mult":3} → acelerar el tiempo
-- {"type":"heal_all","amount":50} → curar a todos
-- {"type":"damage_all","amount":25} → dañar a todos
+Respondé SOLO con JSON válido, sin texto extra, sin markdown:
+{"world_note":"observación del mundo en 1 oración","player_tag":"apodo o descripción breve del grupo"}`;
 
-INSTRUCCIONES:
-Respondé SOLO con JSON válido en este formato exacto, sin texto extra, sin markdown:
-{"text":"narración en 1-2 oraciones","commands":[]}
+    try {
+      const r   = await _gmModel.generateContent(obsPrompt);
+      let raw   = r.response.text().trim().replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
+      const obs = JSON.parse(raw);
+      if (obs.world_note) sb.worldEvents.push(obs.world_note);
+      if (obs.player_tag) sb.playerHistory.push(`[perfil] ${obs.player_tag}`);
+      console.log(`[STORY] Observación ciclo ${sb.cycle}:`, obs);
+    } catch(e) { console.warn('[STORY] observe error:', e.message); }
+    return;
+  }
 
-Si querés ejecutar un comando, agregalo al array commands. Ejemplo:
-{"text":"El cielo se tiñó de sangre sobre la pampa.","commands":[{"type":"blood_moon"}]}`;
+  // ── Ciclo 3+: narración completa ─────────────────────────────────────────────
+  if (sb.phase === 'observing') sb.phase = 'narrating';
+
+  const npcList     = sb.npcs.map(n => `- ${n.name}: ${n.personality}. Última frase: "${n.lastSaid}"`).join('\n') || 'ninguno';
+  const promiseList = sb.promises.join(' | ') || 'ninguna';
+  const worldNotes  = sb.worldEvents.slice(-5).join(' | ') || 'ninguna';
+
+  const mainPrompt = `Sos el Game Master de GAUCHO, un juego de acción western gaucho argentino en la pampa infinita.
+Estilo: crudo, épico, humor oscuro, metáforas rurales. Narrás y también das vida a los NPCs.
+
+BIBLIA DE LA HISTORIA (ciclo ${sb.cycle}):
+- Fase: ${sb.phase}
+- Jugadores: ${playerState}
+- Vacas corraladas: ${sb.corralled}/33
+- Muertes totales: ${sb.totalKills}
+- Hora del juego: ${sb.hour}:00hs
+- Notas del mundo: ${worldNotes}
+- NPCs activos:\n${npcList}
+- Promesas narrativas pendientes: ${promiseList}
+- Historial de eventos (últimos 20):\n${history}
+
+COMANDOS DISPONIBLES (solo si tiene sentido narrativo):
+{"type":"set_time","hour":6} | {"type":"stampede"} | {"type":"storm","intensity":1}
+{"type":"blood_moon"} | {"type":"fog","density":0.8} | {"type":"day_speed","mult":3}
+{"type":"heal_all","amount":50} | {"type":"damage_all","amount":25}
+
+Para introducir un NPC visible que camine hacia los jugadores, usá "spawn_npc":
+{"name":"Nombre","personality":"descripción corta","dialogue":"lo que dice al acercarse","color":"#hexcolor"}
+
+Respondé SOLO con JSON válido, sin texto extra, sin markdown:
+{
+  "narrative": "narración del GM en 1-2 oraciones",
+  "commands": [],
+  "spawn_npc": null,
+  "new_promises": [],
+  "fulfilled_promises": []
+}`;
 
   try {
-    const result = await _gmModel.generateContent(prompt);
-    let raw = result.response.text().trim();
-    // Strip markdown code fences if present
-    raw = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/,'').trim();
-    console.log(`[GM raw] ${raw.slice(0, 200)}`);
+    const result = await _gmModel.generateContent(mainPrompt);
+    let raw = result.response.text().trim().replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
+    console.log(`[STORY raw] ${raw.slice(0, 300)}`);
 
     let parsed;
-    try { parsed = JSON.parse(raw); } catch {
-      // Fallback: treat whole response as plain text narration
-      parsed = { text: raw, commands: [] };
-    }
+    try { parsed = JSON.parse(raw); }
+    catch { parsed = { narrative: raw, commands: [], spawn_npc: null, new_promises: [], fulfilled_promises: [] }; }
 
-    const text     = parsed.text?.trim() || '';
-    const commands = Array.isArray(parsed.commands) ? parsed.commands : [];
-
+    // Narración
+    const text = (parsed.narrative || '').trim();
     if (text) {
-      gm.history.push(eventDesc);
-      if (gm.history.length > 10) gm.history.shift();
       io.to(roomId).emit('gmMessage', { text });
-      console.log(`[GM ${roomId}] ${text}`);
+      console.log(`[STORY ${roomId}] ${text}`);
     }
-    for (const cmd of commands) execGMCommand(roomId, cmd);
 
-  } catch (err) {
-    console.warn('[GM] Gemini error:', err.message);
-  }
+    // Comandos
+    for (const cmd of (Array.isArray(parsed.commands) ? parsed.commands : [])) execGMCommand(roomId, cmd);
+
+    // Spawn NPC
+    if (parsed.spawn_npc?.name) {
+      const living = [...room.values()].filter(p => !p.isBot && p.hp > 0);
+      spawnStoryNPC(roomId, parsed.spawn_npc, living);
+    }
+
+    // Promesas
+    if (Array.isArray(parsed.new_promises)) {
+      sb.promises.push(...parsed.new_promises);
+      if (sb.promises.length > 10) sb.promises.splice(0, sb.promises.length - 10);
+    }
+    if (Array.isArray(parsed.fulfilled_promises)) {
+      sb.promises = sb.promises.filter(p => !parsed.fulfilled_promises.includes(p));
+    }
+
+  } catch(e) { console.warn('[STORY] Gemini error:', e.message); }
 }
+
+// ── Ciclo de historia cada 2 minutos ─────────────────────────────────────────
+setInterval(() => {
+  for (const [roomId, room] of rooms) {
+    const humans = [...room.values()].filter(p => !p.isBot);
+    if (humans.length === 0) continue;
+    runStoryCycle(roomId).catch(e => console.warn('[STORY interval]', e.message));
+  }
+}, 2 * 60 * 1000);
 
 function _resolveNpc(roomId) {
   const s = npcSessions.get(roomId);
@@ -393,8 +511,8 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('playerJoined', playerData);
     console.log(`[${currentRoom}] ${playerData.name} joined (${room.size} players)`);
     const humanCount = [...room.values()].filter(p => !p.isBot).length;
-    if (humanCount >= 2) {
-      callGM(currentRoom, `${playerData.name} acaba de llegar a la partida. Ahora hay ${humanCount} gauchos en el campo.`);
+    if (humanCount >= 1) {
+      addEvent(currentRoom, `${playerData.name} se unió. Hay ${humanCount} gaucho${humanCount !== 1 ? 's' : ''} en el campo.`);
     }
   });
 
@@ -460,8 +578,8 @@ io.on('connection', (socket) => {
             victimName:   target.name,
             victimDeaths: target.deaths,
           });
-          _getGmState(currentRoom).totalKills++;
-          callGM(currentRoom, `${playerData.name} mató a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
+          getStory(currentRoom).totalKills++;
+          addEvent(currentRoom, `${playerData.name} mató a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
         } else {
           io.to(currentRoom).emit('playerHit', {
             id: data.hitId,
@@ -511,8 +629,8 @@ io.on('connection', (socket) => {
         victimName:   target.name,
         victimDeaths: target.deaths,
       });
-      _getGmState(currentRoom).totalKills++;
-      callGM(currentRoom, `${playerData.name} eliminó a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
+      getStory(currentRoom).totalKills++;
+      addEvent(currentRoom, `${playerData.name} eliminó a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
     } else {
       io.to(currentRoom).emit('playerHit', { id: hitId, hp: target.hp, attackerId: socket.id });
     }
@@ -558,14 +676,14 @@ io.on('connection', (socket) => {
     set.add(id);
     io.to(currentRoom).emit('cowCorralled', { id, total: set.size });
     console.log(`[${currentRoom}] Vaca ${id} corralada (${set.size}/33)`);
-    const gm = _getGmState(currentRoom);
-    gm.corralled = set.size;
+    const sb = getStory(currentRoom);
+    sb.corralled = set.size;
     const milestones = [1, 5, 10, 20, 33];
     if (milestones.includes(set.size)) {
       const desc = set.size === 33
         ? `¡TODAS las 33 vacas fueron corraladas! El campo quedó limpio.`
         : `${playerData?.name ?? 'Un gaucho'} corraló la vaca número ${set.size}. Van ${set.size} de 33 en el corral.`;
-      callGM(currentRoom, desc);
+      addEvent(currentRoom, desc);
     }
   });
 
@@ -596,16 +714,18 @@ io.on('connection', (socket) => {
   socket.on('gameEvent', ({ type, detail, hour }) => {
     console.log(`[GM] gameEvent recibido: type=${type}`);
     if (!currentRoom || !playerData) return;
-    if (hour != null) _getGmState(currentRoom).hour = hour;
+    if (hour != null) getStory(currentRoom).hour = hour;
     const EVENT_DESCS = {
       night_fell:   `Cayó la noche en la pampa. La oscuridad cubre el campo.`,
       dawn:         `Amaneció. El sol asoma detrás del horizonte.`,
       horse_mounted:`${playerData.name} montó un caballo y cabalga por el campo.`,
       lasso_catch:  `${playerData.name} enlazó un animal con el lazo.`,
       player_died:  `${playerData.name} cayó muerto en el campo.`,
+      animal_killed:`${playerData.name} mató un animal (${detail ?? ''}).`,
+      animal_wounded:`${playerData.name} hirió un animal (${detail ?? ''}).`,
     };
     const desc = EVENT_DESCS[type] || detail || `Evento: ${type}`;
-    callGM(currentRoom, desc);
+    addEvent(currentRoom, desc);
   });
 
   socket.on('disconnect', () => {

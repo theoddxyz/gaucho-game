@@ -393,6 +393,103 @@ Network.onGmCommand((cmd) => {
   }
 });
 
+// ── Story NPCs (server-driven visible entities) ───────────────────────────────
+const _storyNpcs = new Map(); // id → { group, labelDiv, bubbleDiv, walkT }
+
+function _buildNpcGroup(color) {
+  const group = new THREE.Group();
+  const c   = new THREE.Color(color || '#8B7355');
+  const mat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+  const drk = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0x000000), 0.3), roughness: 0.9 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.95, 0.42), mat);
+  body.position.set(0, 0.6, 0); body.castShadow = true;
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.40, 0.40), mat.clone());
+  head.position.set(0, 1.28, 0); head.castShadow = true;
+
+  // Hat
+  const brimGeo = new THREE.CylinderGeometry(0.30, 0.30, 0.04, 8);
+  const brim    = new THREE.Mesh(brimGeo, drk.clone());
+  brim.position.set(0, 1.50, 0);
+  const crownGeo = new THREE.CylinderGeometry(0.18, 0.20, 0.22, 8);
+  const crown    = new THREE.Mesh(crownGeo, drk.clone());
+  crown.position.set(0, 1.63, 0);
+
+  const legGeo = new THREE.BoxGeometry(0.22, 0.68, 0.22);
+  const ll = new THREE.Mesh(legGeo, drk.clone()); ll.position.set(-0.16, -0.18, 0); ll.name = 'leg_l';
+  const rl = new THREE.Mesh(legGeo, drk.clone()); rl.position.set( 0.16, -0.18, 0); rl.name = 'leg_r';
+
+  group.add(body, head, brim, crown, ll, rl);
+  return group;
+}
+
+function _npcLabelDiv(name) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;z-index:90;pointer-events:none;font-family:"Share Tech Mono",monospace;font-size:10px;color:#d4aa60;letter-spacing:1px;text-shadow:0 0 4px rgba(0,0,0,0.9);transform:translateX(-50%);white-space:nowrap;';
+  d.textContent = name;
+  document.body.appendChild(d);
+  return d;
+}
+
+function _npcBubbleDiv() {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;z-index:91;pointer-events:none;font-family:"Share Tech Mono",monospace;font-size:11px;color:#e8c870;background:rgba(6,3,1,0.88);border:1px solid #5a3a14;padding:6px 10px;max-width:220px;line-height:1.5;letter-spacing:0.5px;transform:translate(-50%,-100%);display:none;white-space:pre-wrap;box-shadow:0 0 12px rgba(180,130,40,0.15);';
+  document.body.appendChild(d);
+  return d;
+}
+
+Network.onNpcSpawned(({ id, name, x, z, color }) => {
+  if (_storyNpcs.has(id)) return;
+  const group    = _buildNpcGroup(color);
+  group.position.set(x, 0, z);
+  scene.add(group);
+  const labelDiv  = _npcLabelDiv(name);
+  const bubbleDiv = _npcBubbleDiv();
+  _storyNpcs.set(id, { group, labelDiv, bubbleDiv, walkT: 0, name });
+  console.log(`[NPC] Spawned "${name}" @(${x.toFixed(1)},${z.toFixed(1)})`);
+});
+
+Network.onNpcMoved(({ id, x, z }) => {
+  const npc = _storyNpcs.get(id);
+  if (!npc) return;
+  const prev = npc.group.position.clone();
+  npc.group.position.set(x, 0, z);
+  // Face movement direction
+  const dx = x - prev.x, dz = z - prev.z;
+  if (Math.abs(dx) + Math.abs(dz) > 0.01) npc.group.rotation.y = Math.atan2(dx, dz);
+});
+
+Network.onNpcDialogue(({ id, name, text }) => {
+  const npc = _storyNpcs.get(id);
+  // Also show in GM box
+  const box = document.getElementById('gm-box');
+  const txt = document.getElementById('gm-text');
+  if (box && txt) {
+    txt.textContent = `${name}: "${text}"`;
+    box.style.cssText += ';display:flex !important;flex-direction:column;opacity:1;transition:opacity 0.6s;';
+    clearTimeout(box._hideT);
+    box._hideT = setTimeout(() => {
+      box.style.opacity = '0';
+      setTimeout(() => { box.style.display = 'none'; box.style.opacity = '1'; }, 650);
+    }, 9000);
+  }
+  if (!npc) return;
+  npc.bubbleDiv.textContent = `"${text}"`;
+  npc.bubbleDiv.style.display = 'block';
+  clearTimeout(npc._hideB);
+  npc._hideB = setTimeout(() => { npc.bubbleDiv.style.display = 'none'; }, 9000);
+});
+
+Network.onNpcRemoved(({ id }) => {
+  const npc = _storyNpcs.get(id);
+  if (!npc) return;
+  scene.remove(npc.group);
+  npc.labelDiv.remove();
+  npc.bubbleDiv.remove();
+  _storyNpcs.delete(id);
+});
+
 // --- Shooting (left-click — no right-click required) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
@@ -788,6 +885,37 @@ function gameLoop() {
     const intensity = temp > 35 ? Math.min(1, (temp - 35) / 15) : 0;
     heatPass.uniforms.uIntensity.value = intensity;
     heatPass.uniforms.uTime.value += dt;
+  }
+
+  // ── Story NPC walk animation + 2D label projection ───────────────────────
+  if (_storyNpcs.size > 0) {
+    const W = window.innerWidth, H = window.innerHeight;
+    const _v3 = new THREE.Vector3();
+    for (const [, npc] of _storyNpcs) {
+      npc.walkT = (npc.walkT || 0) + dt * 2.2;
+      // Leg swing animation
+      const ll = npc.group.getObjectByName('leg_l');
+      const rl = npc.group.getObjectByName('leg_r');
+      if (ll && rl) {
+        ll.rotation.x =  Math.sin(npc.walkT) * 0.45;
+        rl.rotation.x = -Math.sin(npc.walkT) * 0.45;
+      }
+      // Project world position → screen
+      _v3.set(npc.group.position.x, npc.group.position.y + 2.1, npc.group.position.z);
+      _v3.project(camera);
+      if (_v3.z < 1) {
+        const sx = ( _v3.x * 0.5 + 0.5) * W;
+        const sy = (-_v3.y * 0.5 + 0.5) * H;
+        npc.labelDiv.style.left  = `${sx}px`;
+        npc.labelDiv.style.top   = `${sy}px`;
+        npc.labelDiv.style.display = 'block';
+        npc.bubbleDiv.style.left = `${sx}px`;
+        npc.bubbleDiv.style.top  = `${sy - 8}px`;
+      } else {
+        npc.labelDiv.style.display  = 'none';
+        npc.bubbleDiv.style.display = 'none';
+      }
+    }
   }
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
