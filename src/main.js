@@ -444,21 +444,33 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         remotePlayers.get(scanHit.target.id)?.applyImpact(hitZone, scanHit.point);
       }
       else if (scanHit.target.type === 'cow') {
-        // Body shots on animals also tear a limb
         const cowZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
+        const cowBefore = cowSystem?._cows[scanHit.target.id];
+        const hpBefore = cowBefore?.hp ?? 2;
         cowSystem?.hitCow(scanHit.target.id, scanHit.point, cowZone);
+        const cowAfter = cowSystem?._cows[scanHit.target.id];
+        if (cowAfter?.wounded && hpBefore > 1)
+          Network.sendGameEvent('animal_wounded', { detail: `Una vaca quedó herida y se arrastra por la pampa.` });
+        else if (cowAfter?.removed || (cowAfter?.hp ?? 2) <= 0)
+          Network.sendGameEvent('animal_killed', { detail: `Una vaca fue abatida. La carne cae al pasto.` });
       }
       else if (scanHit.target.type === 'ostrich') {
         const oIdx = scanHit.target.id;
         const ostZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
+        const eBefore = ostrichSystem._entities[oIdx];
+        const hpBefore = eBefore?.hp ?? 2;
         ostrichSystem.hit(oIdx, scanHit.point, ostZone);
-        // Only send kill to network when ostrich actually dies (hp==0)
-        const e = ostrichSystem._entities[oIdx];
-        if (e && (e.wounded || e.dying || e.dead)) Network.sendOstrichKill(oIdx);
+        const eAfter = ostrichSystem._entities[oIdx];
+        if (eAfter?.wounded && hpBefore > 1)
+          Network.sendGameEvent('animal_wounded', { detail: `Un avestruz herido corre en círculos por el campo.` });
+        else if (eAfter?.dead || eAfter?.dying)
+          Network.sendGameEvent('animal_killed', { detail: `Un avestruz cayó. Sus plumas vuelan en el viento pampeano.` });
+        if (eAfter && (eAfter.wounded || eAfter.dying || eAfter.dead)) Network.sendOstrichKill(oIdx);
       }
       else if (scanHit.target.type === 'chicken') {
         const chicZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
         chickenSystem.hit(scanHit.target.id, scanHit.point, chicZone);
+        Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
       }
     }, travelMs);
   }
