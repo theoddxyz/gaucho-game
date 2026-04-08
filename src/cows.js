@@ -22,15 +22,16 @@ const FLEE_RADIUS = 8;
 
 // ─── Brownian Bridge Movement Model parameters ────────────────────────────────
 // Inspired by dBBMM (Kranstauber et al. 2012) adapted for real-time simulation.
-// Each cow has a state that controls variance (sigma_m) and drift speed.
+// Each state controls: sigma_m (variance), drift speed, waypoint reach, timer.
 const BB_STATES = {
   grazing:   { sigma: 2.2,  speed: 0.40, wpRadius: [4,  12], timer: [5,  12] },
   traveling: { sigma: 0.55, speed: 1.70, wpRadius: [20, 50], timer: [10, 20] },
+  // Fleeing: high sigma (chaotic stampede) + strong drift away from threat
+  fleeing:   { sigma: 3.8,  speed: 5.00, wpRadius: [50, 80], timer: [4,   8] },
 };
-// Cohesion: pull toward sub-herd centroid (strength per second)
+const WAVE_SPEED    = 16;   // units/sec — yell wave propagation speed
 const HERD_COHESION = 0.12;
-// Smooth velocity time constant per state
-const TAU = { grazing: 0.9, traveling: 0.45 };
+const TAU = { grazing: 0.9, traveling: 0.45, fleeing: 0.25 };
 
 // ─── Shared materials (5 palettes × 3 mats = 15 total) ───────────────────────
 const PICKUP_RADIUS = 2.5;
@@ -269,46 +270,78 @@ export class CowSystem {
   getTotal()     { return N_COWS; }
 
   /**
-   * Yell: cows within `radius` units get a velocity kick away from (px, pz)
-   * and enter stampede mode (keep running for ~5 s even after player moves away).
+   * Yell (F key): expanding wave at WAVE_SPEED units/sec.
+   * Each cow enters dBBMM 'fleeing' state when the wave reaches it.
+   * Waypoint is set away from threat, blended 70% flee / 30% toward stable.
    */
-  yell(px, pz, radius = 26) {
-    const r2 = radius * radius;
+  yell(px, pz, radius = 32) {
     for (const cow of this._cows) {
       if (cow.removed) continue;
       const cx = cow.mesh.position.x, cz = cow.mesh.position.z;
       const dx = cx - px, dz = cz - pz;
-      const d2 = dx * dx + dz * dz;
-      if (d2 >= r2) continue;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > radius) continue;
 
-      const dist = Math.sqrt(d2);
-      // Direction away from player — random if cow is right on top of player
+      // Wave delay: cows farther away react later (expanding ring effect)
+      const delayMs = (dist / WAVE_SPEED) * 1000;
+
       const nx = dist > 0.2 ? dx / dist : (Math.random() - 0.5) * 2;
       const nz = dist > 0.2 ? dz / dist : (Math.random() - 0.5) * 2;
 
-      // Kick velocity + save direction for stampede
-      cow.vx          = nx * FLEE_SPEED * 1.6;
-      cow.vz          = nz * FLEE_SPEED * 1.6;
-      cow.wanderAngle = Math.atan2(nx, nz);
-      cow.panicTimer  = 5.0 + Math.random() * 2;  // 5–7 s of stampede
+      setTimeout(() => {
+        if (cow.removed) return;
+        const wx = cow.mesh.position.x, wz = cow.mesh.position.z;
+
+        // Blend flee direction (70%) with stable direction (30%)
+        const toDstX = STABLE_X - wx, toDstZ = STABLE_Z - wz;
+        const toDstLen = Math.sqrt(toDstX * toDstX + toDstZ * toDstZ) || 1;
+        const bx = nx * 0.7 + (toDstX / toDstLen) * 0.3;
+        const bz = nz * 0.7 + (toDstZ / toDstLen) * 0.3;
+        const bl = Math.sqrt(bx * bx + bz * bz) || 1;
+
+        const wpDist = 55 + Math.random() * 25;
+        cow.bbState      = 'fleeing';
+        cow.waypoint     = { x: wx + (bx / bl) * wpDist, z: wz + (bz / bl) * wpDist };
+        cow.panicTimer   = 5.0 + Math.random() * 3;
+        cow.waypointTimer = cow.panicTimer + 2;
+        cow.wanderAngle  = Math.atan2(bx / bl, bz / bl);   // for contagion compat
+      }, delayMs);
     }
   }
 
-  /** Contagion: cows in panic spread it to neighbors within 14 units. */
+  /**
+   * Contagion: panicking cows (bbState='fleeing') spread panic to calm neighbors.
+   * Neighbor picks a waypoint away from the panicking cow — same dBBMM fleeing state.
+   */
   _spreadPanic() {
     for (const cow of this._cows) {
-      if (cow.removed || cow.panicTimer <= 0) continue;
+      if (cow.removed || cow.bbState !== 'fleeing' || cow.panicTimer <= 0) continue;
       const cx = cow.mesh.position.x, cz = cow.mesh.position.z;
       for (const other of this._cows) {
-        if (other.removed || other.panicTimer > 0 || other.id === cow.id) continue;
+        if (other.removed || other.bbState === 'fleeing' || other.id === cow.id) continue;
         const dx = other.mesh.position.x - cx;
         const dz = other.mesh.position.z - cz;
-        if (dx * dx + dz * dz < 14 * 14) {
-          other.panicTimer  = 2.5 + Math.random() * 2;
-          other.wanderAngle = Math.atan2(dx, dz); // run away from panicking cow
-          other.vx = Math.sin(other.wanderAngle) * FLEE_SPEED * 0.8;
-          other.vz = Math.cos(other.wanderAngle) * FLEE_SPEED * 0.8;
-        }
+        if (dx * dx + dz * dz >= 12 * 12) continue;
+
+        // Other cow runs away from panicking cow, blended toward stable
+        const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+        const nx = dx / dist, nz = dz / dist;
+        const toDstX = STABLE_X - other.mesh.position.x;
+        const toDstZ = STABLE_Z - other.mesh.position.z;
+        const toDstLen = Math.sqrt(toDstX * toDstX + toDstZ * toDstZ) || 1;
+        const bx = nx * 0.7 + (toDstX / toDstLen) * 0.3;
+        const bz = nz * 0.7 + (toDstZ / toDstLen) * 0.3;
+        const bl = Math.sqrt(bx * bx + bz * bz) || 1;
+
+        const wpDist = 40 + Math.random() * 20;
+        other.bbState      = 'fleeing';
+        other.waypoint     = {
+          x: other.mesh.position.x + (bx / bl) * wpDist,
+          z: other.mesh.position.z + (bz / bl) * wpDist,
+        };
+        other.panicTimer   = 2.5 + Math.random() * 2;
+        other.waypointTimer = other.panicTimer + 1;
+        other.wanderAngle  = Math.atan2(bx / bl, bz / bl);
       }
     }
   }
@@ -359,97 +392,100 @@ export class CowSystem {
         continue;
       }
 
-      // ── Active flee (player in radius) ────────────────────────────────────
-      let fleeing = false, fleeX = 0, fleeZ = 0;
+      // ── Player proximity → instantly enter fleeing state ─────────────────
+      let fleeX = 0, fleeZ = 0, playerTooClose = false;
       for (const pp of playerPositions) {
         const pdx = cx - pp.x, pdz = cz - pp.z;
         const d2  = pdx * pdx + pdz * pdz;
         if (d2 < FLEE_RADIUS * FLEE_RADIUS && d2 > 0.001) {
           const inv = 1 / Math.sqrt(d2);
-          fleeX += pdx * inv; fleeZ += pdz * inv; fleeing = true;
+          fleeX += pdx * inv; fleeZ += pdz * inv; playerTooClose = true;
         }
       }
 
-      let targetVX, targetVZ;
-
-      if (fleeing) {
-        const fl = Math.sqrt(fleeX * fleeX + fleeZ * fleeZ);
-        if (fl > 0.001) { fleeX /= fl; fleeZ /= fl; }
-        targetVX = fleeX * FLEE_SPEED;
-        targetVZ = fleeZ * FLEE_SPEED;
-        cow.wanderAngle = Math.atan2(fleeX, fleeZ);
-        if (cow.panicTimer > 0) cow.panicTimer -= dt;
-
-      } else if (cow.panicTimer > 0) {
-        // ── Stampede: blend flee direction 70% + stable direction 30% ────────
-        cow.panicTimer -= dt;
-        const toDstX  = STABLE_X - cx, toDstZ = STABLE_Z - cz;
+      if (playerTooClose) {
+        // Normalize flee direction, blend 70% away / 30% toward stable
+        const fl = Math.sqrt(fleeX * fleeX + fleeZ * fleeZ) || 1;
+        const nx = fleeX / fl, nz = fleeZ / fl;
+        const toDstX = STABLE_X - cx, toDstZ = STABLE_Z - cz;
         const toDstLen = Math.sqrt(toDstX * toDstX + toDstZ * toDstZ) || 1;
-        const stableAng = Math.atan2(toDstX / toDstLen, toDstZ / toDstLen);
-        const blendAng  = cow.wanderAngle * 0.70 + stableAng * 0.30;
-        targetVX = Math.sin(blendAng) * FLEE_SPEED * 0.75;
-        targetVZ = Math.cos(blendAng) * FLEE_SPEED * 0.75;
+        const bx = nx * 0.7 + (toDstX / toDstLen) * 0.3;
+        const bz = nz * 0.7 + (toDstZ / toDstLen) * 0.3;
+        const bl = Math.sqrt(bx * bx + bz * bz) || 1;
 
-      } else {
-        // ── dBBMM: Brownian Bridge step ───────────────────────────────────────
-        const p = BB_STATES[cow.bbState];
+        cow.bbState      = 'fleeing';
+        cow.waypoint     = { x: cx + (bx / bl) * 60, z: cz + (bz / bl) * 60 };
+        cow.panicTimer   = Math.max(cow.panicTimer, 3.0);
+        cow.waypointTimer = cow.panicTimer + 2;
+        cow.wanderAngle  = Math.atan2(bx / bl, bz / bl);
+      }
 
-        // Waypoint timer
+      // ── panicTimer countdown — transition back to grazing when calm ────────
+      if (cow.panicTimer > 0) {
+        cow.panicTimer -= dt;
+        if (cow.panicTimer <= 0 && cow.bbState === 'fleeing') {
+          cow.bbState = 'grazing';
+          const ang = Math.random() * Math.PI * 2;
+          cow.waypoint      = { x: cx + Math.cos(ang) * 8, z: cz + Math.sin(ang) * 8 };
+          cow.waypointTimer = 5 + Math.random() * 8;
+        }
+      }
+
+      // ── dBBMM: unified Brownian Bridge step for ALL states ────────────────
+      {
+        const p = BB_STATES[cow.bbState] ?? BB_STATES.grazing;
+
         cow.waypointTimer -= dt;
-
-        // Distance to waypoint
         const dwx  = cow.waypoint.x - cx;
         const dwz  = cow.waypoint.z - cz;
         const wDst = Math.sqrt(dwx * dwx + dwz * dwz) || 1;
 
-        // Arrived at waypoint OR timer expired → pick new waypoint, maybe switch state
-        if (wDst < p.wpRadius[0] * 0.5 || cow.waypointTimer <= 0) {
-          // State transition: 35% chance to switch
+        // Arrived at / past waypoint, or timer expired → pick new (non-fleeing only)
+        if (cow.bbState !== 'fleeing' && (wDst < p.wpRadius[0] * 0.5 || cow.waypointTimer <= 0)) {
           if (Math.random() < 0.35) {
             cow.bbState = cow.bbState === 'grazing' ? 'traveling' : 'grazing';
           }
-          const np   = BB_STATES[cow.bbState];
-          const ang  = Math.random() * Math.PI * 2;
-          const dist = np.wpRadius[0] + Math.random() * (np.wpRadius[1] - np.wpRadius[0]);
-          cow.waypoint      = { x: cx + Math.cos(ang) * dist, z: cz + Math.sin(ang) * dist };
+          const np  = BB_STATES[cow.bbState];
+          const ang = Math.random() * Math.PI * 2;
+          const d   = np.wpRadius[0] + Math.random() * (np.wpRadius[1] - np.wpRadius[0]);
+          cow.waypoint      = { x: cx + Math.cos(ang) * d, z: cz + Math.sin(ang) * d };
           cow.waypointTimer = np.timer[0] + Math.random() * (np.timer[1] - np.timer[0]);
         }
 
-        // Deterministic drift component: toward waypoint
+        // Drift toward waypoint
         const driftX = (dwx / wDst) * p.speed;
         const driftZ = (dwz / wDst) * p.speed;
 
-        // Group cohesion component: pull toward herd centroid
+        // Cohesion toward herd centroid (suppressed during fleeing)
         const hc   = herdCentroid.get(cow.herdId);
-        const cohX = hc ? (hc.x - cx) * HERD_COHESION : 0;
-        const cohZ = hc ? (hc.z - cz) * HERD_COHESION : 0;
+        const cohF = cow.bbState === 'fleeing' ? 0.02 : HERD_COHESION;
+        const cohX = hc ? (hc.x - cx) * cohF : 0;
+        const cohZ = hc ? (hc.z - cz) * cohF : 0;
 
-        // Stochastic (Brownian) noise — variance scales with sigma_m and sqrt(dt)
+        // Brownian noise (Gaussian, σ ∝ sigma_m × √dt)
         const sigma  = p.sigma * Math.sqrt(dt);
         const noiseX = _gaussian() * sigma;
         const noiseZ = _gaussian() * sigma;
 
-        // Target velocity = drift + cohesion + Brownian noise
-        targetVX = driftX + cohX + noiseX;
-        targetVZ = driftZ + cohZ + noiseZ;
+        let targetVX = driftX + cohX + noiseX;
+        let targetVZ = driftZ + cohZ + noiseZ;
 
-        // Clamp to max speed (1.5× drift speed)
-        const tspd    = Math.sqrt(targetVX * targetVX + targetVZ * targetVZ);
-        const maxSpd  = p.speed * 1.5;
-        if (tspd > maxSpd) { targetVX *= maxSpd / tspd; targetVZ *= maxSpd / tspd; }
-      }
+        // Speed cap
+        const tspd = Math.sqrt(targetVX * targetVX + targetVZ * targetVZ);
+        const maxS = p.speed * 1.5;
+        if (tspd > maxS) { targetVX *= maxS / tspd; targetVZ *= maxS / tspd; }
 
-      // ── Exponential velocity smoothing (tau depends on state) ─────────────
-      const tau   = (cow.panicTimer > 0 || fleeing) ? 0.3 : (TAU[cow.bbState] ?? 0.6);
-      const alpha = 1 - Math.exp(-dt / tau);
-      cow.vx += (targetVX - cow.vx) * alpha;
-      cow.vz += (targetVZ - cow.vz) * alpha;
+        const tau   = TAU[cow.bbState] ?? 0.6;
+        const alpha = 1 - Math.exp(-dt / tau);
+        cow.vx += (targetVX - cow.vx) * alpha;
+        cow.vz += (targetVZ - cow.vz) * alpha;
+      }  // end dBBMM block
 
-      // Move
+      // ── Move ──────────────────────────────────────────────────────────────
       cow.mesh.position.x += cow.vx * dt;
       cow.mesh.position.z += cow.vz * dt;
 
-      // Rotate & body-bob
+      // ── Rotate & body-bob ─────────────────────────────────────────────────
       const spd = Math.sqrt(cow.vx * cow.vx + cow.vz * cow.vz);
       if (spd > 0.10) {
         const targetRY = Math.atan2(cow.vx, cow.vz);
@@ -462,7 +498,7 @@ export class CowSystem {
       } else {
         cow.mesh.position.y *= 0.88;
       }
-    }
+    }  // end per-cow loop
 
     this._spreadPanic();
     return newlyCorralled;

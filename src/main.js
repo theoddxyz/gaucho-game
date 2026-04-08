@@ -26,10 +26,10 @@ import { createHeatPass } from './heat-shader.js';
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
 
-// --- G key: yell to stampede nearby cows ---
+// --- F key: yell to stampede nearby cows ---
 let _yellCooldown = 0;
 document.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyG' || !myId || isDead) return;
+  if (e.code !== 'KeyF' || !myId || isDead) return;
   const now = performance.now() / 1000;
   if (now - _yellCooldown < 2.5) return;   // 2.5 s cooldown between yells
   _yellCooldown = now;
