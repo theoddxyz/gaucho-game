@@ -27,6 +27,10 @@ import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import * as Inventory from './inventory.js';
 
+// Vite HMR: forzar recarga completa en vez de hot-swap parcial
+// (evita múltiples instancias del renderer corriendo simultáneamente)
+if (import.meta.hot) { import.meta.hot.decline(); }
+
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
 
