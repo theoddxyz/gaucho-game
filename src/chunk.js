@@ -136,12 +136,14 @@ function makeRng(cx, cz) {
 // ─── ChunkManager ─────────────────────────────────────────────────────────────
 export class ChunkManager {
   constructor(scene, colliders) {
-    this.scene     = scene;
-    this.colliders = colliders;
-    this.chunks    = new Map();
-    this._pending  = new Set();
+    this.scene            = scene;
+    this.colliders        = colliders;
+    this.chunks           = new Map();
+    this._pending         = new Set();
+    this._templatesLoaded = false;
 
     loadTemplates().then(() => {
+      this._templatesLoaded = true;
       const pending = [...this._pending];
       this._pending.clear();
       pending.forEach((key) => {
@@ -168,15 +170,15 @@ export class ChunkManager {
 
   _schedule(cx, cz) {
     const build = () => this._build(cx, cz);
-    if (window.requestIdleCallback) requestIdleCallback(build, { timeout: 4000 });
-    else setTimeout(build, 200);
+    if (window.requestIdleCallback) requestIdleCallback(build, { timeout: 150 });
+    else setTimeout(build, 0);
   }
 
   _request(cx, cz) {
     const key = `${cx},${cz}`;
     if (this.chunks.has(key) || this._pending.has(key)) return;
     this._pending.add(key);
-    if (treeTemplate !== null) this._schedule(cx, cz);
+    if (this._templatesLoaded) this._schedule(cx, cz);
   }
 
   _build(cx, cz) {
