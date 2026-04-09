@@ -283,7 +283,7 @@ export class HorseManager {
       }
     }
 
-    for (const [, horse] of this.horses) {
+    for (const [id, horse] of this.horses) {
       const dx = horse.x - horse._prevX;
       const dz = horse.z - horse._prevZ;
       const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);
