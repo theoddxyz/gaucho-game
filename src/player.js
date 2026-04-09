@@ -187,13 +187,67 @@ export class PlayerModel {
     this._dyingT = 0;
     this._isBot  = !!data.isBot;
 
-    // Local player: add procedural model IMMEDIATELY (synchronous, guaranteed visible)
+    // Helper: apply GLB template clone with material fix + node detection
+    const _applyGLBTemplate = (template) => {
+      const model = template.clone(true);
+      model.visible = true;
+      model.updateWorldMatrix(true, true);
+      {
+        const bbox = new THREE.Box3();
+        bbox.setFromObject(model);
+        const h = bbox.max.y - bbox.min.y;
+        if (h > 0.1) model.position.y -= bbox.min.y;
+      }
+      model.traverse((obj) => {
+        obj.visible = true;
+        if (obj.isMesh) {
+          obj.castShadow = true;
+          const origColor = (obj.material?.color)
+            ? obj.material.color.clone()
+            : new THREE.Color(0x9a7a50);
+          obj.material = new THREE.MeshStandardMaterial({
+            color: origColor, roughness: 0.85, metalness: 0.0,
+            transparent: false, opacity: 1.0, depthWrite: true, depthTest: true,
+          });
+          if (obj.name === 'body') obj.material.color.set(this.color);
+        }
+        const n = obj.name.toLowerCase();
+        if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
+          this._gun = obj; this._gunRestPos = obj.position.clone(); obj.visible = false;
+        }
+        if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) { this._hat = obj; }
+        if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
+          this._firepoint = obj; obj.visible = false;
+          if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
+        }
+      });
+      this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
+      model.traverse((obj) => {
+        if (!obj.isMesh) return;
+        const n = obj.name.toLowerCase();
+        if (n === 'body' || n === 'head') this._hitboxes.push(obj);
+        if (n === 'head') this._headMesh = obj;
+        if (n.includes('leg') || n.includes('pierna') || n.includes('thigh') || n.includes('shin')) {
+          this._legMeshes.push(obj);
+        }
+      });
+      return model;
+    };
+
+    // Local player: add placeholder IMMEDIATELY (synchronous), then swap to GLB when loaded
     if (data.local) {
-      const model = buildFallbackModel(this.color);
-      this._hitboxes  = model._hitboxes  || [];
-      this._headMesh  = model._headMesh  || null;
-      this._legMeshes = model._legMeshes || [];
-      this.group.add(model);
+      const placeholder = buildFallbackModel(this.color);
+      this._hitboxes  = placeholder._hitboxes  || [];
+      this._headMesh  = placeholder._headMesh  || null;
+      this._legMeshes = placeholder._legMeshes || [];
+      this.group.add(placeholder);
+
+      loadTemplate(false).then((template) => {
+        if (!template) return; // keep placeholder
+        this.group.remove(placeholder);
+        const model = _applyGLBTemplate(template);
+        this.group.add(model);
+      });
       return;
     }
 
@@ -201,67 +255,7 @@ export class PlayerModel {
     loadTemplate(!!data.isBot).then((template) => {
       let model;
       if (template) {
-        model = template.clone(true);
-        // Apply player color to body mesh; find gun/hat/firepoint nodes
-        // Auto-normalizar escala: el modelo debe medir ~1.8 unidades de alto
-        // (Blender puede exportar en centímetros o con transforms sin aplicar)
-        model.updateWorldMatrix(true, true);
-        {
-          const bbox = new THREE.Box3();
-          bbox.setFromObject(model);
-          const h = bbox.max.y - bbox.min.y;
-          if (h > 0.1) {
-            // Trasladar para que los pies queden en y=0
-            model.position.y -= bbox.min.y;
-          }
-        }
-
-        // Force ALL nodes visible first (parent groups may be hidden in Blender)
-        model.visible = true;
-        model.traverse((obj) => {
-          obj.visible = true;
-          if (obj.isMesh) {
-            obj.castShadow = true;
-            // Completely replace material — don't clone, start fresh to avoid any GLB transparency baggage
-            const origColor = (obj.material?.color)
-              ? obj.material.color.clone()
-              : new THREE.Color(0x9a7a50);
-            obj.material = new THREE.MeshStandardMaterial({
-              color: origColor,
-              roughness: 0.85,
-              metalness: 0.0,
-              transparent: false,
-              opacity: 1.0,
-              depthWrite: true,
-              depthTest: true,
-            });
-            if (obj.name === 'body') obj.material.color.set(this.color);
-          }
-          const n = obj.name.toLowerCase();
-          if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
-            this._gun = obj;
-            this._gunRestPos = obj.position.clone();
-            obj.visible = false; // hidden until aiming
-          }
-          if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) {
-            this._hat = obj; // use GLB hat if present
-          }
-          if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
-            this._firepoint = obj;
-            obj.visible = false;
-            if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
-          }
-        });
-        // Collect hitboxes + impact-physics mesh refs from GLB
-        model.traverse((obj) => {
-          if (!obj.isMesh) return;
-          const n = obj.name.toLowerCase();
-          if (n === 'body' || n === 'head') this._hitboxes.push(obj);
-          if (n === 'head') this._headMesh = obj;
-          if (n.includes('leg') || n.includes('pierna') || n.includes('thigh') || n.includes('shin')) {
-            this._legMeshes.push(obj);
-          }
-        });
+        model = _applyGLBTemplate(template);
       } else {
         model = this._isBot ? buildBotModel() : buildFallbackModel(this.color);
         this._hitboxes  = model._hitboxes  || [];

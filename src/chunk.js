@@ -19,10 +19,10 @@ function _inWater(x, z) {
 export const CHUNK_SIZE    = 200;
 const LOAD_RADIUS          = 2;
 const UNLOAD_DIST          = 3;
-const TREES_PER_CHUNK      = 10;
-const ROCKS_PER_CHUNK      = 14;
-const PEBBLES_PER_CHUNK    = 40;
-const BUSHES_PER_CHUNK     = 18;
+const TREES_PER_CHUNK      = 6;
+const ROCKS_PER_CHUNK      = 5;
+const PEBBLES_PER_CHUNK    = 12;
+const BUSHES_PER_CHUNK     = 5;
 
 const loader = new GLTFLoader();
 let treeTemplate = null;
