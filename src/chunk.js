@@ -16,12 +16,12 @@ function _inWater(x, z) {
 }
 
 export const CHUNK_SIZE    = 200;
-const LOAD_RADIUS          = 2;
-const UNLOAD_DIST          = 3;
-const TREES_PER_CHUNK      = 6;
-const ROCKS_PER_CHUNK      = 5;
-const PEBBLES_PER_CHUNK    = 12;
-const BUSHES_PER_CHUNK     = 5;
+const LOAD_RADIUS          = 1;
+const UNLOAD_DIST          = 2;
+const TREES_PER_CHUNK      = 4;
+const ROCKS_PER_CHUNK      = 4;
+const PEBBLES_PER_CHUNK    = 6;
+const BUSHES_PER_CHUNK     = 4;
 
 const loader = new GLTFLoader();
 let treeTemplate = null;
@@ -185,7 +185,7 @@ export class ChunkManager {
     const ownColliders = [];
 
     // ── Ground (vertex colors from JS FBM — seamless across chunk boundaries) ──
-    const SUB = 48;
+    const SUB = 12;
     const geoG = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, SUB, SUB);
     const pos  = geoG.attributes.position;
     const cols = new Float32Array(pos.count * 3);
