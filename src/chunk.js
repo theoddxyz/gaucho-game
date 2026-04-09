@@ -35,43 +35,15 @@ const ROCK_MATS = [
   new THREE.MeshStandardMaterial({ color: 0x787060, roughness: 0.98 }),
 ];
 
-// Shared box geometry for rock voxels (reused, never disposed)
-const _rockVoxelGeo = new THREE.BoxGeometry(0.30, 0.30, 0.30);
-
 function buildVoxelRock(rng) {
-  const VS  = 0.30;
-  const GX = 4, GY = 3, GZ = 4;
   const mat = ROCK_MATS[Math.floor(rng() * ROCK_MATS.length)];
-  const group = new THREE.Group();
-  let count = 0;
-  for (let x = 0; x < GX; x++) {
-    for (let y = 0; y < GY; y++) {
-      for (let z = 0; z < GZ; z++) {
-        const nx = (x - (GX - 1) / 2) / (GX / 2);
-        const ny = (y - 0.3) / (GY * 0.65);
-        const nz = (z - (GZ - 1) / 2) / (GZ / 2);
-        if (nx*nx + ny*ny*1.6 + nz*nz > 1.05) continue;
-        if (rng() > 0.82) continue;
-        const m = new THREE.Mesh(_rockVoxelGeo, mat);
-        m.position.set(
-          x * VS - (GX / 2) * VS,
-          y * VS,
-          z * VS - (GZ / 2) * VS
-        );
-        m.castShadow = true;
-        m.receiveShadow = true;
-        group.add(m);
-        count++;
-      }
-    }
-  }
-  if (count === 0) {
-    const m = new THREE.Mesh(_rockVoxelGeo, mat);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
-  }
-  return group;
+  const w = 0.9 + rng() * 0.7;
+  const h = 0.4 + rng() * 0.35;
+  const d = 0.8 + rng() * 0.6;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 // ─── Procedural terrain color — JS FBM, sampled per vertex ───────────────────
@@ -119,53 +91,14 @@ const WET_MATS = [
   new THREE.MeshStandardMaterial({ color: 0x687038, roughness: 0.96 }),
 ];
 
-// Shared geometries for bush voxels
-const _bushVoxelGeo  = new THREE.BoxGeometry(0.12, 0.12, 0.12);
-const _bushLeafGeo   = new THREE.BoxGeometry(0.192, 0.192, 0.192); // 0.12*1.6
-
 function buildBush(rng, dry) {
-  const mats  = dry ? DRY_MATS : WET_MATS;
-  const mat   = mats[Math.floor(rng() * mats.length)];
-  const group = new THREE.Group();
-  const VS    = 0.12;
-  const numBranches = dry
-    ? 2 + Math.floor(rng() * 3)
-    : 4 + Math.floor(rng() * 4);
-
-  for (let b = 0; b < numBranches; b++) {
-    const angle = rng() * Math.PI * 2;
-    const lean  = (dry ? 0.55 : 0.30) + rng() * 0.35;
-    const len   = (dry ? 3 : 5) + Math.floor(rng() * (dry ? 4 : 4));
-    let cx = 0, cy = 0, cz = 0;
-    const dx = Math.cos(angle) * lean;
-    const dz = Math.sin(angle) * lean;
-    const dy = 1.0;
-    for (let s = 0; s < len; s++) {
-      const t = s / len;
-      const m = new THREE.Mesh(_bushVoxelGeo, mat);
-      m.position.set(cx, cy, cz);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      group.add(m);
-      cx += dx * VS * 0.9;
-      cy += dy * VS * 0.9;
-      cz += dz * VS * 0.9;
-      if (!dry && t > 0.55 && rng() > 0.45) {
-        const lm = new THREE.Mesh(_bushLeafGeo, mat);
-        lm.position.set(cx + (rng()-0.5)*VS, cy, cz + (rng()-0.5)*VS);
-        lm.castShadow = true;
-        lm.receiveShadow = true;
-        group.add(lm);
-      }
-    }
-  }
-  if (group.children.length === 0) {
-    const m = new THREE.Mesh(_bushVoxelGeo, mat);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
-  }
-  return group;
+  const mat = (dry ? DRY_MATS : WET_MATS)[Math.floor(rng() * 3)];
+  const h = 0.25 + rng() * 0.30;
+  const w = 0.30 + rng() * 0.35;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 // ─── Shared pebble geometry + material palette ────────────────────────────────
