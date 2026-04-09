@@ -193,10 +193,27 @@ export class PlayerModel {
       if (template) {
         model = template.clone(true);
         // Apply player color to body mesh; find gun/hat/firepoint nodes
+        // Auto-normalizar escala: el modelo debe medir ~1.8 unidades de alto
+        // (Blender puede exportar en centímetros o con transforms sin aplicar)
+        model.updateWorldMatrix(true, true);
+        {
+          const bbox = new THREE.Box3();
+          bbox.setFromObject(model);
+          const h = bbox.max.y - bbox.min.y;
+          if (h > 0.1) {
+            // Trasladar para que los pies queden en y=0
+            model.position.y -= bbox.min.y;
+          }
+        }
+
         model.traverse((obj) => {
           if (obj.isMesh) {
             obj.castShadow = true;
+            obj.visible = true;            // forzar visible (Blender puede exportar con visible=false)
             obj.material = obj.material.clone();
+            obj.material.transparent = false;   // forzar opaco
+            obj.material.opacity = 1.0;
+            obj.material.depthWrite = true;
             if (obj.name === 'body') obj.material.color.set(this.color);
           }
           const n = obj.name.toLowerCase();
