@@ -187,11 +187,20 @@ export class PlayerModel {
     this._dyingT = 0;
     this._isBot  = !!data.isBot;
 
-    // Load GLB model async, apply color tint
-    // Local player (data.local===true) always uses procedural model — GLB has transparency issues
-    loadTemplate(!!data.isBot && !data.local).then((template) => {
+    // Local player: add procedural model IMMEDIATELY (synchronous, guaranteed visible)
+    if (data.local) {
+      const model = buildFallbackModel(this.color);
+      this._hitboxes  = model._hitboxes  || [];
+      this._headMesh  = model._headMesh  || null;
+      this._legMeshes = model._legMeshes || [];
+      this.group.add(model);
+      return;
+    }
+
+    // Remote players: load GLB async
+    loadTemplate(!!data.isBot).then((template) => {
       let model;
-      if (template && !data.local) {
+      if (template) {
         model = template.clone(true);
         // Apply player color to body mesh; find gun/hat/firepoint nodes
         // Auto-normalizar escala: el modelo debe medir ~1.8 unidades de alto
