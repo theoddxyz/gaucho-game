@@ -21,6 +21,7 @@ import { WindParticles } from './wind-particles.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import * as Inventory from './inventory.js';
+import { createVillage } from './village.js';
 
 // Vite HMR: forzar recarga completa en vez de hot-swap parcial
 // (evita múltiples instancias del renderer corriendo simultáneamente)
@@ -137,6 +138,7 @@ worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
 createLandmarks(scene);
+createVillage(scene, colliders);
 
 // --- Controls ---
 const controls = new IsoControls(camera);
