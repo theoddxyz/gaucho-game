@@ -144,10 +144,9 @@ export class ChunkManager {
     loadTemplates().then(() => {
       const pending = [...this._pending];
       this._pending.clear();
-      // Stagger builds so we don't freeze the main thread (each build is heavy)
-      pending.forEach((key, i) => {
+      pending.forEach((key) => {
         const [cx, cz] = key.split(',').map(Number);
-        setTimeout(() => this._build(cx, cz), i * 120);
+        this._schedule(cx, cz);
       });
     });
   }
@@ -167,11 +166,17 @@ export class ChunkManager {
     }
   }
 
+  _schedule(cx, cz) {
+    const build = () => this._build(cx, cz);
+    if (window.requestIdleCallback) requestIdleCallback(build, { timeout: 4000 });
+    else setTimeout(build, 200);
+  }
+
   _request(cx, cz) {
     const key = `${cx},${cz}`;
     if (this.chunks.has(key) || this._pending.has(key)) return;
     this._pending.add(key);
-    if (treeTemplate !== null) setTimeout(() => this._build(cx, cz), this._pending.size * 120);
+    if (treeTemplate !== null) this._schedule(cx, cz);
   }
 
   _build(cx, cz) {

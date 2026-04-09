@@ -111,7 +111,7 @@ document.addEventListener('keyup', (e) => {
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(1);
 renderer.shadowMap.enabled = false;
 document.body.appendChild(renderer.domElement);
 
