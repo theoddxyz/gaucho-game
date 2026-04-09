@@ -25,6 +25,7 @@ import { WindParticles } from './wind-particles.js';
 import { createHeatPass } from './heat-shader.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio from './audio.js';
+import * as Meta  from './metaphysics.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -43,6 +44,7 @@ document.addEventListener('keydown', (e) => {
   Network.sendYell(pos.x, pos.z);
   Audio.chickenPanic();
   Audio.cowMoo(true);
+  Meta.applyAction('yell');
   UI.showYell(false);
 });
 
@@ -208,6 +210,8 @@ Network.onJoined((data) => {
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '' });
 
+  Meta.init(myId);
+
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   controls.onEPress = () => {
@@ -237,6 +241,7 @@ Network.onJoined((data) => {
     cowSystem?.corrall(id);
     UI.updateCorralCount(cowSystem?.getCorralled() ?? total);
     if (total === 33) Audio.victory(); else Audio.corralBell();
+    Meta.applyAction('corral_cow');
   });
 
   // Remote yells affect local cow simulation too
@@ -333,6 +338,7 @@ Network.onPlayerKilled((data) => {
     Audio.playerDeath();
     Audio.bodyFall();
     Audio.stopHeartbeat();
+    Meta.applyAction('die');
   }
   if (data.killerId === myId) {
     myData.kills = data.killerKills;
@@ -393,6 +399,7 @@ Network.onGmCommand((cmd) => {
       cowSystem?.yellAt(0, 0, 99999);
       chickenSystem?.yell(0, 0);
       Audio.stampedeRumble();
+      Meta.applyAction('stampede');
       break;
 
     case 'storm': {
@@ -545,6 +552,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
   // === ESCOPETA — left-click always shoots, no right-click hold needed ===
   Audio.shotgun();
+  Meta.applyAction('shoot_animal'); // base; se sobreescribe con shoot_player si hay hit
   try {
   const pos    = controls.getPosition();
   const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
@@ -630,6 +638,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
     setTimeout(() => {
       if (scanHit.target.type === 'player') {
+        Meta.applyAction('shoot_player');
         Network.sendBulletHit(scanHit.target.id);
         remotePlayers.get(scanHit.target.id)?.applyImpact(hitZone, scanHit.point);
       }
@@ -840,6 +849,7 @@ function gameLoop() {
       const ndz = pos.z - NPC_POSITION.z;
       if (ndx * ndx + ndz * ndz < 6 * 6) {
         _npcActive = true;
+        Meta.applyAction('npc_talk');
         UI.showNPCDialogue('¿Y ustedes? ¿Qué hace la gente de ciudad en un lugar tan lejano?');
         setTimeout(() => {
           UI.showNPCChoices((choice) => {
@@ -884,6 +894,7 @@ function gameLoop() {
       myData.hp = Math.min(200, myData.hp + chickenPickup.hp);
       UI.updateHP(myData.hp);
       UI.showEatEffect(); Audio.eatSound();
+      Meta.applyAction('eat_alone');
     }
   }
 
@@ -904,6 +915,7 @@ function gameLoop() {
       myData.hp = Math.min(200, myData.hp + meatPickup.hp);
       UI.updateHP(myData.hp);
       UI.showEatEffect(); Audio.eatSound();
+      Meta.applyAction('eat_alone');
     }
   }
 
@@ -1003,6 +1015,9 @@ function gameLoop() {
 
     // Cascos: sincronizados con animación vía horseManager.onHoofTouch
 
+    // Simulación metafísica
+    Meta.update(dt, pos?.x ?? 0, pos?.z ?? 0, isMoving);
+
     // Noche: grillos on/off
     if (nightNow && !_wasNight)  { Audio.startCrickets(); Audio.stopBirds();  _wasNight = true;  _wasDawn = false; }
     if (!nightNow && _wasNight)  { Audio.stopCrickets();  _wasNight = false; }
@@ -1077,6 +1092,7 @@ function gameLoop() {
     }
   }
 
+  Meta.drawMap();
   composer.render();
 }
 
