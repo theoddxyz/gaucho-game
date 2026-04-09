@@ -24,7 +24,8 @@ import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
 import { createHeatPass } from './heat-shader.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
-import * as Audio from './audio.js';
+import * as Audio     from './audio.js';
+import * as Inventory from './inventory.js';
 
 // --- Crosshair follows mouse ---
 document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clientY));
@@ -64,7 +65,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Teclas 1/2: cambio directo de arma (sin menú radial)
+// Teclas 1/2/3: cambio directo de arma (sin menú radial)
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit1' && currentWeapon !== 'escopeta') {
     currentWeapon = 'escopeta';
@@ -74,6 +75,17 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit2' && currentWeapon !== 'lasso') {
     currentWeapon = 'lasso';
     radialMenu.setHUD('lasso');
+  }
+  if (e.code === 'Digit3' && currentWeapon !== 'food') {
+    currentWeapon = 'food';
+    radialMenu.setHUD('food');
+    lassoSystem.release();
+  }
+  // Mouse wheel cuando food está activo: ciclar tipo de comida
+  if (e.code === 'Tab' && currentWeapon === 'food') {
+    e.preventDefault();
+    Inventory.cycleSelected();
+    _updateInventoryHUD();
   }
 });
 
@@ -211,9 +223,15 @@ Network.onJoined((data) => {
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   controls.onEPress = () => {
-    const pos  = controls.getPosition();
-    const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
-    if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
+    const pos        = controls.getPosition();
+    const nearHorse  = horseManager?._nearestHorseId !== null;
+    const mounted    = horseManager?.isMounted();
+    if (nearHorse || mounted) {
+      const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
+      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
+    } else if (currentWeapon === 'food' && Inventory.hasAny()) {
+      _throwFood(pos);
+    }
   };
 
   Network.onPlayerMountedHorse((d) => horseManager?.onRemoteMount(d.horseId, d.playerId));
@@ -535,6 +553,20 @@ Network.onNpcRemoved(({ id }) => {
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
 
+  // === COMIDA: click izquierdo con food seleccionado → comer ===
+  if (currentWeapon === 'food') {
+    const item = Inventory.removeSelected();
+    if (item) {
+      restoreHunger(item.hunger);
+      myData.hp = Math.min(200, myData.hp + item.hp);
+      UI.updateHP(myData.hp);
+      UI.showEatEffect();
+      Audio.eatSound();
+      _updateInventoryHUD();
+    }
+    return;
+  }
+
   // === LAZO ===
   if (currentWeapon === 'lasso') {
     if (lassoSystem.isCaught() || lassoSystem._state === 'flying') return;
@@ -734,6 +766,59 @@ renderer.domElement.addEventListener('mouseup', (e) => {
   }
 });
 
+// ── Inventario HUD ────────────────────────────────────────────────────────────
+const _invHud = document.createElement('div');
+_invHud.style.cssText = [
+  'position:fixed', 'bottom:28px', 'right:16px', 'z-index:200',
+  'display:none', 'gap:6px', 'flex-direction:row', 'align-items:center',
+  'font-family:"Share Tech Mono",monospace',
+].join(';');
+document.body.appendChild(_invHud);
+
+function _updateInventoryHUD() {
+  const counts  = Inventory.getCounts();
+  const sel     = Inventory.getSelected();
+  const defs    = Inventory.FOOD_DEFS;
+  const total   = Inventory.getTotal();
+  if (total === 0) { _invHud.style.display = 'none'; return; }
+  _invHud.style.display = 'flex';
+  _invHud.innerHTML = Object.entries(defs).map(([type, def]) => {
+    const n   = counts[type];
+    if (n === 0) return '';
+    const act = type === sel;
+    return `<div style="
+      background:${act ? 'rgba(200,160,50,0.80)' : 'rgba(0,0,0,0.55)'};
+      border:1px solid ${act ? '#f0c040' : 'rgba(255,255,255,0.15)'};
+      border-radius:5px; padding:3px 8px; font-size:13px; color:#fff;
+      cursor:default; white-space:nowrap;
+    ">${def.icon} <b>${n}</b></div>`;
+  }).join('');
+}
+
+// ── Comida tirada al suelo ─────────────────────────────────────────────────────
+const _thrownFoods = [];
+
+function _throwFood(pos) {
+  const item = Inventory.removeSelected();
+  if (!item) return;
+  _updateInventoryHUD();
+
+  const geo  = new THREE.BoxGeometry(0.28, 0.12, 0.28);
+  const col  = item.type === 'chicken' ? 0xd4884a : (item.type === 'ostrich' ? 0xc8a050 : 0x8b2a0a);
+  const mat  = new THREE.MeshStandardMaterial({ color: col, roughness: 0.85 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+
+  const rot   = controls.getRotation();
+  const fwdX  = Math.sin(rot.y);
+  const fwdZ  = Math.cos(rot.y);
+  mesh.position.set(pos.x + fwdX * 1.8, 0.08, pos.z + fwdZ * 1.8);
+  scene.add(mesh);
+
+  _thrownFoods.push({ mesh, item, throwerId: myId, age: 0 });
+  Audio.eatSound();
+}
+
 // --- Game loop ---
 const clock    = new THREE.Clock();
 const SEND_RATE = 1 / 20;
@@ -863,6 +948,22 @@ function gameLoop() {
   if (horseManager) hoofprints.update(horseManager.horses, dt);
   updateBullets(scene, dt);
 
+  // ── Comida tirada — detectar pickup por otro jugador (o por el mismo tras delay) ──
+  for (let i = _thrownFoods.length - 1; i >= 0; i--) {
+    const tf = _thrownFoods[i];
+    tf.age += dt;
+    if (!pos || tf.age < 1.0) continue;  // 1s de gracia antes de que se pueda recoger
+    const dx = pos.x - tf.mesh.position.x;
+    const dz = pos.z - tf.mesh.position.z;
+    if (dx * dx + dz * dz < 2.5 * 2.5) {
+      // El mismo jugador la recoge (en modo solo) — en multijugador: otro jugador
+      if (Inventory.add(tf.item.type, tf.item.hunger, tf.item.hp)) _updateInventoryHUD();
+      scene.remove(tf.mesh);
+      tf.mesh.geometry.dispose(); tf.mesh.material.dispose();
+      _thrownFoods.splice(i, 1);
+    }
+  }
+
   // ── Lazo ─────────────────────────────────────────────────────────────────
   if (lassoSystem.isActive() && pos) {
     const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
@@ -880,30 +981,21 @@ function gameLoop() {
     for (const [, pm] of remotePlayers) ppList.push({ x: pm.group.position.x, z: pm.group.position.z });
     const chickenPickup = chickenSystem.update(dt, ppList);
     if (chickenPickup && pos && !isDead) {
-      restoreHunger(chickenPickup.hunger);
-      myData.hp = Math.min(200, myData.hp + chickenPickup.hp);
-      UI.updateHP(myData.hp);
-      UI.showEatEffect(); Audio.eatSound();
+      if (Inventory.add('chicken', chickenPickup.hunger, chickenPickup.hp)) _updateInventoryHUD();
     }
   }
 
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);
   if (pickup && myId && !isDead) {
-    restoreHunger(pickup.hunger);
-    myData.hp = Math.min(200, myData.hp + pickup.hp);
-    UI.updateHP(myData.hp);
-    UI.showEatEffect();
+    if (Inventory.add('ostrich', pickup.hunger, pickup.hp)) _updateInventoryHUD();
   }
 
   // ── Carne de vaca ─────────────────────────────────────────────────────────
   if (cowSystem && myId && !isDead && pos) {
     const meatPickup = cowSystem.updateMeats(dt, pos);
     if (meatPickup) {
-      restoreHunger(meatPickup.hunger);
-      myData.hp = Math.min(200, myData.hp + meatPickup.hp);
-      UI.updateHP(myData.hp);
-      UI.showEatEffect(); Audio.eatSound();
+      if (Inventory.add('beef', meatPickup.hunger, meatPickup.hp)) _updateInventoryHUD();
     }
   }
 

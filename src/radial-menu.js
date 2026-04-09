@@ -6,6 +6,7 @@ export class RadialMenu {
     this._weapons  = [
       { id: 'shotgun', label: 'ESCOPETA', icon: '🔫' },
       { id: 'lasso',   label: 'LAZO',     icon: '🪢' },
+      { id: 'food',    label: 'COMIDA',   icon: '🥩' },
     ];
     this._mouseX = 0;
     this._mouseY = 0;
