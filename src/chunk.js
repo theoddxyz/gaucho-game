@@ -169,9 +169,7 @@ export class ChunkManager {
   }
 
   _schedule(cx, cz) {
-    const build = () => this._build(cx, cz);
-    if (window.requestIdleCallback) requestIdleCallback(build, { timeout: 150 });
-    else setTimeout(build, 0);
+    setTimeout(() => this._build(cx, cz), 0);
   }
 
   _request(cx, cz) {
@@ -184,6 +182,12 @@ export class ChunkManager {
   _build(cx, cz) {
     const key = `${cx},${cz}`;
     if (this.chunks.has(key)) { this._pending.delete(key); return; }
+    try { this._buildInner(cx, cz); } catch(e) { console.error('chunk build error', cx, cz, e); this._pending.delete(key); }
+  }
+
+  _buildInner(cx, cz) {
+    const key = `${cx},${cz}`;
+    if (this.chunks.has(key)) return;
 
     const rng = makeRng(cx, cz);
     const ox  = cx * CHUNK_SIZE + CHUNK_SIZE / 2;
@@ -252,7 +256,7 @@ export class ChunkManager {
       const sxz = 0.6 + rng() * 1.1;         // horizontal scale variety
       const sy  = 0.28 + rng() * 0.22;        // very flat
       // half-embed in ground so pebble sits naturally
-      p.position.set(px, geo.parameters.radius * sy * 0.45, pz);
+      p.position.set(px, geo.parameters.height * sy * 0.45, pz);
       p.scale.set(sxz, sy, sxz * (0.7 + rng() * 0.6));
       p.rotation.y = rng() * Math.PI * 2;
       p.receiveShadow = true;
