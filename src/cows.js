@@ -1,6 +1,5 @@
 // --- Cow Herding System ---
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Material de hitbox invisible (transparente pero detectable por raycast)
 const M_HIT  = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -124,54 +123,30 @@ function buildCow(rng) {
   const palIdx = Math.floor(rng() * PALETTES.length);
   const mat    = MATS[palIdx];
 
-  const bodyG = [], spotG = [], hornG = [];
-  const headBodyG = [], headSpotG = [], headHornG = [];
-
-  const b = (arr, w, h, d, x, y, z) => {
-    const g = new THREE.BoxGeometry(w, h, d);
-    g.translate(x, y, z);
-    arr.push(g);
-  };
-
-  // ─ Body (torso, neck, tail — no head/ears, no legs)
-  b(bodyG, 1.55, 0.82, 0.68,  0.00, 0.92,  0.00);   // torso
-  b(bodyG, 0.28, 0.40, 0.26,  0.80, 1.18,  0.00);   // neck
-  b(bodyG, 0.09, 0.55, 0.08, -0.85, 0.98,  0.00);   // tail
-
-  // ─ Body spots / light parts (no snout — that goes on headGroup)
-  b(spotG, 0.58, 0.80, 0.71,  0.18, 0.92,  0.001);  // body patch
-  b(spotG, 0.30, 0.13, 0.26, -0.10, 0.518, 0.001);  // udder
-
-  // ─ Head group geometries (same positions as before)
-  b(headBodyG, 0.48, 0.40, 0.36,  1.10, 1.44,  0.00);   // head
-  b(headBodyG, 0.07, 0.14, 0.05,  1.03, 1.66,  0.20);   // ear R
-  b(headBodyG, 0.07, 0.14, 0.05,  1.03, 1.66, -0.20);   // ear L
-
-  b(headSpotG, 0.20, 0.19, 0.30,  1.32, 1.38,  0.001);  // snout
-
-  b(headHornG, 0.05, 0.17, 0.04,  0.98, 1.72,  0.18);   // horn R
-  b(headHornG, 0.05, 0.17, 0.04,  0.98, 1.72, -0.18);   // horn L
-
-  const mk = (geos, material) => {
-    const merged = mergeGeometries(geos);
-    geos.forEach(g => g.dispose());
-    const m = new THREE.Mesh(merged, material);
+  const mk = (w, h, d, x, y, z, material) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    m.position.set(x, y, z);
     m.castShadow = true;
     return m;
   };
 
   const grp = new THREE.Group();
-  grp.add(mk(bodyG, mat.B));
-  grp.add(mk(spotG, mat.S));
 
-  // Head group (horns not in body group anymore)
+  // ─ Body parts
+  grp.add(mk(1.55, 0.82, 0.68,  0.00, 0.92,  0.00,   mat.B));  // torso
+  grp.add(mk(0.28, 0.40, 0.26,  0.80, 1.18,  0.00,   mat.B));  // neck
+  grp.add(mk(0.09, 0.55, 0.08, -0.85, 0.98,  0.00,   mat.B));  // tail
+  grp.add(mk(0.58, 0.80, 0.71,  0.18, 0.92,  0.001,  mat.S));  // body patch
+  grp.add(mk(0.30, 0.13, 0.26, -0.10, 0.518, 0.001,  mat.S));  // udder
+
+  // Head group (separate so it can be hidden on headshot)
   const headGroup = new THREE.Group();
-  const headBodyMesh = mk(headBodyG, mat.B);
-  const headSpotMesh = mk(headSpotG, mat.S);
-  const headHornMesh = mk(headHornG, mat.H);
-  headGroup.add(headBodyMesh);
-  headGroup.add(headSpotMesh);
-  headGroup.add(headHornMesh);
+  headGroup.add(mk(0.48, 0.40, 0.36,  1.10, 1.44,  0.00,   mat.B));  // head
+  headGroup.add(mk(0.07, 0.14, 0.05,  1.03, 1.66,  0.20,   mat.B));  // ear R
+  headGroup.add(mk(0.07, 0.14, 0.05,  1.03, 1.66, -0.20,   mat.B));  // ear L
+  headGroup.add(mk(0.20, 0.19, 0.30,  1.32, 1.38,  0.001,  mat.S));  // snout
+  headGroup.add(mk(0.05, 0.17, 0.04,  0.98, 1.72,  0.18,   mat.H));  // horn R
+  headGroup.add(mk(0.05, 0.17, 0.04,  0.98, 1.72, -0.18,   mat.H));  // horn L
 
   grp.add(headGroup);
 

@@ -188,13 +188,6 @@ export class PlayerModel {
     const _applyGLBTemplate = (template) => {
       const model = template.clone(true);
       model.visible = true;
-      model.updateWorldMatrix(true, true);
-      {
-        const bbox = new THREE.Box3();
-        bbox.setFromObject(model);
-        const h = bbox.max.y - bbox.min.y;
-        if (h > 0.1) model.position.y -= bbox.min.y;
-      }
       // First pass: make everything visible, replace materials, detect special nodes
       const gunNodes = [];
       model.traverse((obj) => {
@@ -225,6 +218,14 @@ export class PlayerModel {
       for (const gn of gunNodes) {
         gn.visible = false;
         gn.traverse(c => { c.visible = false; });
+      }
+      // Now that all nodes are visible, compute bbox and align base to y=0
+      model.updateWorldMatrix(true, true);
+      {
+        const bbox = new THREE.Box3();
+        bbox.setFromObject(model);
+        const h = bbox.max.y - bbox.min.y;
+        if (h > 0.1) model.position.y -= bbox.min.y;
       }
       // Collect hitboxes — match "head" prefix and "body" exactly
       this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
