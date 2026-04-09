@@ -16,10 +16,7 @@ function loadTemplate(isBot = false) {
   }
   if (playerTemplate) return playerTemplate;
   playerTemplate = new Promise((resolve) => {
-    loader.load('/models/player.glb', (gltf) => resolve(gltf.scene), undefined, () => {
-      // Fallback: procedural model
-      resolve(null);
-    });
+    loader.load('/models/player.glb', (gltf) => resolve(gltf.scene), undefined, () => resolve(null));
   });
   return playerTemplate;
 }
@@ -198,6 +195,8 @@ export class PlayerModel {
         const h = bbox.max.y - bbox.min.y;
         if (h > 0.1) model.position.y -= bbox.min.y;
       }
+      // First pass: make everything visible, replace materials, detect special nodes
+      const gunNodes = [];
       model.traverse((obj) => {
         obj.visible = true;
         if (obj.isMesh) {
@@ -213,7 +212,8 @@ export class PlayerModel {
         }
         const n = obj.name.toLowerCase();
         if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
-          this._gun = obj; this._gunRestPos = obj.position.clone(); obj.visible = false;
+          this._gun = obj; this._gunRestPos = obj.position.clone();
+          gunNodes.push(obj);
         }
         if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) { this._hat = obj; }
         if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
@@ -221,12 +221,18 @@ export class PlayerModel {
           if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
         }
       });
+      // Hide gun and all its children AFTER the visibility pass
+      for (const gn of gunNodes) {
+        gn.visible = false;
+        gn.traverse(c => { c.visible = false; });
+      }
+      // Collect hitboxes — match "head" prefix and "body" exactly
       this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
       model.traverse((obj) => {
         if (!obj.isMesh) return;
         const n = obj.name.toLowerCase();
-        if (n === 'body' || n === 'head') this._hitboxes.push(obj);
-        if (n === 'head') this._headMesh = obj;
+        if (n === 'body') this._hitboxes.push(obj);
+        if (n === 'head' || n.startsWith('head')) { this._hitboxes.push(obj); this._headMesh = obj; }
         if (n.includes('leg') || n.includes('pierna') || n.includes('thigh') || n.includes('shin')) {
           this._legMeshes.push(obj);
         }

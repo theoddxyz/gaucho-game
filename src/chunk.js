@@ -206,7 +206,7 @@ export class ChunkManager {
       // Stagger builds so we don't freeze the main thread (each build is heavy)
       pending.forEach((key, i) => {
         const [cx, cz] = key.split(',').map(Number);
-        setTimeout(() => this._build(cx, cz), i * 80);
+        setTimeout(() => this._build(cx, cz), i * 120);
       });
     });
   }
@@ -230,7 +230,7 @@ export class ChunkManager {
     const key = `${cx},${cz}`;
     if (this.chunks.has(key) || this._pending.has(key)) return;
     this._pending.add(key);
-    if (treeTemplate !== null) setTimeout(() => this._build(cx, cz), this._pending.size * 80);
+    if (treeTemplate !== null) setTimeout(() => this._build(cx, cz), this._pending.size * 120);
   }
 
   _build(cx, cz) {
