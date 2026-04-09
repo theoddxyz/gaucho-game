@@ -20,9 +20,9 @@ export const CHUNK_SIZE    = 200;
 const LOAD_RADIUS          = 2;
 const UNLOAD_DIST          = 3;
 const TREES_PER_CHUNK      = 10;
-const ROCKS_PER_CHUNK      = 14;  // more rocks
-const PEBBLES_PER_CHUNK    = 40;  // new: small flat pebbles
-const BUSHES_PER_CHUNK     = 18;  // dry + semi-dry desert shrubs
+const ROCKS_PER_CHUNK      = 14;
+const PEBBLES_PER_CHUNK    = 40;
+const BUSHES_PER_CHUNK     = 18;
 
 const loader = new GLTFLoader();
 let treeTemplate = null;
@@ -201,11 +201,13 @@ export class ChunkManager {
     this._pending  = new Set();
 
     loadTemplates().then(() => {
-      for (const key of this._pending) {
-        const [cx, cz] = key.split(',').map(Number);
-        this._build(cx, cz);
-      }
+      const pending = [...this._pending];
       this._pending.clear();
+      // Stagger builds so we don't freeze the main thread (each build is heavy)
+      pending.forEach((key, i) => {
+        const [cx, cz] = key.split(',').map(Number);
+        setTimeout(() => this._build(cx, cz), i * 80);
+      });
     });
   }
 
@@ -228,7 +230,7 @@ export class ChunkManager {
     const key = `${cx},${cz}`;
     if (this.chunks.has(key) || this._pending.has(key)) return;
     this._pending.add(key);
-    if (treeTemplate !== null) setTimeout(() => this._build(cx, cz), 0);
+    if (treeTemplate !== null) setTimeout(() => this._build(cx, cz), this._pending.size * 80);
   }
 
   _build(cx, cz) {

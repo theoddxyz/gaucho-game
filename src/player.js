@@ -188,9 +188,10 @@ export class PlayerModel {
     this._isBot  = !!data.isBot;
 
     // Load GLB model async, apply color tint
-    loadTemplate(!!data.isBot).then((template) => {
+    // Local player (data.local===true) always uses procedural model — GLB has transparency issues
+    loadTemplate(!!data.isBot && !data.local).then((template) => {
       let model;
-      if (template) {
+      if (template && !data.local) {
         model = template.clone(true);
         // Apply player color to body mesh; find gun/hat/firepoint nodes
         // Auto-normalizar escala: el modelo debe medir ~1.8 unidades de alto
@@ -206,14 +207,25 @@ export class PlayerModel {
           }
         }
 
+        // Force ALL nodes visible first (parent groups may be hidden in Blender)
+        model.visible = true;
         model.traverse((obj) => {
+          obj.visible = true;
           if (obj.isMesh) {
             obj.castShadow = true;
-            obj.visible = true;            // forzar visible (Blender puede exportar con visible=false)
-            obj.material = obj.material.clone();
-            obj.material.transparent = false;   // forzar opaco
-            obj.material.opacity = 1.0;
-            obj.material.depthWrite = true;
+            // Completely replace material — don't clone, start fresh to avoid any GLB transparency baggage
+            const origColor = (obj.material?.color)
+              ? obj.material.color.clone()
+              : new THREE.Color(0x9a7a50);
+            obj.material = new THREE.MeshStandardMaterial({
+              color: origColor,
+              roughness: 0.85,
+              metalness: 0.0,
+              transparent: false,
+              opacity: 1.0,
+              depthWrite: true,
+              depthTest: true,
+            });
             if (obj.name === 'body') obj.material.color.set(this.color);
           }
           const n = obj.name.toLowerCase();
@@ -227,7 +239,6 @@ export class PlayerModel {
           }
           if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
             this._firepoint = obj;
-            // Helper object — fully invisible, no shadow
             obj.visible = false;
             if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
           }

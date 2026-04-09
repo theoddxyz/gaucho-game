@@ -1,9 +1,5 @@
 // --- GAUCHO: Main Game Loop ---
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
-import { SSAOPass }       from 'three/addons/postprocessing/SSAOPass.js';
-import { OutputPass }     from 'three/addons/postprocessing/OutputPass.js';
 import { IsoControls } from './controls.js';
 import { createWorld }  from './world.js';
 import { ChunkManager } from './chunk.js';
@@ -22,7 +18,6 @@ import { ChickenSystem } from './chickens.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
-import { createHeatPass } from './heat-shader.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import * as Inventory from './inventory.js';
@@ -118,7 +113,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // --- Camera (isometric) ---
@@ -128,23 +123,11 @@ camera.lookAt(0, 0, 0);
 
 const scene = new THREE.Scene();
 
-// --- Post-processing (SSAO ambient occlusion) ---
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
-ssaoPass.kernelRadius = 12;
-ssaoPass.minDistance  = 0.002;
-ssaoPass.maxDistance  = 0.08;
-composer.addPass(ssaoPass);
-const heatPass = createHeatPass();
-composer.addPass(heatPass);
-composer.addPass(new OutputPass());
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // --- World setup ---
@@ -222,7 +205,7 @@ Network.onJoined((data) => {
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
-  localPlayerModel = new PlayerModel(scene, { ...data.self, name: '' });
+  localPlayerModel = new PlayerModel(scene, { ...data.self, name: '', local: true });
 
 
   horseManager = new HorseManager(scene, Network);
@@ -1034,14 +1017,6 @@ function gameLoop() {
   // ── Wind particles ─────────────────────────────────────────────────────
   windParticles.update(dt, pos);
 
-  // ── Heat distortion ───────────────────────────────────────────────────
-  {
-    const temp = getTemperature();
-    const intensity = temp > 35 ? Math.min(1, (temp - 35) / 15) : 0;
-    heatPass.uniforms.uIntensity.value = intensity;
-    heatPass.uniforms.uTime.value += dt;
-  }
-
   // ── Story NPC walk animation + 2D label projection ───────────────────────
   if (_storyNpcs.size > 0) {
     const W = window.innerWidth, H = window.innerHeight;
@@ -1174,7 +1149,7 @@ function gameLoop() {
     }
   }
 
-  composer.render();
+  renderer.render(scene, camera);
 }
 
 // --- Lobby ---
