@@ -4,8 +4,8 @@ import * as THREE from 'three';
 
 const DAY_DURATION = 600; // seconds
 
-// Start at 5 PM (17:00 = 17/24 ≈ 0.708)
-let _t = 0.708;
+// Start at noon
+let _t = 0.5;
 
 // ─── Keyframe tables ─────────────────────────────────────────────────────────
 // Each entry: [t, r, g, b]  (r/g/b in 0-255)
