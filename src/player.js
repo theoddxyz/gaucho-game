@@ -184,6 +184,29 @@ export class PlayerModel {
     this._dyingT = 0;
     this._isBot  = !!data.isBot;
 
+    // ── Walk animation state ──────────────────────────────────────────────────
+    this._walkT      = 0;
+    this._legPivots  = [];   // [ { pivot, phase } ]
+    this._armPivots  = [];   // [ { pivot, phase } ]
+    this._prevPos    = new THREE.Vector3();
+    this._moveSpeed  = 0;
+
+    // ── Helper: wrap a mesh in a rotation pivot at its top edge ───────────────
+    const _rigLimb = (mesh, parentGroup) => {
+      if (!mesh || !mesh.geometry) return null;
+      mesh.geometry.computeBoundingBox();
+      const lbb = mesh.geometry.boundingBox;
+      // Top of mesh in parent (model) space
+      const topY = mesh.position.y + lbb.max.y;
+      const pivot = new THREE.Group();
+      pivot.position.set(mesh.position.x, topY, mesh.position.z);
+      parentGroup.remove(mesh);
+      mesh.position.set(0, mesh.position.y - topY, 0);
+      pivot.add(mesh);
+      parentGroup.add(pivot);
+      return pivot;
+    };
+
     // Helper: apply GLB template clone with material fix + node detection
     const _applyGLBTemplate = (template) => {
       const model = template.clone(true);
@@ -201,9 +224,10 @@ export class PlayerModel {
             color: origColor, roughness: 0.85, metalness: 0.0,
             transparent: false, opacity: 1.0, depthWrite: true, depthTest: true,
           });
-          if (obj.name === 'body') obj.material.color.set(this.color);
+          // Colorear torso con el color del jugador (nuevo modelo usa "torso" en vez de "body")
+          if (obj.name === 'body' || obj.name === 'torso') obj.material.color.set(this.color);
         }
-        const n = obj.name.toLowerCase();
+        const n = obj.name.toLowerCase().trim();
         if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
           this._gun = obj; this._gunRestPos = obj.position.clone();
           gunNodes.push(obj);
@@ -224,16 +248,37 @@ export class PlayerModel {
       {
         const bbox = new THREE.Box3();
         bbox.setFromObject(model);
-        const h = bbox.max.y - bbox.min.y;
-        if (h > 0.1) model.position.y -= bbox.min.y;
+        if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
       }
-      // Collect hitboxes — match "head" prefix and "body" exactly
+      // ── Rig limbs for walk animation ────────────────────────────────────────
+      this._legPivots = [];
+      this._armPivots = [];
+      const limbMap = {
+        'leg left':   { arr: this._legPivots, phase: 0        },
+        'leg right':  { arr: this._legPivots, phase: Math.PI  },  // nombre con trim
+        'arm right':  { arr: this._armPivots, phase: 0        },  // opposite of leg right
+        'arm left':   { arr: this._armPivots, phase: Math.PI  },
+      };
+      // collect meshes first, THEN rig (avoids traversal invalidation)
+      const toRig = [];
+      model.traverse((obj) => {
+        if (!obj.isMesh) return;
+        const key = obj.name.toLowerCase().trim();
+        if (limbMap[key]) toRig.push({ obj, cfg: limbMap[key] });
+      });
+      for (const { obj, cfg } of toRig) {
+        const pivot = _rigLimb(obj, model);
+        if (pivot) cfg.arr.push({ pivot, phase: cfg.phase });
+      }
+      // ── Collect hitboxes ────────────────────────────────────────────────────
       this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
       model.traverse((obj) => {
         if (!obj.isMesh) return;
-        const n = obj.name.toLowerCase();
-        if (n === 'body') this._hitboxes.push(obj);
-        if (n === 'head' || n.startsWith('head')) { this._hitboxes.push(obj); this._headMesh = obj; }
+        const n = obj.name.toLowerCase().trim();
+        if (n === 'body' || n === 'torso') this._hitboxes.push(obj);
+        if (n === 'head' || n.startsWith('head') || n === 'eyes') {
+          this._hitboxes.push(obj); this._headMesh = obj;
+        }
         if (n.includes('leg') || n.includes('pierna') || n.includes('thigh') || n.includes('shin')) {
           this._legMeshes.push(obj);
         }
@@ -514,6 +559,30 @@ export class PlayerModel {
     while (diff < -Math.PI) diff += Math.PI * 2;
     this.group.rotation.y += diff * Math.min(1, 10 * dt);
     this.updateHat(dt);
+
+    // ── Walk animation ────────────────────────────────────────────────────────
+    // Medir velocidad real del modelo (funciona para local y remoto)
+    const moved = this.group.position.distanceTo(this._prevPos);
+    this._moveSpeed = moved / Math.max(dt, 0.001);
+    this._prevPos.copy(this.group.position);
+
+    const isMoving = this._moveSpeed > 0.08;
+    const freq = 2.6, legAmp = 0.38, armAmp = 0.20;
+
+    if (isMoving) this._walkT += dt * Math.min(this._moveSpeed, 8) * 1.6;
+
+    for (const { pivot, phase } of this._legPivots) {
+      const target = isMoving ? Math.sin(this._walkT * freq + phase) * legAmp : 0;
+      pivot.rotation.x += (target - pivot.rotation.x) * Math.min(1, 12 * dt);
+    }
+    for (const { pivot, phase } of this._armPivots) {
+      const target = isMoving ? Math.sin(this._walkT * freq + phase) * armAmp : 0;
+      pivot.rotation.x += (target - pivot.rotation.x) * Math.min(1, 12 * dt);
+    }
+    // Bob vertical suave
+    if (isMoving && this._legPivots.length > 0) {
+      this.group.position.y += Math.abs(Math.sin(this._walkT * freq)) * 0.018;
+    }
   }
 
   setTarget(x, y, z, ry) {
