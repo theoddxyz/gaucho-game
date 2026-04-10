@@ -1,8 +1,9 @@
 // village.js — Pueblo procedural cerca del spawn (x≈3.8, z≈-69)
-// Contiene: iglesia, ayuntamiento, 5 casas con granja cada una
+// El layout se lee de src/data/world_layout.json (editable con editor.html)
 // Cada edificio busca su GLB en /public/models/ — si existe lo usa, si no usa procedural
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import worldLayout from './data/world_layout.json';
 
 const _vLoader = new GLTFLoader();
 
@@ -38,6 +39,7 @@ const MAT_GOLD    = new THREE.MeshStandardMaterial({ color: 0xd4a840, roughness:
 const MAT_FLAG    = new THREE.MeshStandardMaterial({ color: 0xcc2200, roughness: 0.8 });
 const MAT_BELL    = new THREE.MeshStandardMaterial({ color: 0xb08840, roughness: 0.6, metalness: 0.4 });
 const MAT_PATH    = new THREE.MeshStandardMaterial({ color: 0x8a7050, roughness: 1.00 });
+const MAT_RIVER   = new THREE.MeshStandardMaterial({ color: 0x2266aa, roughness: 0.25, metalness: 0.1 });
 
 // ─── Box helper (posición con base en y=0) ───────────────────────────────────
 function sb(mat, w, h, d, x, y, z, parent) {
@@ -488,41 +490,126 @@ function buildPath(scene) {
   }
 }
 
+// ─── Camino (polyline de puntos) ────────────────────────────────────────────
+function buildRoadFromPoints(scene, points, width = 3.5) {
+  if (!points || points.length < 2) return;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len = Math.sqrt(dx * dx + dz * dz);
+    if (len < 0.1) continue;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(width, 0.07, len + 0.12), MAT_PATH);
+    m.position.set((a.x + b.x) / 2, 0.01, (a.z + b.z) / 2);
+    m.rotation.y = Math.atan2(dx, dz);
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+}
+
+// ─── Río (curva Catmull-Rom suavizada) ───────────────────────────────────────
+function buildRiverFromPoints(scene, points, width = 6) {
+  if (!points || points.length < 2) return;
+  const curve = new THREE.CatmullRomCurve3(
+    points.map(p => new THREE.Vector3(p.x, 0, p.z))
+  );
+  const N = Math.max(20, points.length * 10);
+  const cpts = curve.getPoints(N);
+  for (let i = 0; i < cpts.length - 1; i++) {
+    const a = cpts[i], b = cpts[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len = Math.sqrt(dx * dx + dz * dz) + 0.01;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(width, 0.18, len + 0.05), MAT_RIVER);
+    m.position.set((a.x + b.x) / 2, -0.06, (a.z + b.z) / 2);
+    m.rotation.y = Math.atan2(dx, dz);
+    scene.add(m);
+  }
+}
+
+// ─── Plaza (superficie plana) ────────────────────────────────────────────────
+function buildPlazaFloor(scene, cx, cz, w = 26, d = 18) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), MAT_PATH);
+  m.position.set(cx, 0.01, cz);
+  m.receiveShadow = true;
+  scene.add(m);
+}
+
+// ─── Pozo ────────────────────────────────────────────────────────────────────
+function buildWell(scene, cx, cz) {
+  const g = new THREE.Group();
+  g.position.set(cx, 0, cz);
+  sb(MAT_STONE, 1.8, 0.7, 1.8, 0, 0, 0, g);
+  const water = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 0.05, 1.4),
+    new THREE.MeshStandardMaterial({ color: 0x1a5599, roughness: 0.2 })
+  );
+  water.position.set(0, 0.38, 0);
+  g.add(water);
+  for (const sx of [-0.7, 0.7]) {
+    sb(MAT_WOOD, 0.12, 1.4, 0.12, sx, 0.7, 0, g);
+  }
+  sb(MAT_WOOD, 1.7, 0.12, 0.12, 0, 1.75, 0, g);
+  scene.add(g);
+  return g;
+}
+
+// ─── Árbol simple ────────────────────────────────────────────────────────────
+function buildEditorTree(scene, cx, cz) {
+  const g = new THREE.Group();
+  g.position.set(cx, 0, cz);
+  sb(MAT_WOOD, 0.35, 2.2, 0.35, 0, 0, 0, g);
+  const leaves = new THREE.Mesh(
+    new THREE.ConeGeometry(1.6, 3.2, 7),
+    new THREE.MeshStandardMaterial({ color: 0x2a7a2a, roughness: 0.9 })
+  );
+  leaves.position.y = 3.8;
+  leaves.castShadow = true;
+  g.add(leaves);
+  scene.add(g);
+  return g;
+}
+
 // ─── API pública ──────────────────────────────────────────────────────────────
-// Village center ≈ (0, -125)  →  z=-101 a z=-162, x=-52 a +52
-// Libre del shack (4.8, -52.9) y el lago  →  mínimo 48u de clearance
-// Libre de los edificios de world.js (todos en z > -45)  →  56u de clearance
+// El layout se lee de src/data/world_layout.json — editalo con editor.html
 export function createVillage(scene, colliders) {
   _gates.length = 0;
-  buildPath(scene);
 
-  // ── Iglesia ──────────────────────────────────────────────────────────────────
-  _trySwap(scene, buildChurch(scene, colliders, 0, -100), '/models/church.glb');
+  // ── Caminos y ríos ───────────────────────────────────────────────────────────
+  for (const path of worldLayout.paths ?? []) {
+    if (path.type === 'road')  buildRoadFromPoints(scene, path.points, path.width ?? 3.5);
+    if (path.type === 'river') buildRiverFromPoints(scene, path.points, path.width ?? 6);
+  }
 
-  // ── Ayuntamiento ─────────────────────────────────────────────────────────────
-  _trySwap(scene, buildTownHall(scene, colliders, 0, -145), '/models/townhall.glb');
-
-  // ── Casas + granjas + corrales ────────────────────────────────────────────────
-  _trySwap(scene, buildHouse(scene, colliders,  26, -118, 0), '/models/house.glb');
-  _trySwap(scene, buildFarm (scene,  44, -118),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, colliders,  44, -133),   '/models/corral.glb');
-
-  _trySwap(scene, buildHouse(scene, colliders, -26, -118, 0), '/models/house.glb');
-  _trySwap(scene, buildFarm (scene, -44, -118),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, colliders, -44, -133),   '/models/corral.glb');
-
-  _trySwap(scene, buildHouse(scene, colliders,  26, -132, 0), '/models/house.glb');
-  _trySwap(scene, buildFarm (scene,  44, -132),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, colliders,  44, -147),   '/models/corral.glb');
-
-  _trySwap(scene, buildHouse(scene, colliders, -26, -132, 0), '/models/house.glb');
-  _trySwap(scene, buildFarm (scene, -44, -132),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, colliders, -44, -147),   '/models/corral.glb');
-
-  _trySwap(scene, buildHouse(scene, colliders, 0, -158, 0), '/models/house.glb');
-  _trySwap(scene, buildFarm (scene, 0, -174),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, colliders, 0, -189),   '/models/corral.glb');
-
-  // ── Corral grande de vacas (z=-215, 32×24) ───────────────────────────────────
-  _trySwap(scene, buildCowCorral(scene, colliders, 0, -215), '/models/cow_corral.glb');
+  // ── Edificios y objetos ──────────────────────────────────────────────────────
+  for (const obj of worldLayout.objects ?? []) {
+    const ryRad = obj.ry ? obj.ry * Math.PI / 180 : 0;
+    switch (obj.type) {
+      case 'church':
+        _trySwap(scene, buildChurch(scene, colliders, obj.x, obj.z), '/models/church.glb');
+        break;
+      case 'townhall':
+        _trySwap(scene, buildTownHall(scene, colliders, obj.x, obj.z), '/models/townhall.glb');
+        break;
+      case 'house':
+        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/house.glb');
+        break;
+      case 'farm':
+        _trySwap(scene, buildFarm(scene, obj.x, obj.z), '/models/farm.glb');
+        break;
+      case 'corral':
+        _trySwap(scene, buildCorral(scene, colliders, obj.x, obj.z), '/models/corral.glb');
+        break;
+      case 'cowcorral':
+        _trySwap(scene, buildCowCorral(scene, colliders, obj.x, obj.z), '/models/cow_corral.glb');
+        break;
+      case 'plaza':
+        buildPlazaFloor(scene, obj.x, obj.z, obj.w ?? 26, obj.d ?? 18);
+        break;
+      case 'well':
+        buildWell(scene, obj.x, obj.z);
+        break;
+      case 'tree':
+        buildEditorTree(scene, obj.x, obj.z);
+        break;
+    }
+  }
 }

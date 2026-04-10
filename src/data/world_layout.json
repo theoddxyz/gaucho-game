@@ -1,0 +1,29 @@
+{
+  "objects": [
+    { "type": "church",    "x":  0,  "z": -100, "ry": 0 },
+    { "type": "townhall",  "x":  0,  "z": -145, "ry": 0 },
+    { "type": "plaza",     "x":  0,  "z": -122, "ry": 0 },
+    { "type": "house",     "x":  26, "z": -118, "ry": 0 },
+    { "type": "farm",      "x":  44, "z": -118, "ry": 0 },
+    { "type": "corral",    "x":  44, "z": -133, "ry": 0 },
+    { "type": "house",     "x": -26, "z": -118, "ry": 0 },
+    { "type": "farm",      "x": -44, "z": -118, "ry": 0 },
+    { "type": "corral",    "x": -44, "z": -133, "ry": 0 },
+    { "type": "house",     "x":  26, "z": -132, "ry": 0 },
+    { "type": "farm",      "x":  44, "z": -132, "ry": 0 },
+    { "type": "corral",    "x":  44, "z": -147, "ry": 0 },
+    { "type": "house",     "x": -26, "z": -132, "ry": 0 },
+    { "type": "farm",      "x": -44, "z": -132, "ry": 0 },
+    { "type": "corral",    "x": -44, "z": -147, "ry": 0 },
+    { "type": "house",     "x":  0,  "z": -158, "ry": 0 },
+    { "type": "farm",      "x":  0,  "z": -174, "ry": 0 },
+    { "type": "corral",    "x":  0,  "z": -189, "ry": 0 },
+    { "type": "cowcorral", "x":  0,  "z": -215, "ry": 0 }
+  ],
+  "paths": [
+    { "type": "road", "width": 3.5, "points": [{"x":  2, "z":  -69}, {"x":  2, "z": -101}] },
+    { "type": "road", "width": 4.0, "points": [{"x":  0, "z": -100}, {"x":  0, "z": -150}] },
+    { "type": "road", "width": 3.5, "points": [{"x": -26, "z": -118}, {"x": 26, "z": -118}] },
+    { "type": "road", "width": 3.5, "points": [{"x": -26, "z": -132}, {"x": 26, "z": -132}] }
+  ]
+}
