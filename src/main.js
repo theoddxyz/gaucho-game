@@ -15,6 +15,7 @@ import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.
 import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
+import { CampesinoSystem } from './campesinos.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
@@ -170,6 +171,9 @@ const ostrichSystem = new OstrichSystem(scene);
 
 // Gallinas
 const chickenSystem = new ChickenSystem(scene);
+
+// Campesinos
+const campesinoSystem = new CampesinoSystem(scene);
 
 // Armas
 let currentWeapon = 'shotgun';
@@ -973,6 +977,9 @@ function gameLoop() {
       if (Inventory.add('chicken', chickenPickup.hunger, chickenPickup.hp)) _updateInventoryHUD();
     }
   }
+
+  // ── Campesinos ───────────────────────────────────────────────────────────
+  campesinoSystem.update(dt, pos);
 
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);

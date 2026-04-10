@@ -125,8 +125,8 @@ export class IsoControls {
     const targetZ = dir.z * SPEED * speedMult * sprint;
 
     if (onHorse) {
-      // Exponential approach — heavy inertia: builds and sheds speed slowly
-      const tau   = dir.length() > 0 ? 0.65 : 3.5;  // seconds time-constant
+      // Aceleración moderada, frenado rápido (evita patinar)
+      const tau   = dir.length() > 0 ? 0.30 : 0.18;
       const alpha = 1 - Math.exp(-dt / tau);
       this._velX += (targetX - this._velX) * alpha;
       this._velZ += (targetZ - this._velZ) * alpha;

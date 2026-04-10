@@ -722,8 +722,8 @@ export class CowSystem {
         cow.mesh.rotation.y += diff * Math.min(1, 7 * dt);
         cow.walkTime += dt * spd * 1.6;
         // Horse-like gait: diagonal pairs (FR+BL) opposite to (FL+BR)
-        const freq = Math.max(2.5, spd * 2.2);
-        const amp  = Math.min(0.55, 0.28 + spd * 0.04);
+        const freq = Math.min(4.2, Math.max(2.2, spd * 1.8));
+        const amp  = Math.min(0.50, 0.26 + spd * 0.03);
         if (cow.mesh._legs) {
           for (const leg of cow.mesh._legs) {
             leg.pivot.rotation.z = Math.sin(cow.walkTime * freq + leg.phase) * amp;
