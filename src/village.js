@@ -308,17 +308,22 @@ function buildTownHall(scene, colliders, cx, cz) {
   colliders.push({ x: cx, z: cz, sx: bw, sy: bh + 8, sz: bd });
 }
 
-// ─── Camino de tierra central ─────────────────────────────────────────────────
+// ─── Camino de tierra ─────────────────────────────────────────────────────────
 function buildPath(scene) {
-  // Camino desde spawn hasta el pueblo
-  const segments = [
-    // desde spawn hacia el norte (conecta z=-68 con z=-20)
-    { x: 4, z: -44, w: 4, d: 52 },
-    // plaza central horizontal
-    { x: 4, z: -37, w: 55, d: 4 },
+  const segs = [
+    // Sendero del spawn (z=-69) hacia el sur hasta la entrada del pueblo (z=-100)
+    { x: 2,  z: -85,  w: 3.5, d: 32 },
+    // Calle principal N-S a través del pueblo
+    { x: 0,  z: -125, w: 4,   d: 50 },
+    // Calle transversal norte (frente casas 1-2)
+    { x: 0,  z: -118, w: 52,  d: 3.5 },
+    // Calle transversal sur (frente casas 3-4)
+    { x: 0,  z: -132, w: 52,  d: 3.5 },
+    // Plaza central (entre iglesia y ayuntamiento)
+    { x: 0,  z: -122, w: 26,  d: 18 },
   ];
-  for (const s of segments) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(s.w, 0.06, s.d), MAT_PATH);
+  for (const s of segs) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(s.w, 0.07, s.d), MAT_PATH);
     m.position.set(s.x, 0.01, s.z);
     m.receiveShadow = true;
     scene.add(m);
@@ -326,32 +331,37 @@ function buildPath(scene) {
 }
 
 // ─── API pública ──────────────────────────────────────────────────────────────
+// Village center ≈ (0, -125)  →  z=-101 a z=-162, x=-52 a +52
+// Libre del shack (4.8, -52.9) y el lago  →  mínimo 48u de clearance
+// Libre de los edificios de world.js (todos en z > -45)  →  56u de clearance
 export function createVillage(scene, colliders) {
   buildPath(scene);
 
-  // Iglesia — este del camino central, cara al sur
-  buildChurch(scene, colliders, 28, -38);
+  // ── Iglesia ─────────────────────────────────────────────────────────────────
+  // Entrada (lado de la torre) apunta al norte → hacia spawn
+  // nave: cz+16 = -84 (a 15u del spawn)  ·  torre: cz-10 = -110
+  buildChurch(scene, colliders, 0, -100);
 
-  // Ayuntamiento — oeste del camino central, cara al sur
-  buildTownHall(scene, colliders, -22, -33);
+  // ── Ayuntamiento ────────────────────────────────────────────────────────────
+  // Columnas/entrada en la cara norte → mira hacia la plaza y la iglesia
+  buildTownHall(scene, colliders, 0, -145);
 
-  // Casa 1 + granja: sureste
-  buildHouse(scene, colliders, 44, -55, 0);
-  buildFarm(scene, 58, -55);
+  // ── Casas + granjas ─────────────────────────────────────────────────────────
+  // Fila norte (z=-118): 2 casas flanqueando la calle principal
+  buildHouse(scene, colliders,  26, -118, 0);
+  buildFarm (scene,  44, -118);
 
-  // Casa 2 + granja: noreste
-  buildHouse(scene, colliders, 44, -20, 0);
-  buildFarm(scene, 58, -20);
+  buildHouse(scene, colliders, -26, -118, 0);
+  buildFarm (scene, -44, -118);
 
-  // Casa 3 + granja: suroeste
-  buildHouse(scene, colliders, -38, -52, Math.PI);
-  buildFarm(scene, -52, -52);
+  // Fila sur (z=-132): 2 casas más
+  buildHouse(scene, colliders,  26, -132, 0);
+  buildFarm (scene,  44, -132);
 
-  // Casa 4 + granja: noroeste
-  buildHouse(scene, colliders, -38, -20, Math.PI);
-  buildFarm(scene, -52, -20);
+  buildHouse(scene, colliders, -26, -132, 0);
+  buildFarm (scene, -44, -132);
 
-  // Casa 5 + granja: sur del pueblo (junto al camino de llegada)
-  buildHouse(scene, colliders, 18, -60, -Math.PI / 2);
-  buildFarm(scene, 28, -60);
+  // Casa 5 — al final del pueblo, mira al norte
+  buildHouse(scene, colliders, 0, -158, 0);
+  buildFarm (scene, 0, -174);
 }
