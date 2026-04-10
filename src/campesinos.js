@@ -314,9 +314,19 @@ export class CampesinoSystem {
     });
   }
 
-  update(dt, playerPos) {
-    for (const npc of this._npcs) {
-      const { root, patrol, label } = npc;
+  // units: array de UnitState de SoulSystem (opcional — si no se pasa, modo legacy patrol)
+  update(dt, playerPos, units) {
+    for (let i = 0; i < this._npcs.length; i++) {
+      const npc  = this._npcs[i];
+      const unit = units ? units[i] : null;
+      const { root, label } = npc;
+
+      // ── Posición desde souls.js ───────────────────────────────────────────
+      if (unit) {
+        root.position.x = unit.terraPos.x;
+        root.position.z = unit.terraPos.y;   // terraPos.y → 3D z
+        root.position.y = 0;
+      }
 
       // ── Mostrar nombre si el jugador está cerca ───────────────────────────
       if (playerPos) {
@@ -330,11 +340,10 @@ export class CampesinoSystem {
         const nearPlayer = playerPos && (() => {
           const dx = playerPos.x - root.position.x;
           const dz = playerPos.z - root.position.z;
-          return dx * dx + dz * dz < 64;  // 8u
+          return dx * dx + dz * dz < 64;
         })();
 
         if (nearPlayer) {
-          // Gira la cabeza hacia el jugador
           const dx = playerPos.x - root.position.x;
           const dz = playerPos.z - root.position.z;
           let local = Math.atan2(dx, dz) - root.rotation.y;
@@ -348,56 +357,61 @@ export class CampesinoSystem {
         }
       }
 
-      // ── Pausa en extremos ─────────────────────────────────────────────────
-      if (npc.pauseT > 0) {
-        npc.pauseT -= dt;
-        // Respiración idle en torso
-        if (root._torso) root._torso.scale.y = 1 + Math.sin(npc.walkT * 1.5) * 0.018;
-        // Decaer suavemente el sway de cadera
-        if (root._hipGroup) root._hipGroup.rotation.y *= Math.max(0, 1 - 3 * dt);
+      // ── Estado de sueño ───────────────────────────────────────────────────
+      if (unit && unit.isSleeping) {
+        // Pose agachada: doblar cadera
+        if (root._hipGroup) {
+          root._hipGroup.rotation.x +=
+            (-0.6 - root._hipGroup.rotation.x) * Math.min(1, 4 * dt);
+        }
+        if (root._torso) root._torso.scale.y = 1 + Math.sin(npc.walkT * 0.8) * 0.015;
         npc.walkT += dt;
         continue;
       }
 
-      // ── Avanzar por el patrol ─────────────────────────────────────────────
-      const fx = patrol.to.x - patrol.from.x;
-      const fz = patrol.to.z - patrol.from.z;
-      const patLen = Math.sqrt(fx * fx + fz * fz);
+      // Resetear cadera si venía durmiendo
+      if (root._hipGroup && root._hipGroup.rotation.x < -0.05) {
+        root._hipGroup.rotation.x += (0 - root._hipGroup.rotation.x) * Math.min(1, 6 * dt);
+      }
 
-      npc.t += (npc.speed / Math.max(patLen, 0.01)) * dt * npc.dir;
-      if (npc.t >= 1) { npc.t = 1; npc.dir = -1; npc.pauseT = 0.8 + Math.random() * 1.2; }
-      if (npc.t <= 0) { npc.t = 0; npc.dir =  1; npc.pauseT = 0.8 + Math.random() * 1.2; }
+      // ── Velocidad del alma ────────────────────────────────────────────────
+      const speed = unit
+        ? Math.sqrt(unit.terraVel.x ** 2 + unit.terraVel.y ** 2)
+        : npc.speed;
 
-      root.position.x = patrol.from.x + fx * npc.t;
-      root.position.z = patrol.from.z + fz * npc.t;
+      const isWalking = speed > 0.05;
 
-      // Orientar hacia dirección de movimiento
-      if (patLen > 0.01) {
-        const targetRY = Math.atan2(fx * npc.dir, fz * npc.dir);
+      // ── Orientar hacia dirección de movimiento ────────────────────────────
+      if (unit && isWalking) {
+        const targetRY = Math.atan2(unit.terraVel.x, unit.terraVel.y);
         let diff = targetRY - root.rotation.y;
         while (diff >  Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         root.rotation.y += diff * Math.min(1, 8 * dt);
       }
 
+      // ── Idle (parado) ─────────────────────────────────────────────────────
+      if (!isWalking) {
+        if (root._torso) root._torso.scale.y = 1 + Math.sin(npc.walkT * 1.5) * 0.018;
+        if (root._hipGroup) root._hipGroup.rotation.y *= Math.max(0, 1 - 3 * dt);
+        npc.walkT += dt;
+        continue;
+      }
+
       // ── Animación de caminata ─────────────────────────────────────────────
-      npc.walkT += dt * npc.speed * 3.5;
+      npc.walkT += dt * speed * 3.5;
       const freq = 2.8;
       const amp  = 0.32;
 
-      // Piernas
       for (const leg of root._legs) {
         leg.piv.rotation.x = Math.sin(npc.walkT * freq + leg.phase) * amp;
       }
-      // Brazos — contrafase con piernas
       for (const arm of root._armPivs) {
         arm.piv.rotation.x = Math.sin(npc.walkT * freq + arm.phase) * (amp * 0.52);
       }
-      // Sway de cadera: hipGroup rota levemente en Y con cada paso
       if (root._hipGroup) {
         root._hipGroup.rotation.y = Math.sin(npc.walkT * freq * 0.5) * 0.08;
       }
-      // Bob vertical del cuerpo
       root.position.y = Math.abs(Math.sin(npc.walkT * freq)) * 0.022;
     }
   }

@@ -1,0 +1,565 @@
+// souls.js — Dual Reality simulation (ported from A/B)
+// metaPos = plano abstracto del "alma" (META_W × META_H)
+// terraPos = posición física en el mundo 3D (x,y → THREE x,z)
+
+import * as THREE from 'three';
+
+// ─── Meta plane ───────────────────────────────────────────────────────────────
+export const META_W = 600;
+export const META_H = 800;
+
+// ─── Terra bounds (zona del pueblo) ──────────────────────────────────────────
+const TERRA_XMIN = -80, TERRA_XMAX = 120;
+const TERRA_YMIN = -110, TERRA_YMAX = 110;
+
+// ─── Destinos 3D (terraPos.y = 3D z) ─────────────────────────────────────────
+export const DEST = {
+  OFFERING:  { x:   1, y:  37  },  // iglesia
+  SHARING:   { x:  33, y: -68  },  // cabildo/townhall
+  BAR:       { x: 110, y:  100 },  // shack/pulpería
+};
+
+// ─── Casas y chacras (por houseId) ────────────────────────────────────────────
+export const HOUSES = [
+  { pos: { x: -41, y:  13 }, farm: { x: -59, y:  13 } },  // Ramón
+  { pos: { x: -40, y: -33 }, farm: { x: -58, y: -34 } },  // Ofelia
+  { pos: { x:  37, y: -28 }, farm: { x:  55, y: -28 } },  // Facundo
+  { pos: { x:  40, y:  15 }, farm: { x:  58, y:  14 } },  // Celestino
+  { pos: { x: -33, y: -71 }, farm: { x: -51, y: -72 } },  // Zulma
+];
+
+// ─── Vector math (igual que A/B) ──────────────────────────────────────────────
+export const vec = {
+  add:    (a, b)   => ({ x: a.x + b.x, y: a.y + b.y }),
+  sub:    (a, b)   => ({ x: a.x - b.x, y: a.y - b.y }),
+  mul:    (a, s)   => ({ x: a.x * s,   y: a.y * s   }),
+  div:    (a, s)   => ({ x: a.x / s,   y: a.y / s   }),
+  mag:    (a)      => Math.sqrt(a.x * a.x + a.y * a.y),
+  norm:   (a)      => { const m = vec.mag(a); return m > 0 ? vec.div(a, m) : { x: 0, y: 0 }; },
+  setMag: (a, m)   => vec.mul(vec.norm(a), m),
+  limit:  (a, max) => { const m = vec.mag(a); return m > max ? vec.setMag(a, max) : { ...a }; },
+  dist:   (a, b)   => vec.mag(vec.sub(a, b)),
+};
+
+// ─── Boids flocking (igual que A/B) ───────────────────────────────────────────
+function calcFlocking(unit, neighbors, cfg) {
+  let sep = { x: 0, y: 0 }, ali = { x: 0, y: 0 }, coh = { x: 0, y: 0 };
+  let sc = 0, ac = 0, cc = 0;
+
+  for (const o of neighbors) {
+    if (!o || o.id === unit.id) continue;
+    const d = vec.dist(unit.metaPos, o.metaPos);
+    if (d > 0 && d < cfg.sepDist) {
+      sep = vec.add(sep, vec.div(vec.norm(vec.sub(unit.metaPos, o.metaPos)), d));
+      sc++;
+    }
+    if (d > 0 && d < cfg.aliDist) { ali = vec.add(ali, o.metaVel); ac++; }
+    if (d > 0 && d < cfg.cohDist) { coh = vec.add(coh, o.metaPos); cc++; }
+  }
+
+  if (sc > 0) {
+    sep = vec.div(sep, sc);
+    sep = vec.limit(vec.sub(vec.setMag(sep, unit.maxSpeed), unit.metaVel), unit.maxForce);
+  }
+  if (ac > 0) {
+    ali = vec.div(ali, ac);
+    ali = vec.limit(vec.sub(vec.setMag(ali, unit.maxSpeed), unit.metaVel), unit.maxForce);
+  }
+  if (cc > 0) {
+    coh = vec.div(coh, cc);
+    coh = vec.limit(vec.sub(vec.setMag(vec.sub(coh, unit.metaPos), unit.maxSpeed), unit.metaVel), unit.maxForce);
+  }
+
+  return vec.add(
+    vec.add(vec.mul(sep, cfg.sepWeight), vec.mul(ali, cfg.aliWeight)),
+    vec.mul(coh, cfg.cohWeight)
+  );
+}
+
+// ─── Brownian noise Box-Muller (igual que A/B) ────────────────────────────────
+function brownian(sigma) {
+  const u1 = Math.max(1e-10, Math.random()), u2 = Math.random();
+  const r = Math.sqrt(-2 * Math.log(u1));
+  return {
+    x: r * Math.cos(2 * Math.PI * u2) * sigma,
+    y: r * Math.sin(2 * Math.PI * u2) * sigma,
+  };
+}
+
+// ─── Intención desde metaPos (igual que A/B) ──────────────────────────────────
+export function getIntention(mp) {
+  const exIndiv = mp.x < META_W * 0.075;
+  const exGroup = mp.x > META_W * 0.925;
+  const exTrans = mp.y < META_H * 0.15;
+  const exMat   = mp.y > META_H * 0.85;
+  if ((exIndiv || exGroup) && !exTrans && !exMat) return 'BAR';
+  const isTop   = mp.y < META_H / 2;
+  const isRight = mp.x > META_W / 2;
+  if ( isTop &&  isRight) return 'OFFERING';
+  if ( isTop && !isRight) return 'HOARDING';
+  if (!isTop &&  isRight) return 'SHARING';
+  return 'CONSUMING';
+}
+
+// ─── Helper: obtener puerta de destino ────────────────────────────────────────
+function getDoor(bKey, houseId) {
+  if (bKey === 'HOUSE' || bKey === 'HOARDING' || bKey === 'SLEEPING') return HOUSES[houseId].pos;
+  if (bKey === 'CONSUMING') return HOUSES[houseId].farm;
+  if (bKey === 'OFFERING')  return DEST.OFFERING;
+  if (bKey === 'SHARING')   return DEST.SHARING;
+  if (bKey === 'BAR')       return DEST.BAR;
+  return HOUSES[houseId].pos;
+}
+
+// ─── Recurso 3D ───────────────────────────────────────────────────────────────
+const _resMat = new THREE.MeshStandardMaterial({ color: 0xf0c040, emissive: 0x604010, roughness: 0.6 });
+const _resGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+
+// ─── SoulSystem ───────────────────────────────────────────────────────────────
+export class SoulSystem {
+  constructor(scene) {
+    this._scene     = scene;
+    this._resMeshes = new Map();   // resourceId → THREE.Mesh
+    this._resources = [];
+    this._spawnTimer = 0;
+
+    this._stocks = {
+      OFFERING:  10,
+      SHARING:   10,
+      CONSUMING: 10,
+      BAR:       10,
+      HOUSES:    [10, 10, 10, 10, 10],
+    };
+
+    this._time = { hour: 12, day: 1, month: 0, year: 1, totalSeconds: 12 };
+
+    // Guardian (invisible, solo lógica)
+    this._guardianPos = { x: META_W * 0.75, y: META_H * 0.25 };
+    this._guardianVel = { x: 0, y: 0 };
+
+    const NAMES = ['Ramón', 'Ofelia', 'Facundo', 'Celestino', 'Zulma'];
+    this._units = NAMES.map((name, i) => ({
+      id:         `unit-${i}`,
+      name,
+      houseId:    i,
+      housePos:   { ...HOUSES[i].pos },
+      farmPos:    { ...HOUSES[i].farm },
+      // Metaplano: alma
+      metaPos:    { x: Math.random() * META_W, y: Math.random() * META_H },
+      metaVel:    { x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 },
+      metaAcc:    { x: 0, y: 0 },
+      // Plano físico: cuerpo
+      terraPos:   { x: HOUSES[i].pos.x + (Math.random() - 0.5) * 4,
+                    y: HOUSES[i].pos.y + (Math.random() - 0.5) * 4 },
+      terraVel:   { x: 0, y: 0 },
+      terraAcc:   { x: 0, y: 0 },
+      // Estado
+      inventory:       0,
+      maxInventory:    5,
+      targetResource:  null,
+      deliveryPlan:    null,
+      intention:       'CONSUMING',
+      energy:          100,
+      isSleeping:      false,
+      insideBuilding:  null,
+      buildingTimer:   0,
+      speech:          null,
+      speechTimer:     Math.random() * 200,
+      maxSpeed:        2.5 + Math.random() * 1.5,
+      maxForce:        0.12,
+      history:         [],
+    }));
+  }
+
+  // ─── Accessors ───────────────────────────────────────────────────────────────
+  get units()       { return this._units;       }
+  get guardianPos() { return this._guardianPos; }
+  get resources()   { return this._resources;   }
+  get stocks()      { return this._stocks;      }
+  get time()        { return this._time;        }
+
+  // ─── Update principal ─────────────────────────────────────────────────────
+  // dt: segundos reales del frame
+  // externalHour: hora del juego (0-23) de daynight.js
+  update(dt, externalHour) {
+    // Escalar dt para que el metaplano corra a velocidad razonable
+    // (igual que A/B usaba elapsed*0.06 ≈ 1.0 a 60fps; acá dt≈0.016)
+    const simDt = dt * 60;
+
+    // ─── Tiempo ───────────────────────────────────────────────────────────────
+    const ts    = this._time.totalSeconds + dt * 0.5;
+    const hour  = externalHour !== undefined ? externalHour
+                  : Math.floor(ts % 24);
+    const day   = Math.floor(ts / 24) % 30 + 1;
+    const month = Math.floor(ts / (24 * 30)) % 12;
+    const year  = Math.floor(ts / (24 * 30 * 12)) + 1;
+    this._time  = { hour, day, month, year, totalSeconds: ts };
+
+    const isRitualActive = hour >= 19 || hour < 12;
+    const isGathering    = hour >= 19 && hour < 22;
+
+    const gMaxSpeed  = isRitualActive ? 8  : 4;
+    const gMaxForce  = isRitualActive ? 0.5 : 0.2;
+    const gRepPower  = isRitualActive ? 12  : 4;
+
+    // ─── Guardian AI (igual que A/B) ──────────────────────────────────────────
+    const targetCenter = { x: META_W * 0.75, y: META_H * 0.25 };
+    const outliers = this._units.filter(u =>
+      u.metaPos.x < META_W * 0.5 || u.metaPos.y > META_H * 0.5
+    );
+
+    let gAcc = { x: 0, y: 0 };
+    if (outliers.length > 0) {
+      let worst = outliers[0], maxD = 0;
+      outliers.forEach(o => {
+        const d = vec.dist(o.metaPos, targetCenter);
+        if (d > maxD) { maxD = d; worst = o; }
+      });
+      const toTarget  = vec.norm(vec.sub(targetCenter, worst.metaPos));
+      const behindPos = vec.sub(worst.metaPos, vec.mul(toTarget, 60));
+      const desired   = vec.setMag(vec.sub(behindPos, this._guardianPos), gMaxSpeed);
+      gAcc = vec.limit(vec.sub(desired, this._guardianVel), gMaxForce);
+    } else {
+      const t = performance.now() * 0.002;
+      const patrol = {
+        x: targetCenter.x + Math.cos(t) * 50,
+        y: targetCenter.y + Math.sin(t) * 50,
+      };
+      const desired = vec.setMag(vec.sub(patrol, this._guardianPos), gMaxSpeed * 0.5);
+      gAcc = vec.limit(vec.sub(desired, this._guardianVel), gMaxForce);
+    }
+
+    let gv = vec.limit(vec.add(this._guardianVel, vec.mul(gAcc, simDt)), gMaxSpeed);
+    let gp = vec.add(this._guardianPos, vec.mul(gv, simDt));
+    if (gp.x < 0)      { gp.x = 0;      gv.x *= -1; }
+    if (gp.x > META_W) { gp.x = META_W; gv.x *= -1; }
+    if (gp.y < 0)      { gp.y = 0;      gv.y *= -1; }
+    if (gp.y > META_H) { gp.y = META_H; gv.y *= -1; }
+    this._guardianPos = gp;
+    this._guardianVel = gv;
+
+    // ─── Spawn de recursos (igual que A/B) ───────────────────────────────────
+    this._spawnTimer += dt;
+    if (this._spawnTimer > 0.4) {
+      this._spawnTimer = 0;
+      const isWinter  = month >= 5 && month <= 7;
+      const isSpring  = month >= 8 && month <= 10;
+      const spawnRate = isSpring ? 0.08 : (isWinter ? 0.02 : 0.04);
+      const maxRes    = isSpring ? 30   : (isWinter ? 10   : 20);
+
+      if (Math.random() < spawnRate && this._resources.length < maxRes) {
+        const hi   = Math.floor(Math.random() * HOUSES.length);
+        const farm = HOUSES[hi].farm;
+        const rid  = `res-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const pos  = {
+          x: farm.x + (Math.random() - 0.5) * 10,
+          y: farm.y + (Math.random() - 0.5) * 10,
+        };
+        this._resources.push({ id: rid, pos, amount: 1, ownerHouseId: hi });
+        const mesh = new THREE.Mesh(_resGeo, _resMat.clone());
+        mesh.position.set(pos.x, 0.25, pos.y);
+        this._scene.add(mesh);
+        this._resMeshes.set(rid, mesh);
+      }
+    }
+
+    // ─── Decay de stocks ──────────────────────────────────────────────────────
+    if (Math.random() < 0.005 * dt * 60) {
+      this._stocks.OFFERING  = Math.max(0, this._stocks.OFFERING  - 1);
+      this._stocks.SHARING   = Math.max(0, this._stocks.SHARING   - 1);
+      this._stocks.CONSUMING = Math.max(0, this._stocks.CONSUMING - 1);
+      this._stocks.BAR       = Math.max(0, this._stocks.BAR       - 1);
+      this._stocks.HOUSES    = this._stocks.HOUSES.map(s => Math.max(0, s - 1));
+    }
+
+    // ─── Guardar estado previo para detección de entradas ────────────────────
+    const prevBuildings = this._units.map(u => u.insideBuilding);
+
+    // ─── Loop de units (igual que A/B animate()) ─────────────────────────────
+    this._units = this._units.map((unit, idx) => {
+
+      // ── METAPLANO ──────────────────────────────────────────────────────────
+      const flockForce = calcFlocking(unit, this._units, {
+        sepDist: 30, aliDist: 60, cohDist: 60,
+        sepWeight: 1.5, aliWeight: 1.0, cohWeight: 1.0,
+      });
+      const brown = brownian(0.15);
+
+      // Repulsión del guardian
+      let guardFlee = { x: 0, y: 0 };
+      const dg = vec.dist(unit.metaPos, gp);
+      if (dg < 100) {
+        const desired = vec.setMag(vec.sub(unit.metaPos, gp), unit.maxSpeed * 2);
+        guardFlee = vec.limit(vec.sub(desired, unit.metaVel), unit.maxForce * 3);
+      }
+
+      let metaAcc = vec.add(vec.add(flockForce, brown), vec.mul(guardFlee, gRepPower));
+      const mSF   = 0.3;
+      let metaVel = vec.limit(vec.add(unit.metaVel, vec.mul(metaAcc, simDt * mSF)), unit.maxSpeed);
+      let metaPos = vec.add(unit.metaPos, vec.mul(metaVel, simDt * mSF));
+
+      if (metaPos.x < 0)      { metaPos.x = 0;      metaVel.x *= -1; }
+      if (metaPos.x > META_W) { metaPos.x = META_W; metaVel.x *= -1; }
+      if (metaPos.y < 0)      { metaPos.y = 0;      metaVel.y *= -1; }
+      if (metaPos.y > META_H) { metaPos.y = META_H; metaVel.y *= -1; }
+
+      // ── INTENCIÓN ──────────────────────────────────────────────────────────
+      let intention   = getIntention(metaPos);
+      let energy      = unit.energy;
+      let isSleeping  = unit.isSleeping;
+
+      // ── HABLA E INFLUENCIA ─────────────────────────────────────────────────
+      let speech      = unit.speech;
+      let speechTimer = unit.speechTimer - simDt;
+      let influenceForce = { x: 0, y: 0 };
+
+      if (!isSleeping) {
+        if (speechTimer <= 0) {
+          if (speech) {
+            speech      = null;
+            speechTimer = 150 + Math.random() * 300;
+          } else {
+            const qX = metaPos.x < META_W / 2 ? 'INDIVIDUO' : 'GRUPO';
+            const qY = metaPos.y < META_H / 2 ? 'TRASCENDENTE' : 'MATERIA';
+            speech      = `${qX} ${qY}`;
+            speechTimer = 60 + Math.random() * 40;
+          }
+        }
+        // Influencia de vecinos hablando
+        this._units.forEach(other => {
+          if (other.id === unit.id || !other.speech || other.isSleeping) return;
+          if (vec.dist(unit.terraPos, other.terraPos) < 20) {
+            const dir      = (unit.id.length + other.id.length) % 2 === 0 ? 1 : -1;
+            const metaDiff = vec.sub(other.metaPos, unit.metaPos);
+            influenceForce = vec.add(influenceForce, vec.setMag(metaDiff, 0.05 * dir));
+          }
+        });
+      } else {
+        speech = null;
+      }
+      metaVel = vec.add(metaVel, vec.mul(influenceForce, simDt));
+
+      // ── ENERGÍA ────────────────────────────────────────────────────────────
+      if (!isSleeping) {
+        const wf = 1 + (unit.inventory / unit.maxInventory) * 0.5;
+        energy  -= (0.005 + vec.mag(unit.terraVel) * 0.01 * wf) * simDt;
+      }
+      if (energy < 5  && !isSleeping) isSleeping = true;
+      if (energy < 20 && !isSleeping) intention  = 'SLEEPING';
+      if (isSleeping)                 intention  = 'SLEEPING';
+
+      // ── PLANO FÍSICO ───────────────────────────────────────────────────────
+      const isIsolationist = metaPos.y > META_H / 2
+        && metaPos.x < META_W / 2
+        && !(metaPos.x < META_W * 0.15 && metaPos.y > META_H * 0.85);
+
+      let terraAcc      = { x: 0, y: 0 };
+      let inventory     = unit.inventory;
+      let targetResource = unit.targetResource;
+      let deliveryPlan  = unit.deliveryPlan ? [...unit.deliveryPlan] : null;
+      let insideBuilding = unit.insideBuilding;
+      let buildingTimer  = unit.buildingTimer;
+      let terraVel      = { ...unit.terraVel };
+
+      if (isSleeping) {
+        // ── Dormir: ir a la cama ─────────────────────────────────────────────
+        if (insideBuilding === 'HOUSE') {
+          const dh = vec.dist(unit.terraPos, unit.housePos);
+          if (dh > 2) {
+            const desired = vec.setMag(vec.sub(unit.housePos, unit.terraPos), unit.maxSpeed * 0.5);
+            terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+          } else {
+            terraVel = { x: 0, y: 0 };
+          }
+        }
+        const recov = insideBuilding === 'HOUSE'
+          ? (this._stocks.HOUSES[unit.houseId] > 0 ? 0.8 : 0.3)
+          : 0.1;
+        energy += recov * simDt;
+        if (energy >= 100) { energy = 100; isSleeping = false; insideBuilding = null; }
+
+      } else if (insideBuilding) {
+        // ── Dentro de un edificio ────────────────────────────────────────────
+        buildingTimer -= simDt;
+        if (buildingTimer <= 0) {
+          const door = getDoor(insideBuilding, unit.houseId);
+          if (vec.dist(unit.terraPos, door) < 3) {
+            insideBuilding = null;
+          } else {
+            const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
+            terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+          }
+        } else {
+          terraAcc = vec.limit(brownian(0.2), unit.maxForce * 0.5);
+        }
+
+      } else if (intention === 'SLEEPING') {
+        // ── Ir a dormir ───────────────────────────────────────────────────────
+        const door = HOUSES[unit.houseId].pos;
+        if (vec.dist(unit.terraPos, door) < 3) {
+          insideBuilding = 'HOUSE';
+          isSleeping     = true;
+        } else {
+          const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
+          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+        }
+
+      } else if (isGathering) {
+        // ── Ritual: círculo alrededor de la iglesia ───────────────────────────
+        const altar = DEST.OFFERING;
+        const angle = (idx / this._units.length) * Math.PI * 2
+                    + performance.now() * 0.001;
+        const target = {
+          x: altar.x + Math.cos(angle) * 8,
+          y: altar.y + Math.sin(angle) * 8,
+        };
+        const desired = vec.setMag(vec.sub(target, unit.terraPos), unit.maxSpeed);
+        terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+
+      } else if (intention === 'BAR') {
+        // ── Ir al bar ─────────────────────────────────────────────────────────
+        const door = DEST.BAR;
+        if (vec.dist(unit.terraPos, door) < 3) {
+          if (inventory > 0) {
+            inventory--;
+            insideBuilding = 'BAR';
+            buildingTimer  = 100 + Math.random() * 200;
+          }
+        } else {
+          const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
+          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+        }
+
+      } else if (deliveryPlan && deliveryPlan.length > 0) {
+        // ── Entregar recursos ─────────────────────────────────────────────────
+        const step = deliveryPlan[0];
+        const door = getDoor(step.label, unit.houseId);
+        if (vec.dist(unit.terraPos, door) < 3) {
+          insideBuilding = step.label === 'HOARDING' ? 'HOUSE' : step.label;
+          buildingTimer  = 30;
+          deliveryPlan.shift();
+          if (deliveryPlan.length === 0) { inventory = 0; deliveryPlan = null; }
+        } else {
+          const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
+          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+        }
+
+      } else if (inventory < unit.maxInventory && energy > 30) {
+        // ── Buscar recursos ───────────────────────────────────────────────────
+        const isTargetValid = targetResource
+          && this._resources.some(r => r.id === targetResource.id);
+
+        if (!isTargetValid) {
+          let closest = null, minD = Infinity;
+          this._resources.forEach(r => {
+            if (isIsolationist && r.ownerHouseId !== unit.houseId) return;
+            const d     = vec.dist(unit.terraPos, r.pos);
+            const dFarm = vec.dist(r.pos, unit.farmPos);
+            const eff   = d * (dFarm < 15 ? 0.3 : 1.0);
+            if (eff < minD) { minD = eff; closest = r; }
+          });
+          targetResource = closest
+            ? { x: closest.pos.x, y: closest.pos.y, id: closest.id, ownerHouseId: closest.ownerHouseId }
+            : null;
+        }
+
+        if (targetResource) {
+          if (vec.dist(unit.terraPos, targetResource) < 2) {
+            inventory++;
+            energy -= 3;
+            const rid  = targetResource.id;
+            this._resources = this._resources.filter(r => r.id !== rid);
+            const mesh = this._resMeshes.get(rid);
+            if (mesh) {
+              this._scene.remove(mesh);
+              mesh.geometry.dispose();
+              mesh.material.dispose();
+              this._resMeshes.delete(rid);
+            }
+            targetResource = null;
+          } else {
+            const desired = vec.setMag(vec.sub(targetResource, unit.terraPos), unit.maxSpeed);
+            terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+          }
+        }
+
+      } else if (inventory > 0) {
+        // ── Calcular plan de distribución (igual que A/B) ────────────────────
+        const wO = (META_H - metaPos.y) / META_H;
+        const wC = metaPos.y / META_H;
+        const wH = (META_W - metaPos.x) / META_W;
+        const wS = metaPos.x / META_W;
+        const total = wO + wC + wH + wS;
+
+        const types = [
+          { type: 'OFFERING',  w: wO, label: 'OFFERING'  },
+          { type: 'CONSUMING', w: wC, label: 'CONSUMING' },
+          { type: 'HOARDING',  w: wH, label: 'HOARDING'  },
+          { type: 'SHARING',   w: wS, label: 'SHARING'   },
+        ].sort((a, b) => b.w - a.w);
+
+        let remaining = inventory;
+        const plan = [];
+        types.forEach((t, i) => {
+          let amt = i === types.length - 1
+            ? remaining
+            : Math.min(remaining, Math.round(inventory * t.w / total));
+          if (amt > 0) { plan.push({ amount: amt, label: t.label }); remaining -= amt; }
+        });
+        deliveryPlan = plan;
+      }
+
+      // ── Física terra ──────────────────────────────────────────────────────
+      terraVel = vec.add(terraVel, vec.mul(terraAcc, dt));   // dt real, no simDt
+      if (isSleeping && (!insideBuilding || vec.dist(unit.terraPos, unit.housePos) < 4)) {
+        terraVel = { x: 0, y: 0 };
+      }
+      terraVel = vec.limit(terraVel, unit.maxSpeed * 0.6);   // velocidad en m/s
+      let terraPos = vec.add(unit.terraPos, vec.mul(terraVel, dt));
+
+      if (terraPos.x < TERRA_XMIN) { terraPos.x = TERRA_XMIN; terraVel.x *= -0.5; }
+      if (terraPos.x > TERRA_XMAX) { terraPos.x = TERRA_XMAX; terraVel.x *= -0.5; }
+      if (terraPos.y < TERRA_YMIN) { terraPos.y = TERRA_YMIN; terraVel.y *= -0.5; }
+      if (terraPos.y > TERRA_YMAX) { terraPos.y = TERRA_YMAX; terraVel.y *= -0.5; }
+
+      const history = [...unit.history, { ...metaPos }].slice(-15);
+
+      return {
+        ...unit,
+        metaPos, metaVel, metaAcc,
+        terraPos, terraVel, terraAcc,
+        inventory, maxInventory: unit.maxInventory,
+        targetResource, deliveryPlan, intention,
+        energy, isSleeping, insideBuilding, buildingTimer,
+        speech, speechTimer, history,
+      };
+    });
+
+    // ─── Stock updates por entregas (igual que A/B) ───────────────────────────
+    this._units.forEach((unit, i) => {
+      if (prevBuildings[i] === null && unit.insideBuilding !== null) {
+        const prev = unit; // el insideBuilding ya está actualizado
+        if (unit.insideBuilding === 'BAR') {
+          this._stocks.BAR += 1;
+        } else {
+          // Buscar el paso que corresponde al label
+          const bKey = unit.insideBuilding;
+          if (bKey === 'OFFERING')  this._stocks.OFFERING  = (this._stocks.OFFERING  || 0) + 1;
+          if (bKey === 'SHARING')   this._stocks.SHARING   = (this._stocks.SHARING   || 0) + 1;
+          if (bKey === 'CONSUMING') this._stocks.CONSUMING = (this._stocks.CONSUMING || 0) + 1;
+          if (bKey === 'HOUSE')     this._stocks.HOUSES[unit.houseId] = (this._stocks.HOUSES[unit.houseId] || 0) + 1;
+        }
+      }
+    });
+  }
+
+  dispose() {
+    this._resMeshes.forEach((mesh) => {
+      this._scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    });
+    this._resMeshes.clear();
+    this._resources = [];
+  }
+}

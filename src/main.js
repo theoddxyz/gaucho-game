@@ -16,6 +16,8 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
+import { SoulSystem } from './souls.js';
+import { SoulMap } from './soulmap.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
@@ -191,7 +193,9 @@ const ostrichSystem = new OstrichSystem(scene);
 // Gallinas
 const chickenSystem = new ChickenSystem(scene);
 
-// Campesinos
+// Campesinos + sistema de almas
+const soulSystem      = new SoulSystem(scene);
+const soulMap         = new SoulMap(soulSystem);
 const campesinoSystem = new CampesinoSystem(scene);
 
 // Armas
@@ -1007,8 +1011,10 @@ function gameLoop() {
     }
   }
 
-  // ── Campesinos ───────────────────────────────────────────────────────────
-  campesinoSystem.update(dt, pos);
+  // ── Almas + campesinos ───────────────────────────────────────────────────
+  const _hour = Math.floor(getDayProgress() * 24);
+  soulSystem.update(dt, _hour);
+  campesinoSystem.update(dt, pos, soulSystem.units);
 
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);
@@ -1188,6 +1194,7 @@ function gameLoop() {
   }
 
   renderer.render(scene, camera);
+  soulMap.draw();
 }
 
 // --- Lobby ---
