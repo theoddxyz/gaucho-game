@@ -192,18 +192,21 @@ export class PlayerModel {
     this._moveSpeed  = 0;
 
     // ── Helper: wrap a mesh in a rotation pivot at its top edge ───────────────
-    const _rigLimb = (mesh, parentGroup) => {
+    // Usa mesh.parent real (puede ser "world" node, no necesariamente model)
+    const _rigLimb = (mesh) => {
       if (!mesh || !mesh.geometry) return null;
+      const realParent = mesh.parent;
+      if (!realParent) return null;
       mesh.geometry.computeBoundingBox();
       const lbb = mesh.geometry.boundingBox;
-      // Top of mesh in parent (model) space
+      // Top del mesh en espacio del parent
       const topY = mesh.position.y + lbb.max.y;
       const pivot = new THREE.Group();
       pivot.position.set(mesh.position.x, topY, mesh.position.z);
-      parentGroup.remove(mesh);
+      realParent.remove(mesh);
       mesh.position.set(0, mesh.position.y - topY, 0);
       pivot.add(mesh);
-      parentGroup.add(pivot);
+      realParent.add(pivot);
       return pivot;
     };
 
@@ -267,7 +270,7 @@ export class PlayerModel {
         if (limbMap[key]) toRig.push({ obj, cfg: limbMap[key] });
       });
       for (const { obj, cfg } of toRig) {
-        const pivot = _rigLimb(obj, model);
+        const pivot = _rigLimb(obj);
         if (pivot) cfg.arr.push({ pivot, phase: cfg.phase });
       }
       // ── Collect hitboxes ────────────────────────────────────────────────────
