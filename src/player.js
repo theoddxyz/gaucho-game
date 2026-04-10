@@ -147,6 +147,7 @@ export class PlayerModel {
     this.name = data.name;
     this.color = data.color || '#ff4444';
     this.hp = data.hp;
+    this._isLocal = !!data.local;
     this.targetPos = new THREE.Vector3(data.x, data.y ?? 1.0, data.z);
     this.targetRY = data.ry || 0;
     this._hitboxes = [];
@@ -191,20 +192,24 @@ export class PlayerModel {
     this._prevPos    = new THREE.Vector3();
     this._moveSpeed  = 0;
 
-    // ── Helper: wrap a mesh in a rotation pivot at its top edge ───────────────
+    // ── Helper: wrap a mesh in a rotation pivot at su top edge ──────────────
     // Usa mesh.parent real (puede ser "world" node, no necesariamente model)
+    // Respeta mesh.scale al calcular la altura real del mesh en espacio del parent
     const _rigLimb = (mesh) => {
       if (!mesh || !mesh.geometry) return null;
       const realParent = mesh.parent;
       if (!realParent) return null;
       mesh.geometry.computeBoundingBox();
       const lbb = mesh.geometry.boundingBox;
-      // Top del mesh en espacio del parent
-      const topY = mesh.position.y + lbb.max.y;
+      // Altura real del mesh en espacio del parent = geometría * scale
+      const halfH = (lbb.max.y - lbb.min.y) * mesh.scale.y * 0.5;
+      const centerY = mesh.position.y;
+      const topY = centerY + halfH;
       const pivot = new THREE.Group();
       pivot.position.set(mesh.position.x, topY, mesh.position.z);
       realParent.remove(mesh);
-      mesh.position.set(0, mesh.position.y - topY, 0);
+      // Reposicionar mesh dentro del pivot: cuelga desde arriba
+      mesh.position.set(0, -halfH, 0);
       pivot.add(mesh);
       realParent.add(pivot);
       return pivot;
@@ -246,11 +251,19 @@ export class PlayerModel {
         gn.visible = false;
         gn.traverse(c => { c.visible = false; });
       }
-      // Now that all nodes are visible, compute bbox and align base to y=0
+      // Now that all nodes are visible, compute bbox, auto-scale y align base to y=0
       model.updateWorldMatrix(true, true);
       {
         const bbox = new THREE.Box3();
         bbox.setFromObject(model);
+        const h = bbox.max.y - bbox.min.y;
+        // Auto-escalar si el modelo es muy chico (Blender exportado sin Apply Scale)
+        const TARGET_H = 1.75;
+        if (h > 0.01 && h < 0.8) {
+          model.scale.setScalar(TARGET_H / h);
+          model.updateWorldMatrix(true, true);
+          bbox.setFromObject(model);
+        }
         if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
       }
       // ── Rig limbs for walk animation ────────────────────────────────────────
@@ -555,12 +568,14 @@ export class PlayerModel {
       this.updateHat(dt);
       return;  // no seguir interpolando posición
     }
-    this.group.position.lerp(this.targetPos, Math.min(1, 8 * dt));
-    // Shortest-path angle lerp — avoids spinning the long way around ±π
-    let diff = this.targetRY - this.group.rotation.y;
-    while (diff >  Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    this.group.rotation.y += diff * Math.min(1, 10 * dt);
+    // Jugador local: posición la setea main.js directo — no lerpeamos
+    if (!this._isLocal) {
+      this.group.position.lerp(this.targetPos, Math.min(1, 8 * dt));
+      let diff = this.targetRY - this.group.rotation.y;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.group.rotation.y += diff * Math.min(1, 10 * dt);
+    }
     this.updateHat(dt);
 
     // ── Walk animation ────────────────────────────────────────────────────────
