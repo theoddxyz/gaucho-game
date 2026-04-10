@@ -186,34 +186,13 @@ export class PlayerModel {
     this._isBot  = !!data.isBot;
 
     // ── Walk animation state ──────────────────────────────────────────────────
-    this._walkT      = 0;
-    this._legPivots  = [];   // [ { pivot, phase } ]
-    this._armPivots  = [];   // [ { pivot, phase } ]
-    this._prevPos    = new THREE.Vector3();
-    this._moveSpeed  = 0;
-
-    // ── Helper: wrap a mesh in a rotation pivot at su top edge ──────────────
-    // Usa mesh.parent real (puede ser "world" node, no necesariamente model)
-    // Respeta mesh.scale al calcular la altura real del mesh en espacio del parent
-    const _rigLimb = (mesh) => {
-      if (!mesh || !mesh.geometry) return null;
-      const realParent = mesh.parent;
-      if (!realParent) return null;
-      mesh.geometry.computeBoundingBox();
-      const lbb = mesh.geometry.boundingBox;
-      // Altura real del mesh en espacio del parent = geometría * scale
-      const halfH = (lbb.max.y - lbb.min.y) * mesh.scale.y * 0.5;
-      const centerY = mesh.position.y;
-      const topY = centerY + halfH;
-      const pivot = new THREE.Group();
-      pivot.position.set(mesh.position.x, topY, mesh.position.z);
-      realParent.remove(mesh);
-      // Reposicionar mesh dentro del pivot: cuelga desde arriba
-      mesh.position.set(0, -halfH, 0);
-      pivot.add(mesh);
-      realParent.add(pivot);
-      return pivot;
-    };
+    this._walkT         = 0;
+    this._legPivots     = [];   // kept for compat, unused
+    this._armPivots     = [];
+    this._legMeshDirect = [];   // [ { mesh, phase } ] — direct rotation
+    this._armMeshDirect = [];
+    this._prevPos       = new THREE.Vector3();
+    this._moveSpeed     = 0;
 
     // Helper: apply GLB template clone with material fix + node detection
     const _applyGLBTemplate = (template) => {
@@ -257,35 +236,35 @@ export class PlayerModel {
         const bbox = new THREE.Box3();
         bbox.setFromObject(model);
         const h = bbox.max.y - bbox.min.y;
-        // Auto-escalar si el modelo es muy chico (Blender exportado sin Apply Scale)
+        // Auto-escalar SIEMPRE a TARGET_H (sin importar si ya está a escala "razonable")
         const TARGET_H = 1.75;
-        if (h > 0.01 && h < 0.8) {
+        if (h > 0.01) {
           model.scale.setScalar(TARGET_H / h);
           model.updateWorldMatrix(true, true);
           bbox.setFromObject(model);
         }
         if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
       }
-      // ── Rig limbs for walk animation ────────────────────────────────────────
-      this._legPivots = [];
-      this._armPivots = [];
-      const limbMap = {
-        'leg left':   { arr: this._legPivots, phase: 0        },
-        'leg right':  { arr: this._legPivots, phase: Math.PI  },  // nombre con trim
-        'arm right':  { arr: this._armPivots, phase: 0        },  // opposite of leg right
-        'arm left':   { arr: this._armPivots, phase: Math.PI  },
+      // ── Walk animation: collect limb mesh refs (direct rotation) ────────────
+      // El origen del mesh 'leg left/right' está en la parte SUPERIOR de la pierna
+      // (geo.max.y ≈ 0), así que rotation.x directo funciona como pivote de cadera.
+      this._legPivots     = [];  // mantenido por compatibilidad
+      this._armPivots     = [];
+      this._legMeshDirect = [];
+      this._armMeshDirect = [];
+      const limbDirect = {
+        'leg left':  { arr: this._legMeshDirect, phase: 0       },
+        'leg right': { arr: this._legMeshDirect, phase: Math.PI },
+        'arm right': { arr: this._armMeshDirect, phase: 0       },
+        'arm left':  { arr: this._armMeshDirect, phase: Math.PI },
       };
-      // collect meshes first, THEN rig (avoids traversal invalidation)
-      const toRig = [];
       model.traverse((obj) => {
         if (!obj.isMesh) return;
         const key = obj.name.toLowerCase().trim();
-        if (limbMap[key]) toRig.push({ obj, cfg: limbMap[key] });
+        if (limbDirect[key]) {
+          limbDirect[key].arr.push({ mesh: obj, phase: limbDirect[key].phase });
+        }
       });
-      for (const { obj, cfg } of toRig) {
-        const pivot = _rigLimb(obj);
-        if (pivot) cfg.arr.push({ pivot, phase: cfg.phase });
-      }
       // ── Collect hitboxes ────────────────────────────────────────────────────
       this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
       model.traverse((obj) => {
@@ -585,21 +564,23 @@ export class PlayerModel {
     this._prevPos.copy(this.group.position);
 
     const isMoving = this._moveSpeed > 0.08;
-    const freq = 2.6, legAmp = 0.38, armAmp = 0.20;
+    const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
 
     if (isMoving) this._walkT += dt * Math.min(this._moveSpeed, 8) * 1.6;
 
-    for (const { pivot, phase } of this._legPivots) {
+    // Rotación directa sobre el mesh — para el nuevo player.glb el origen de
+    // las piernas está en la parte superior, así que esto es correcto.
+    for (const { mesh, phase } of this._legMeshDirect) {
       const target = isMoving ? Math.sin(this._walkT * freq + phase) * legAmp : 0;
-      pivot.rotation.x += (target - pivot.rotation.x) * Math.min(1, 12 * dt);
+      mesh.rotation.x += (target - mesh.rotation.x) * Math.min(1, 12 * dt);
     }
-    for (const { pivot, phase } of this._armPivots) {
+    for (const { mesh, phase } of this._armMeshDirect) {
       const target = isMoving ? Math.sin(this._walkT * freq + phase) * armAmp : 0;
-      pivot.rotation.x += (target - pivot.rotation.x) * Math.min(1, 12 * dt);
+      mesh.rotation.x += (target - mesh.rotation.x) * Math.min(1, 12 * dt);
     }
     // Bob vertical suave
-    if (isMoving && this._legPivots.length > 0) {
-      this.group.position.y += Math.abs(Math.sin(this._walkT * freq)) * 0.018;
+    if (isMoving && this._legMeshDirect.length > 0) {
+      this.group.position.y += Math.abs(Math.sin(this._walkT * freq)) * 0.016;
     }
   }
 
