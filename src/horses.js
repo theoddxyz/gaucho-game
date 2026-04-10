@@ -4,8 +4,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader             = new GLTFLoader();
 const MOUNT_RADIUS       = 3.0;
-const HORSE_SPEED_MULT   = 2.2;
-const HORSE_SPRINT_EXTRA = 1.25; // total = 2.2 × 1.25 = 2.75x base
+const HORSE_SPEED_MULT   = 1.4;
+const HORSE_SPRINT_EXTRA = 1.25; // total = 1.4 × 1.25 = 1.75x base
 const WALK_FREQ          = 6.0;
 const WALK_FREQ_SPRINT   = 11.0;  // faster legs when sprinting
 const WALK_AMP           = 0.45;

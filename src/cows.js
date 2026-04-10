@@ -1,5 +1,28 @@
 // --- Cow Herding System ---
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ─── GLB swap — si existe /models/cow.glb lo usa en lugar del procedural ──────
+let _cowTpl     = null;
+let _cowPending = [];
+new GLTFLoader().load('/models/cow.glb',
+  g => { _cowTpl = g.scene; _cowPending.forEach(_applyCowGLB); _cowPending = []; },
+  undefined,
+  () => { _cowPending = []; }
+);
+
+function _applyCowGLB(grp) {
+  grp.children.slice().forEach(c => grp.remove(c));
+  const vis = _cowTpl.clone(true);
+  vis.scale.setScalar(0.9);
+  vis.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+  grp.add(vis);
+  // Remap patas si el GLB las tiene nombradas
+  const names = ['leg_fr','leg_fl','leg_br','leg_bl'];
+  const found = names.map(n => vis.getObjectByName(n)).filter(Boolean);
+  grp._legs      = found.length === 4 ? found.map(p => ({ pivot: p, phase: 0 })) : [];
+  grp._headGroup = vis.getObjectByName('head') || vis.getObjectByName('head_group') || null;
+}
 
 // Material de hitbox invisible (transparente pero detectable por raycast)
 const M_HIT  = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -182,10 +205,12 @@ function buildCow(rng) {
     grp.add(pivot);
     cowLegs.push({ pivot, phase: def.phase });
   }
-  grp._legs = cowLegs;
-
+  grp._legs       = cowLegs;
   grp._headGroup  = headGroup;
   grp._headColor  = mat.B.color.getHex();
+
+  if (_cowTpl)       _applyCowGLB(grp);
+  else if (_cowPending) _cowPending.push(grp);
 
   return grp;
 }

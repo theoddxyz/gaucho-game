@@ -1,5 +1,27 @@
 // --- Avestruz + sistema de churrascos (multi-instancia) ---
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ─── GLB swap — si existe /models/ostrich.glb lo usa en lugar del procedural ──
+let _ostrichTpl     = null;
+let _ostrichPending = [];
+new GLTFLoader().load('/models/ostrich.glb',
+  g => { _ostrichTpl = g.scene; _ostrichPending.forEach(_applyOstrichGLB); _ostrichPending = []; },
+  undefined,
+  () => { _ostrichPending = []; }
+);
+
+function _applyOstrichGLB(root) {
+  root.children.slice().forEach(c => { if (c !== root._hitbox) root.remove(c); });
+  const vis = _ostrichTpl.clone(true);
+  vis.scale.setScalar(1.0);
+  vis.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+  root.add(vis);
+  root._legs      = [];
+  root._legPivots = [];
+  root._neck      = vis.getObjectByName('neck') || null;
+  root._headGroup = vis.getObjectByName('head') || null;
+}
 
 // ─── Flying-part physics ──────────────────────────────────────────────────────
 function spawnFlyingPart(scene, worldPos, geo, color, detachedParts, hitPoint) {
@@ -137,6 +159,10 @@ function buildOstrich() {
   root._neck       = neck;
   root._headGroup  = headGroup;
   root._legPivots  = [legs[0].pivot, legs[1].pivot];
+
+  if (_ostrichTpl)       _applyOstrichGLB(root);
+  else if (_ostrichPending) _ostrichPending.push(root);
+
   return root;
 }
 

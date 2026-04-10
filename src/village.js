@@ -1,6 +1,24 @@
 // village.js — Pueblo procedural cerca del spawn (x≈3.8, z≈-69)
 // Contiene: iglesia, ayuntamiento, 5 casas con granja cada una
+// Cada edificio busca su GLB en /public/models/ — si existe lo usa, si no usa procedural
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const _vLoader = new GLTFLoader();
+
+// Intenta cargar un GLB; si carga, reemplaza el grupo procedural en la escena.
+// scale: factor de escala del GLB (ajustar según el tamaño del modelo exportado)
+function _trySwap(scene, group, glbPath, scale = 1) {
+  _vLoader.load(glbPath, g => {
+    scene.remove(group);
+    const m = g.scene;
+    m.position.copy(group.position);
+    m.rotation.copy(group.rotation);
+    m.scale.setScalar(scale);
+    m.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+    scene.add(m);
+  }, undefined, () => {});  // falla silenciosa → grupo procedural ya en escena
+}
 
 // ─── Materiales ───────────────────────────────────────────────────────────────
 const MAT_STONE   = new THREE.MeshStandardMaterial({ color: 0xa09080, roughness: 0.92 });
@@ -128,6 +146,7 @@ function buildFarm(scene, cx, cz, fw = 18, fd = 14) {
   shed.add(sRoof);
   sb(MAT_DOOR, 1.0, 1.8, 0.15, 0, 0, sd / 2 + 0.05, shed);
   g.add(shed);
+  return g;
 }
 
 // ─── Corral de gallinas ───────────────────────────────────────────────────────
@@ -168,6 +187,7 @@ function buildCorral(scene, cx, cz, cw = 10, cd = 10) {
   hen.add(hRoof);
   sb(MAT_DOOR, 0.7, 1.0, 0.12, 0, 0, 1.45, hen);
   g.add(hen);
+  return g;
 }
 
 // ─── Casa ────────────────────────────────────────────────────────────────────
@@ -207,6 +227,7 @@ function buildHouse(scene, colliders, cx, cz, rot = 0) {
   sb(MAT_STONE, 1.0, 0.3, 1.0, hw * 0.5, bh + 2.7, -hd * 0.3, g);
 
   colliders.push({ x: cx, z: cz, sx: hw * 2, sy: bh + 2, sz: hd * 2 });
+  return g;
 }
 
 // ─── Iglesia ─────────────────────────────────────────────────────────────────
@@ -270,6 +291,7 @@ function buildChurch(scene, colliders, cx, cz) {
 
   colliders.push({ x: cx, z: cz + 4, sx: nw, sy: nh + 4, sz: nd });
   colliders.push({ x: cx, z: cz - 10, sx: tw, sy: th, sz: td });
+  return g;
 }
 
 // ─── Ayuntamiento ─────────────────────────────────────────────────────────────
@@ -346,6 +368,7 @@ function buildTownHall(scene, colliders, cx, cz) {
   sb(MAT_STONE_D, 0.10, 0.65, 0.10, 0.0, bh + 0.8 + 2.9, td / 2 + 0.35, g);
 
   colliders.push({ x: cx, z: cz, sx: bw, sy: bh + 8, sz: bd });
+  return g;
 }
 
 // ─── Camino de tierra ─────────────────────────────────────────────────────────
@@ -377,36 +400,30 @@ function buildPath(scene) {
 export function createVillage(scene, colliders) {
   buildPath(scene);
 
-  // ── Iglesia ─────────────────────────────────────────────────────────────────
-  // Entrada (lado de la torre) apunta al norte → hacia spawn
-  // nave: cz+16 = -84 (a 15u del spawn)  ·  torre: cz-10 = -110
-  buildChurch(scene, colliders, 0, -100);
+  // ── Iglesia ──────────────────────────────────────────────────────────────────
+  _trySwap(scene, buildChurch(scene, colliders, 0, -100), '/models/church.glb');
 
-  // ── Ayuntamiento ────────────────────────────────────────────────────────────
-  // Columnas/entrada en la cara norte → mira hacia la plaza y la iglesia
-  buildTownHall(scene, colliders, 0, -145);
+  // ── Ayuntamiento ─────────────────────────────────────────────────────────────
+  _trySwap(scene, buildTownHall(scene, colliders, 0, -145), '/models/townhall.glb');
 
-  // ── Casas + granjas + corrales ───────────────────────────────────────────────
-  // Fila norte (z=-118): 2 casas flanqueando la calle principal
-  buildHouse  (scene, colliders,  26, -118, 0);
-  buildFarm   (scene,  44, -118);
-  buildCorral (scene,  44, -133);   // corral al sur de la granja
+  // ── Casas + granjas + corrales ────────────────────────────────────────────────
+  _trySwap(scene, buildHouse(scene, colliders,  26, -118, 0), '/models/house.glb');
+  _trySwap(scene, buildFarm (scene,  44, -118),               '/models/farm.glb');
+  _trySwap(scene, buildCorral(scene,  44, -133),              '/models/corral.glb');
 
-  buildHouse  (scene, colliders, -26, -118, 0);
-  buildFarm   (scene, -44, -118);
-  buildCorral (scene, -44, -133);
+  _trySwap(scene, buildHouse(scene, colliders, -26, -118, 0), '/models/house.glb');
+  _trySwap(scene, buildFarm (scene, -44, -118),               '/models/farm.glb');
+  _trySwap(scene, buildCorral(scene, -44, -133),              '/models/corral.glb');
 
-  // Fila sur (z=-132): 2 casas más
-  buildHouse  (scene, colliders,  26, -132, 0);
-  buildFarm   (scene,  44, -132);
-  buildCorral (scene,  44, -147);
+  _trySwap(scene, buildHouse(scene, colliders,  26, -132, 0), '/models/house.glb');
+  _trySwap(scene, buildFarm (scene,  44, -132),               '/models/farm.glb');
+  _trySwap(scene, buildCorral(scene,  44, -147),              '/models/corral.glb');
 
-  buildHouse  (scene, colliders, -26, -132, 0);
-  buildFarm   (scene, -44, -132);
-  buildCorral (scene, -44, -147);
+  _trySwap(scene, buildHouse(scene, colliders, -26, -132, 0), '/models/house.glb');
+  _trySwap(scene, buildFarm (scene, -44, -132),               '/models/farm.glb');
+  _trySwap(scene, buildCorral(scene, -44, -147),              '/models/corral.glb');
 
-  // Casa 5 — al final del pueblo, mira al norte
-  buildHouse  (scene, colliders, 0, -158, 0);
-  buildFarm   (scene, 0, -174);
-  buildCorral (scene, 0, -189);
+  _trySwap(scene, buildHouse(scene, colliders, 0, -158, 0), '/models/house.glb');
+  _trySwap(scene, buildFarm (scene, 0, -174),               '/models/farm.glb');
+  _trySwap(scene, buildCorral(scene, 0, -189),              '/models/corral.glb');
 }

@@ -1,5 +1,32 @@
 // --- Chicken System: grupos de gallinas con dBBMM + reacción a yell ---
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ─── GLB swap — si existe /models/chicken.glb lo usa en lugar del procedural ──
+let _chickenTpl  = null;
+let _chickenPending = [];
+new GLTFLoader().load('/models/chicken.glb',
+  g => {
+    _chickenTpl = g.scene;
+    _chickenPending.forEach(_applyChickenGLB);
+    _chickenPending = [];
+  },
+  undefined,
+  () => { _chickenPending = []; }   // falla → mantener procedural
+);
+
+function _applyChickenGLB(grp) {
+  // Quitar partes visuales procedurales (conservar hitbox)
+  grp.children.slice().forEach(c => { if (c !== grp._hitbox) grp.remove(c); });
+  const vis = _chickenTpl.clone(true);
+  vis.scale.setScalar(0.55);
+  vis.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+  grp.add(vis);
+  // Remap piernas si el GLB tiene nodos con esos nombres
+  const lr = vis.getObjectByName('leg_right') || vis.getObjectByName('leg_r');
+  const ll = vis.getObjectByName('leg_left')  || vis.getObjectByName('leg_l');
+  grp._legMeshes = (lr && ll) ? [lr, ll] : [];
+}
 
 // ─── Gaussian random (Box-Muller) ─────────────────────────────────────────────
 function _gaussian() {
@@ -135,9 +162,13 @@ function buildChicken(rng) {
   const hb = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.45, 0.34), M_HIT.clone());
   hb.position.set(0.10, 0.28, 0);
   grp.add(hb);
-  grp._hitbox   = hb;
+  grp._hitbox    = hb;
   grp._legMeshes = [legR, legL];
   grp._headColor = bodyCol;
+
+  // Aplicar GLB si ya cargó, sino encolar para swap cuando cargue
+  if (_chickenTpl)       _applyChickenGLB(grp);
+  else if (_chickenPending) _chickenPending.push(grp);
 
   return grp;
 }

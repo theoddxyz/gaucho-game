@@ -554,11 +554,19 @@ function _buildNPC() {
 export function createLandmarks(scene) {
   _scene = scene;
 
-  // ── NPC ────────────────────────────────────────────────────────────────────
+  // ── NPC — procedural con swap automático si existe /models/npc.glb ──────────
   const npc = _buildNPC();
   npc.position.set(NPC_POSITION.x, 0, NPC_POSITION.z);
-  npc.rotation.y = -0.75; // faces roughly toward player spawn area
+  npc.rotation.y = -0.75;
   scene.add(npc);
+  new GLTFLoader().load('/models/npc.glb', g => {
+    scene.remove(npc);
+    const m = g.scene;
+    m.position.set(NPC_POSITION.x, 0, NPC_POSITION.z);
+    m.rotation.y = -0.75;
+    m.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+    scene.add(m);
+  }, undefined, () => {});
 
   // Fixed fire at shack campfire position
   const fixedFire = _createFireEffect(9.0, 0.2, -72.9);

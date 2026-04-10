@@ -84,24 +84,27 @@ const PEBBLE_MATS = [
 
 // ─── Carga de templates ──────────────────────────────────────────────────────
 const loader = new GLTFLoader();
-let treeTemplate   = null;
-let _tplReady      = false;
-let _tplCallbacks  = [];
+let treeTemplate = null;
+let rockTemplate = null;
+let bushTemplate = null;
+let _tplReady    = false;
+let _tplPending  = 3;          // esperar 3 cargas (tree + rock + bush)
+let _tplCallbacks = [];
+
+function _tplDone() { if (--_tplPending === 0) { _tplReady = true; _tplCallbacks.forEach(fn => fn()); _tplCallbacks = []; } }
 
 function loadTemplates() {
   loader.load('/models/tree.glb',
-    g => {
-      treeTemplate = g.scene;
-      _tplReady    = true;
-      _tplCallbacks.forEach(fn => fn());
-      _tplCallbacks = [];
-    },
-    undefined,
-    () => {
-      _tplReady    = true;   // falla silenciosa — sin árbol GLB
-      _tplCallbacks.forEach(fn => fn());
-      _tplCallbacks = [];
-    }
+    g => { treeTemplate = g.scene; _tplDone(); },
+    undefined, () => _tplDone()
+  );
+  loader.load('/models/rock.glb',
+    g => { rockTemplate = g.scene; _tplDone(); },
+    undefined, () => _tplDone()
+  );
+  loader.load('/models/bush.glb',
+    g => { bushTemplate = g.scene; _tplDone(); },
+    undefined, () => _tplDone()   // falla silenciosa — sin bush GLB
   );
 }
 loadTemplates();
@@ -209,22 +212,29 @@ export class ChunkManager {
       }
     }
 
-    // ── Rocas (1 mesh por roca, sin grupos) ───────────────────────────────────
+    // ── Rocas ─────────────────────────────────────────────────────────────────
     for (let i = 0; i < ROCKS_PER_CHUNK; i++) {
       const rx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
       const rz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
       if (_inWater(rx, rz)) { rng(); rng(); rng(); rng(); continue; }
-      const w   = 0.9 + rng() * 0.7;
-      const h   = 0.4 + rng() * 0.35;
-      const d   = 0.8 + rng() * 0.6;
-      const mat = ROCK_MATS[Math.floor(rng() * ROCK_MATS.length)];
       const rs  = 0.5 + rng() * 1.0;
       const rh  = 0.35 + rng() * 0.55;
-      const rock = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-      rock.position.set(rx, (h * rh * rs) / 2, rz);
-      rock.scale.set(rs, rh * rs, rs * (0.8 + rng() * 0.4));
+      let rock;
+      if (rockTemplate) {
+        rock = rockTemplate.clone(true);
+        rock.scale.set(rs * 0.6, rh * rs * 0.6, rs * (0.8 + rng() * 0.4) * 0.6);
+        rock.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+      } else {
+        const w   = 0.9 + rng() * 0.7;
+        const h   = 0.4 + rng() * 0.35;
+        const d   = 0.8 + rng() * 0.6;
+        const mat = ROCK_MATS[Math.floor(rng() * ROCK_MATS.length)];
+        rock = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        rock.scale.set(rs, rh * rs, rs * (0.8 + rng() * 0.4));
+        rock.castShadow = rock.receiveShadow = true;
+      }
+      rock.position.set(rx, 0, rz);
       rock.rotation.y = rng() * Math.PI * 2;
-      rock.castShadow = rock.receiveShadow = true;
       this.scene.add(rock);
       objects.push(rock);
       ownColl.push({ x: rx, z: rz, sx: rs * 1.6, sy: 2, sz: rs * 1.6 });
@@ -235,16 +245,23 @@ export class ChunkManager {
       const bx  = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
       const bz  = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
       if (_inWater(bx, bz)) { rng(); rng(); rng(); continue; }
-      const dry = rng() > 0.38;
-      const mat = (dry ? DRY_MATS : WET_MATS)[Math.floor(rng() * 2)];
-      const bh  = 0.25 + rng() * 0.30;
-      const bw  = 0.30 + rng() * 0.35;
       const bs  = 0.55 + rng() * 0.90;
-      const bush = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bw), mat);
-      bush.position.set(bx, (bh * bs) / 2, bz);
-      bush.scale.setScalar(bs);
+      let bush;
+      if (bushTemplate) {
+        bush = bushTemplate.clone(true);
+        bush.scale.setScalar(bs * 0.5);
+        bush.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+      } else {
+        const dry = rng() > 0.38;
+        const mat = (dry ? DRY_MATS : WET_MATS)[Math.floor(rng() * 2)];
+        const bh  = 0.25 + rng() * 0.30;
+        const bw  = 0.30 + rng() * 0.35;
+        bush = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bw), mat);
+        bush.scale.setScalar(bs);
+        bush.castShadow = bush.receiveShadow = true;
+      }
+      bush.position.set(bx, (0.25 * bs) / 2, bz);
       bush.rotation.y = rng() * Math.PI * 2;
-      bush.castShadow = bush.receiveShadow = true;
       this.scene.add(bush);
       objects.push(bush);
     }
