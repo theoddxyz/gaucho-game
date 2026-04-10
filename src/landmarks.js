@@ -9,7 +9,7 @@ let   _scene  = null;
 export const WATER_ZONES = [];
 
 // ─── NPC position (world-space, near campfire) ────────────────────────────────
-export const NPC_POSITION = { x: 11.5, z: -73.5 };
+export const NPC_POSITION = { x: 116.5, z: 79.5 };
 
 // Actual lagoon meshes — used for precise raycast-based "is over water" check
 const _lagoonMeshes = [];
@@ -569,12 +569,12 @@ export function createLandmarks(scene) {
   }, undefined, () => {});
 
   // Fixed fire at shack campfire position
-  const fixedFire = _createFireEffect(9.0, 0.2, -72.9);
+  const fixedFire = _createFireEffect(114.0, 0.2, 80.0);
   if (fixedFire) _fires.push(fixedFire);
 
   loadAt('/models/camp.glb',   scene, -7823.3, 0, 5424.2);
   loadAt('/models/well.glb',   scene, -7656.9, 0, 5268.8);
   loadAt('/models/skulls.glb', scene, -7173.3, 0, 2997.3);
   loadAt('/models/shack.glb',  scene, -6258.0, 0, 2023.4, 0, 1.56);
-  loadAt('/models/shack.glb',  scene,     4.8, 0,  -52.9, 0, 1.56);
+  loadAt('/models/shack.glb',  scene,   110.0, 0,  100.0, 0, 1.56);
 }

@@ -35,7 +35,7 @@ const SPAWN_X = 3.8, SPAWN_Z = -69.0, WILD_DIST = 40;
 export const HORSE_SPAWNS = [
   { id: 0, x: -30, z:  10 },
   { id: 1, x:  35, z:  25 },
-  { id: 2, x: -10, z: -55 },  // closest to spawn shack
+  { id: 2, x: 105, z:  95 },  // closest to spawn shack
   { id: 3, x:  55, z: -15 },
   { id: 4, x:   5, z:  50 },
   { id: 5, x: -60, z: -35 },
