@@ -38,6 +38,10 @@ const SPAWN_X   = 3.8;
 const SPAWN_Z   = -69;
 const N_COWS    = 33;
 
+// ─── Corral del pueblo — 8 vacas confinadas cerca de las granjas ──────────────
+export const VILLAGE_CORRAL = { x: 0, z: -215, hw: 16, hd: 12 };
+const N_CORRAL_COWS = 8;
+
 const WALK_SPEED  = 1.8;
 const FLEE_SPEED  = 5.0;
 const FLEE_RADIUS = 8;
@@ -240,10 +244,17 @@ export class CowSystem {
     const rng = _rng(98765);
     for (let i = 0; i < N_COWS; i++) {
       const mesh  = buildCow(rng);
-      const angle = rng() * Math.PI * 2;
-      const dist  = 8 + rng() * 50;
-      const x     = SPAWN_X + Math.cos(angle) * dist;
-      const z     = SPAWN_Z + Math.sin(angle) * dist;
+      // First N_CORRAL_COWS spawn inside the village corral
+      let x, z;
+      if (i < N_CORRAL_COWS) {
+        x = VILLAGE_CORRAL.x + (rng() * 2 - 1) * (VILLAGE_CORRAL.hw - 2.5);
+        z = VILLAGE_CORRAL.z + (rng() * 2 - 1) * (VILLAGE_CORRAL.hd - 2.5);
+      } else {
+        const angle = rng() * Math.PI * 2;
+        const dist  = 8 + rng() * 50;
+        x = SPAWN_X + Math.cos(angle) * dist;
+        z = SPAWN_Z + Math.sin(angle) * dist;
+      }
       mesh.position.set(x, 0, z);
       mesh.rotation.y = rng() * Math.PI * 2;
       mesh.scale.set(1.4, 1.4, 1.4);
@@ -264,6 +275,7 @@ export class CowSystem {
       const initWPang = rng() * Math.PI * 2;
       const initWPd   = initWPr[0] + rng() * (initWPr[1] - initWPr[0]);
 
+      const inCorral = i < N_CORRAL_COWS;
       this._cows.push({
         id:           i,
         mesh,
@@ -274,6 +286,12 @@ export class CowSystem {
         panicTimer:   0,
         removed:      false,
 
+        // ── Corral confinement ────────────────────────────────────────────────
+        corrX:  inCorral ? VILLAGE_CORRAL.x  : null,
+        corrZ:  inCorral ? VILLAGE_CORRAL.z  : null,
+        corrHW: inCorral ? VILLAGE_CORRAL.hw : 9999,
+        corrHD: inCorral ? VILLAGE_CORRAL.hd : 9999,
+
         // ── HP / wound state ─────────────────────────────────────────────────
         hp:            2,
         wounded:       false,
@@ -282,10 +300,14 @@ export class CowSystem {
         detachedParts: [],
 
         // ── dBBMM state ──────────────────────────────────────────────────────
-        bbState:      initState,
+        bbState:      inCorral ? 'grazing' : initState,
         waypoint:     {
-          x: x + Math.cos(initWPang) * initWPd,
-          z: z + Math.sin(initWPang) * initWPd,
+          x: inCorral
+            ? x + (rng() * 2 - 1) * 4
+            : x + Math.cos(initWPang) * initWPd,
+          z: inCorral
+            ? z + (rng() * 2 - 1) * 4
+            : z + Math.sin(initWPang) * initWPd,
         },
         waypointTimer: rng() * initP.timer[1],
         herdId:       Math.floor(i / 5),   // groups of ~5
@@ -712,6 +734,18 @@ export class CowSystem {
       cow.mesh.position.x += cow.vx * dt;
       cow.mesh.position.z += cow.vz * dt;
 
+      // ── Corral boundary clamp ─────────────────────────────────────────────
+      if (cow.corrHW < 9999) {
+        const minX = cow.corrX - cow.corrHW, maxX = cow.corrX + cow.corrHW;
+        const minZ = cow.corrZ - cow.corrHD, maxZ = cow.corrZ + cow.corrHD;
+        if (cow.mesh.position.x < minX) { cow.mesh.position.x = minX; cow.vx =  Math.abs(cow.vx) * 0.3; }
+        if (cow.mesh.position.x > maxX) { cow.mesh.position.x = maxX; cow.vx = -Math.abs(cow.vx) * 0.3; }
+        if (cow.mesh.position.z < minZ) { cow.mesh.position.z = minZ; cow.vz =  Math.abs(cow.vz) * 0.3; }
+        if (cow.mesh.position.z > maxZ) { cow.mesh.position.z = maxZ; cow.vz = -Math.abs(cow.vz) * 0.3; }
+        cow.waypoint.x = Math.max(minX + 1, Math.min(maxX - 1, cow.waypoint.x));
+        cow.waypoint.z = Math.max(minZ + 1, Math.min(maxZ - 1, cow.waypoint.z));
+      }
+
       // ── Rotate & horse-like leg animation ────────────────────────────────
       const spd = Math.sqrt(cow.vx * cow.vx + cow.vz * cow.vz);
       if (spd > 0.10) {
@@ -720,9 +754,10 @@ export class CowSystem {
         while (diff >  Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         cow.mesh.rotation.y += diff * Math.min(1, 7 * dt);
-        cow.walkTime += dt * spd * 1.6;
+        cow.walkTime += dt;
         // Horse-like gait: diagonal pairs (FR+BL) opposite to (FL+BR)
-        const freq = Math.min(4.2, Math.max(2.2, spd * 1.8));
+        // freq scales with speed but is NOT double-counted via walkTime accumulation
+        const freq = Math.min(5.5, Math.max(2.0, spd * 2.0));
         const amp  = Math.min(0.50, 0.26 + spd * 0.03);
         if (cow.mesh._legs) {
           for (const leg of cow.mesh._legs) {

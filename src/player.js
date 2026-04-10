@@ -521,6 +521,14 @@ export class PlayerModel {
     this.targetRY = ry;
   }
 
+  /** Snaps position immediately — use for mounted riders so they don't lag behind horse. */
+  snapTo(x, y, z, ry) {
+    this.group.position.set(x, y, z);
+    this.targetPos.set(x, y, z);
+    this.group.rotation.y = ry;
+    this.targetRY = ry;
+  }
+
   setAiming(isAiming) {
     if (this._gun) this._gun.visible = isAiming;
   }

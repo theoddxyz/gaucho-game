@@ -544,8 +544,8 @@ export class HorseManager {
     horse.mesh.position.x = x;
     horse.mesh.position.z = z;
     horse._targetRY = ry + Math.PI;
-    // Keep remote player model locked to horse position — no offset
-    if (remotePlayer) remotePlayer.setTarget(x, 2.5, z, ry);
+    // Snap remote player model directly to horse — avoids interpolation lag
+    if (remotePlayer) remotePlayer.snapTo(x, 2.5, z, ry);
   }
 
   /** True if this player ID is currently riding any horse (for network filtering). */

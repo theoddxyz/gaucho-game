@@ -149,6 +149,43 @@ function buildFarm(scene, cx, cz, fw = 18, fd = 14) {
   return g;
 }
 
+// ─── Corral grande de vacas ───────────────────────────────────────────────────
+function buildCowCorral(scene, cx, cz, cw = 32, cd = 24) {
+  const g = new THREE.Group();
+  g.position.set(cx, 0, cz);
+  scene.add(g);
+
+  const hw = cw / 2, hd = cd / 2;
+
+  // Suelo tierra apisonada
+  sb(MAT_DIRT, cw, 0.10, cd, 0, 0, 0, g);
+
+  // Abrevadero grande
+  sb(MAT_WOOD,  4.0, 0.7, 1.2,  hw - 3,   0,  0,  g);
+  sb(MAT_STONE, 3.6, 0.4, 0.8,  hw - 3, 0.7,  0,  g);
+
+  // Pequeño refugio / sombra para las vacas (techo abierto)
+  const shelter = new THREE.Group();
+  shelter.position.set(-hw + 5, 0, -hd + 4);
+  sb(MAT_WOOD, 0.2, 3.0, 0.2, -3, 0, -2.5, shelter); // poste
+  sb(MAT_WOOD, 0.2, 3.0, 0.2,  3, 0, -2.5, shelter);
+  sb(MAT_WOOD, 0.2, 3.0, 0.2, -3, 0,  2.5, shelter);
+  sb(MAT_WOOD, 0.2, 3.0, 0.2,  3, 0,  2.5, shelter);
+  const shRoof = makeRoof(7.0, 1.0, 6.0, MAT_ROOF_DK);
+  shRoof.position.set(0, 3.0, 0);
+  shelter.add(shRoof);
+  g.add(shelter);
+
+  // Cerco robusto — postes más altos y doble riel
+  const fenceH = 1.8;
+  fence(g, -hw, -hd,  hw, -hd, fenceH);
+  fence(g, -hw,  hd,  hw,  hd, fenceH);
+  fence(g, -hw, -hd, -hw,  hd, fenceH);
+  fence(g,  hw, -hd,  hw,  hd, fenceH);
+
+  return g;
+}
+
 // ─── Corral de gallinas ───────────────────────────────────────────────────────
 function buildCorral(scene, cx, cz, cw = 10, cd = 10) {
   const g = new THREE.Group();
@@ -418,4 +455,7 @@ export function createVillage(scene, colliders) {
   _trySwap(scene, buildHouse(scene, colliders, 0, -158, 0), '/models/house.glb');
   _trySwap(scene, buildFarm (scene, 0, -174),               '/models/farm.glb');
   _trySwap(scene, buildCorral(scene, 0, -189),              '/models/corral.glb');
+
+  // ── Corral grande de vacas (z=-215, 32×24) ───────────────────────────────────
+  _trySwap(scene, buildCowCorral(scene, 0, -215), '/models/cow_corral.glb');
 }
