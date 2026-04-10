@@ -80,11 +80,11 @@ const M_HIT = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depth
 
 // ─── Spots de spawn: 5 grupos distribuidos por el mapa ───────────────────────
 const SPAWN_GROUPS = [
-  { x: -6,  z: -52, n: 5 },
-  { x: 24,  z: -40, n: 6 },
-  { x: -22, z: -36, n: 5 },
-  { x:  8,  z: -78, n: 6 },
-  { x: 30,  z: -68, n: 5 },
+  { x:  44, z: -133, n: 5 },   // corral casa 1
+  { x: -44, z: -133, n: 5 },   // corral casa 2
+  { x:  44, z: -147, n: 5 },   // corral casa 3
+  { x: -44, z: -147, n: 5 },   // corral casa 4
+  { x:   0, z: -189, n: 6 },   // corral casa 5
 ];
 
 // ─── dBBMM parámetros para gallinas ──────────────────────────────────────────

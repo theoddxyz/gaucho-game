@@ -130,6 +130,46 @@ function buildFarm(scene, cx, cz, fw = 18, fd = 14) {
   g.add(shed);
 }
 
+// ─── Corral de gallinas ───────────────────────────────────────────────────────
+function buildCorral(scene, cx, cz, cw = 10, cd = 10) {
+  const g = new THREE.Group();
+  g.position.set(cx, 0, cz);
+  scene.add(g);
+
+  const hw = cw / 2, hd = cd / 2;
+
+  // Suelo tierra apisonada
+  sb(MAT_DIRT, cw, 0.08, cd, 0, 0, 0, g);
+
+  // Abrevadero (comedero)
+  sb(MAT_WOOD,  2.2, 0.5, 0.7,  hw - 1.5, 0, 0, g);
+  sb(MAT_STONE, 1.8, 0.3, 0.4,  hw - 1.5, 0.5, 0, g);
+
+  // Cerco perimetral con hueco en la cara norte (entrada desde la granja)
+  fence(g, -2.0, -hd, -hw, -hd);   // norte izquierda
+  fence(g,  hw,  -hd,  2.0, -hd);  // norte derecha
+  fence(g, -hw,   hd,  hw,   hd);  // sur
+  fence(g, -hw,  -hd, -hw,   hd);  // oeste
+  fence(g,  hw,  -hd,  hw,   hd);  // este
+
+  // Postes del portón norte
+  for (const ox of [-2.0, 2.0]) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.6, 0.18), MAT_FENCE);
+    p.position.set(ox, 0.8, -hd);
+    g.add(p);
+  }
+
+  // Pequeño gallinero (caseta) en esquina sur
+  const hen = new THREE.Group();
+  hen.position.set(-hw + 2.0, 0, hd - 2.0);
+  sb(MAT_WOOD, 2.8, 2.2, 2.8, 0, 0, 0, hen);
+  const hRoof = makeRoof(3.2, 0.9, 3.2, MAT_ROOF_DK);
+  hRoof.position.set(0, 2.2, 0);
+  hen.add(hRoof);
+  sb(MAT_DOOR, 0.7, 1.0, 0.12, 0, 0, 1.45, hen);
+  g.add(hen);
+}
+
 // ─── Casa ────────────────────────────────────────────────────────────────────
 function buildHouse(scene, colliders, cx, cz, rot = 0) {
   const g = new THREE.Group();
@@ -346,22 +386,27 @@ export function createVillage(scene, colliders) {
   // Columnas/entrada en la cara norte → mira hacia la plaza y la iglesia
   buildTownHall(scene, colliders, 0, -145);
 
-  // ── Casas + granjas ─────────────────────────────────────────────────────────
+  // ── Casas + granjas + corrales ───────────────────────────────────────────────
   // Fila norte (z=-118): 2 casas flanqueando la calle principal
-  buildHouse(scene, colliders,  26, -118, 0);
-  buildFarm (scene,  44, -118);
+  buildHouse  (scene, colliders,  26, -118, 0);
+  buildFarm   (scene,  44, -118);
+  buildCorral (scene,  44, -133);   // corral al sur de la granja
 
-  buildHouse(scene, colliders, -26, -118, 0);
-  buildFarm (scene, -44, -118);
+  buildHouse  (scene, colliders, -26, -118, 0);
+  buildFarm   (scene, -44, -118);
+  buildCorral (scene, -44, -133);
 
   // Fila sur (z=-132): 2 casas más
-  buildHouse(scene, colliders,  26, -132, 0);
-  buildFarm (scene,  44, -132);
+  buildHouse  (scene, colliders,  26, -132, 0);
+  buildFarm   (scene,  44, -132);
+  buildCorral (scene,  44, -147);
 
-  buildHouse(scene, colliders, -26, -132, 0);
-  buildFarm (scene, -44, -132);
+  buildHouse  (scene, colliders, -26, -132, 0);
+  buildFarm   (scene, -44, -132);
+  buildCorral (scene, -44, -147);
 
   // Casa 5 — al final del pueblo, mira al norte
-  buildHouse(scene, colliders, 0, -158, 0);
-  buildFarm (scene, 0, -174);
+  buildHouse  (scene, colliders, 0, -158, 0);
+  buildFarm   (scene, 0, -174);
+  buildCorral (scene, 0, -189);
 }
