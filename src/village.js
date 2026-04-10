@@ -75,6 +75,61 @@ function makeRoof(w, h, d, mat) {
   return m;
 }
 
+// ─── Puertas de corrales ──────────────────────────────────────────────────────
+const _gates = [];
+export function getVillageGates() { return _gates; }
+
+// Añade colliders para un segmento de cerca (world-space, ignora si el jugador saltó)
+function _fenceCol(colliders, cx, cz, x0, z0, x1, z1, fh = 1.4) {
+  colliders.push({
+    x:  cx + (x0 + x1) / 2,
+    z:  cz + (z0 + z1) / 2,
+    sx: Math.max(0.22, Math.abs(x1 - x0)),
+    sz: Math.max(0.22, Math.abs(z1 - z0)),
+    maxY: fh * 0.88,
+  });
+}
+
+// Construye la puerta animada en la pared sur del corral y registra su estado
+function _addGate(g, colliders, cx, cz, hw, hd, gateW = 2.2, fh = 1.4) {
+  const ghw = gateW / 2;
+  // Pared sur partido: mitad izq + mitad der
+  fence(g, -hw, hd, -ghw, hd, fh);
+  fence(g,  ghw, hd,  hw, hd, fh);
+  _fenceCol(colliders, cx, cz, -hw, hd, -ghw, hd, fh);
+  _fenceCol(colliders, cx, cz,  ghw, hd,  hw, hd, fh);
+
+  // Panel de puerta — pivot en poste izquierdo del hueco
+  const gp = new THREE.Group();
+  gp.position.set(-ghw, 0, hd);
+  const mkR = (y) => {
+    const r = new THREE.Mesh(new THREE.BoxGeometry(gateW, 0.12, 0.14), MAT_FENCE);
+    r.position.set(ghw, y, 0);
+    r.castShadow = r.receiveShadow = true;
+    gp.add(r);
+  };
+  mkR(fh * 0.68); mkR(fh * 0.38);
+  const gPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, fh, 0.16), MAT_FENCE);
+  gPost.position.set(gateW, fh / 2, 0);
+  gPost.castShadow = gPost.receiveShadow = true;
+  gp.add(gPost);
+  g.add(gp);
+
+  // Collider de la puerta (world-space, se desactiva al abrir)
+  const gc = { x: cx, z: cz + hd, sx: gateW + 0.16, sz: 0.22, maxY: fh + 0.1, active: true };
+  colliders.push(gc);
+
+  _gates.push({
+    cx, cz,
+    gateX: cx, gateZ: cz + hd,  // punto de proximidad en el mundo
+    panel: gp,
+    collider: gc,
+    isOpen: false,
+    animT: 0,      // 0=cerrado 1=abierto
+    animTarget: 0,
+  });
+}
+
 // ─── Hilera de cerco ─────────────────────────────────────────────────────────
 function fence(parent, x0, z0, x1, z1, h = 1.4) {
   const dx = x1 - x0, dz = z1 - z0;
@@ -150,12 +205,13 @@ function buildFarm(scene, cx, cz, fw = 18, fd = 14) {
 }
 
 // ─── Corral grande de vacas ───────────────────────────────────────────────────
-function buildCowCorral(scene, cx, cz, cw = 32, cd = 24) {
+function buildCowCorral(scene, colliders, cx, cz, cw = 32, cd = 24) {
   const g = new THREE.Group();
   g.position.set(cx, 0, cz);
   scene.add(g);
 
   const hw = cw / 2, hd = cd / 2;
+  const fenceH = 1.8;
 
   // Suelo tierra apisonada
   sb(MAT_DIRT, cw, 0.10, cd, 0, 0, 0, g);
@@ -167,7 +223,7 @@ function buildCowCorral(scene, cx, cz, cw = 32, cd = 24) {
   // Pequeño refugio / sombra para las vacas (techo abierto)
   const shelter = new THREE.Group();
   shelter.position.set(-hw + 5, 0, -hd + 4);
-  sb(MAT_WOOD, 0.2, 3.0, 0.2, -3, 0, -2.5, shelter); // poste
+  sb(MAT_WOOD, 0.2, 3.0, 0.2, -3, 0, -2.5, shelter);
   sb(MAT_WOOD, 0.2, 3.0, 0.2,  3, 0, -2.5, shelter);
   sb(MAT_WOOD, 0.2, 3.0, 0.2, -3, 0,  2.5, shelter);
   sb(MAT_WOOD, 0.2, 3.0, 0.2,  3, 0,  2.5, shelter);
@@ -176,23 +232,28 @@ function buildCowCorral(scene, cx, cz, cw = 32, cd = 24) {
   shelter.add(shRoof);
   g.add(shelter);
 
-  // Cerco robusto — postes más altos y doble riel
-  const fenceH = 1.8;
-  fence(g, -hw, -hd,  hw, -hd, fenceH);
-  fence(g, -hw,  hd,  hw,  hd, fenceH);
-  fence(g, -hw, -hd, -hw,  hd, fenceH);
-  fence(g,  hw, -hd,  hw,  hd, fenceH);
+  // Cerco robusto — norte, este, oeste (sin puerta)
+  fence(g, -hw, -hd,  hw, -hd, fenceH);  // norte
+  fence(g, -hw, -hd, -hw,  hd, fenceH);  // oeste
+  fence(g,  hw, -hd,  hw,  hd, fenceH);  // este
+  _fenceCol(colliders, cx, cz, -hw, -hd,  hw, -hd, fenceH);
+  _fenceCol(colliders, cx, cz, -hw, -hd, -hw,  hd, fenceH);
+  _fenceCol(colliders, cx, cz,  hw, -hd,  hw,  hd, fenceH);
+
+  // Sur — puerta animada (3u de ancho para vacas)
+  _addGate(g, colliders, cx, cz, hw, hd, 3.0, fenceH);
 
   return g;
 }
 
 // ─── Corral de gallinas ───────────────────────────────────────────────────────
-function buildCorral(scene, cx, cz, cw = 10, cd = 10) {
+function buildCorral(scene, colliders, cx, cz, cw = 10, cd = 10) {
   const g = new THREE.Group();
   g.position.set(cx, 0, cz);
   scene.add(g);
 
   const hw = cw / 2, hd = cd / 2;
+  const fenceH = 1.4;
 
   // Suelo tierra apisonada
   sb(MAT_DIRT, cw, 0.08, cd, 0, 0, 0, g);
@@ -201,15 +262,20 @@ function buildCorral(scene, cx, cz, cw = 10, cd = 10) {
   sb(MAT_WOOD,  2.2, 0.5, 0.7,  hw - 1.5, 0, 0, g);
   sb(MAT_STONE, 1.8, 0.3, 0.4,  hw - 1.5, 0.5, 0, g);
 
-  // Cerco perimetral completamente cerrado (sin hueco — las gallinas no escapan)
-  fence(g, -hw, -hd,  hw, -hd);   // norte completo
-  fence(g, -hw,  hd,  hw,  hd);   // sur
-  fence(g, -hw, -hd, -hw,  hd);   // oeste
-  fence(g,  hw, -hd,  hw,  hd);   // este
+  // Norte, este, oeste — sin puerta
+  fence(g, -hw, -hd,  hw, -hd, fenceH);
+  fence(g, -hw, -hd, -hw,  hd, fenceH);
+  fence(g,  hw, -hd,  hw,  hd, fenceH);
+  _fenceCol(colliders, cx, cz, -hw, -hd,  hw, -hd, fenceH);
+  _fenceCol(colliders, cx, cz, -hw, -hd, -hw,  hd, fenceH);
+  _fenceCol(colliders, cx, cz,  hw, -hd,  hw,  hd, fenceH);
 
-  // Pequeño gallinero (caseta) en esquina sur
+  // Sur — puerta animada (2.2u)
+  _addGate(g, colliders, cx, cz, hw, hd, 2.2, fenceH);
+
+  // Pequeño gallinero (caseta) en esquina norte
   const hen = new THREE.Group();
-  hen.position.set(-hw + 2.0, 0, hd - 2.0);
+  hen.position.set(-hw + 2.0, 0, -hd + 2.0);
   sb(MAT_WOOD, 2.8, 2.2, 2.8, 0, 0, 0, hen);
   const hRoof = makeRoof(3.2, 0.9, 3.2, MAT_ROOF_DK);
   hRoof.position.set(0, 2.2, 0);
@@ -427,6 +493,7 @@ function buildPath(scene) {
 // Libre del shack (4.8, -52.9) y el lago  →  mínimo 48u de clearance
 // Libre de los edificios de world.js (todos en z > -45)  →  56u de clearance
 export function createVillage(scene, colliders) {
+  _gates.length = 0;
   buildPath(scene);
 
   // ── Iglesia ──────────────────────────────────────────────────────────────────
@@ -438,24 +505,24 @@ export function createVillage(scene, colliders) {
   // ── Casas + granjas + corrales ────────────────────────────────────────────────
   _trySwap(scene, buildHouse(scene, colliders,  26, -118, 0), '/models/house.glb');
   _trySwap(scene, buildFarm (scene,  44, -118),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene,  44, -133),              '/models/corral.glb');
+  _trySwap(scene, buildCorral(scene, colliders,  44, -133),   '/models/corral.glb');
 
   _trySwap(scene, buildHouse(scene, colliders, -26, -118, 0), '/models/house.glb');
   _trySwap(scene, buildFarm (scene, -44, -118),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, -44, -133),              '/models/corral.glb');
+  _trySwap(scene, buildCorral(scene, colliders, -44, -133),   '/models/corral.glb');
 
   _trySwap(scene, buildHouse(scene, colliders,  26, -132, 0), '/models/house.glb');
   _trySwap(scene, buildFarm (scene,  44, -132),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene,  44, -147),              '/models/corral.glb');
+  _trySwap(scene, buildCorral(scene, colliders,  44, -147),   '/models/corral.glb');
 
   _trySwap(scene, buildHouse(scene, colliders, -26, -132, 0), '/models/house.glb');
   _trySwap(scene, buildFarm (scene, -44, -132),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, -44, -147),              '/models/corral.glb');
+  _trySwap(scene, buildCorral(scene, colliders, -44, -147),   '/models/corral.glb');
 
   _trySwap(scene, buildHouse(scene, colliders, 0, -158, 0), '/models/house.glb');
   _trySwap(scene, buildFarm (scene, 0, -174),               '/models/farm.glb');
-  _trySwap(scene, buildCorral(scene, 0, -189),              '/models/corral.glb');
+  _trySwap(scene, buildCorral(scene, colliders, 0, -189),   '/models/corral.glb');
 
   // ── Corral grande de vacas (z=-215, 32×24) ───────────────────────────────────
-  _trySwap(scene, buildCowCorral(scene, 0, -215), '/models/cow_corral.glb');
+  _trySwap(scene, buildCowCorral(scene, colliders, 0, -215), '/models/cow_corral.glb');
 }

@@ -145,6 +145,8 @@ export class IsoControls {
     // --- Box collisions (X/Z only) ---
     if (colliders) {
       for (const box of colliders) {
+        if (box.active === false) continue;
+        if (box.maxY !== undefined && this.position.y >= box.maxY) continue;
         const halfX = box.sx / 2, halfZ = box.sz / 2;
         const dx = this.position.x - box.x;
         const dz = this.position.z - box.z;

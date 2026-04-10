@@ -22,7 +22,7 @@ import { WindParticles } from './wind-particles.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import * as Inventory from './inventory.js';
-import { createVillage } from './village.js';
+import { createVillage, getVillageGates } from './village.js';
 
 // Vite HMR: forzar recarga completa en vez de hot-swap parcial
 // (evita múltiples instancias del renderer corriendo simultáneamente)
@@ -63,6 +63,24 @@ document.addEventListener('keydown', (e) => {
         else { o.material.transparent = false; o.material.opacity = 1.0; }
       }
     });
+  }
+});
+
+// Tecla Q: abrir/cerrar puerta del corral más cercano
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyQ' || !myId || isDead) return;
+  const pos = controls?.getPosition();
+  if (!pos) return;
+  let nearest = null, nearestD = 8;
+  for (const gate of villageGates) {
+    const dx = pos.x - gate.gateX, dz = pos.z - gate.gateZ;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d < nearestD) { nearestD = d; nearest = gate; }
+  }
+  if (nearest) {
+    nearest.isOpen       = !nearest.isOpen;
+    nearest.animTarget   = nearest.isOpen ? 1 : 0;
+    nearest.collider.active = !nearest.isOpen;
   }
 });
 
@@ -140,6 +158,7 @@ worldColliders.forEach(c => colliders.push(c));
 const chunkManager = new ChunkManager(scene, colliders);
 createLandmarks(scene);
 createVillage(scene, colliders);
+const villageGates = getVillageGates();
 
 // --- Controls ---
 const controls = new IsoControls(camera);
@@ -975,6 +994,15 @@ function gameLoop() {
     const chickenPickup = chickenSystem.update(dt, ppList);
     if (chickenPickup && pos && !isDead) {
       if (Inventory.add('chicken', chickenPickup.hunger, chickenPickup.hp)) _updateInventoryHUD();
+    }
+  }
+
+  // ── Puertas de corrales — animación suave ────────────────────────────────
+  for (const gate of villageGates) {
+    if (gate.animT !== gate.animTarget) {
+      gate.animT += (gate.animTarget - gate.animT) * Math.min(1, 7 * dt);
+      if (Math.abs(gate.animT - gate.animTarget) < 0.005) gate.animT = gate.animTarget;
+      gate.panel.rotation.y = gate.animT * -Math.PI / 2;
     }
   }
 
