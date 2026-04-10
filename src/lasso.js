@@ -1,18 +1,18 @@
 // --- Lazo con física Verlet ---
 import * as THREE from 'three';
 
-const THROW_SPEED  = 26;       // m/s velocidad de punta
-const MIN_THROW_SPEED = 12;
-const MAX_THROW_SPEED = 38;
-const CHARGE_TIME     = 1.2;   // seconds to reach full charge
-const PULL_STEP       = 6;     // units per pull click
-const ROPE_NODES   = 16;
-const ROPE_LEN     = 20;       // metros máx
+const THROW_SPEED     = 28;       // m/s velocidad de punta (tiro rápido)
+const MIN_THROW_SPEED = 14;
+const MAX_THROW_SPEED = 48;       // velocidad máx al cargar completo
+const CHARGE_TIME     = 1.0;      // segundos para carga completa (más rápido)
+const PULL_STEP       = 8;        // units per pull click
+const ROPE_NODES   = 20;
+const ROPE_LEN     = 26;          // metros máx — más alcance
 const SEG_LEN      = ROPE_LEN / (ROPE_NODES - 1);
-const GRAVITY_Y    = -14;      // m/s²
-const DAMPING      = 0.97;
-const CATCH_RADIUS = 2.2;      // radio de captura
-const PULL_FORCE   = 12;       // fuerza de tracción sobre entidad capturada
+const GRAVITY_Y    = -10;         // gravedad reducida → arco más largo
+const DAMPING      = 0.977;       // menos fricción → viaja más lejos
+const CATCH_RADIUS = 3.0;         // radio de captura más generoso
+const PULL_FORCE   = 14;          // fuerza de tracción sobre entidad capturada
 
 export class LassoSystem {
   constructor(scene) {
@@ -125,10 +125,16 @@ export class LassoSystem {
   }
 
   startCharge() {
-    if (this._state !== 'idle') return;
+    // Permite iniciar carga incluso si el lazo está retractando
+    if (this._state === 'caught') return;
+    if (this._state !== 'idle' && this._state !== 'retracting') return;
+    this._line.visible = false;
+    this._tip.visible  = false;
+    this._loop.visible = false;
+    this._caught = null;
     this._charging = true;
     this._chargeT  = 0;
-    this._state    = 'charging';   // ← NEW: keeps update() from returning early
+    this._state    = 'charging';
     this._showUI('charging');
   }
 
@@ -143,7 +149,14 @@ export class LassoSystem {
   }
 
   _throwWithSpeed(origin, dir, speed) {
-    if (this._state !== 'idle') this.release();
+    // Forzar reset inmediato si había algo volando
+    if (this._state !== 'idle' && this._state !== 'charging') {
+      this._state = 'idle';
+      this._line.visible = false;
+      this._tip.visible  = false;
+      this._loop.visible = false;
+      this._caught = null;
+    }
     this._state = 'flying';
     this._line.visible = true;
     this._tip.visible  = true;
@@ -153,8 +166,8 @@ export class LassoSystem {
       this._nodes[i].pos.copy(origin);
       this._nodes[i].prev.copy(origin);
     }
-    // Use full 3D direction (including slight upward arc), preserving any Y aim
-    const launchY = dir.y !== undefined ? Math.max(0.08, dir.y) : 0.12;
+    // Arco pronunciado hacia arriba — lazo va en parábola visible
+    const launchY = Math.max(0.22, (dir.y ?? 0) + 0.14);
     const throwDir = new THREE.Vector3(dir.x, launchY, dir.z).normalize();
     const tip = this._nodes[ROPE_NODES - 1];
     tip.prev.sub(throwDir.clone().multiplyScalar(speed * 0.016));
@@ -189,12 +202,31 @@ export class LassoSystem {
   throw(origin, dir) { this._throwWithSpeed(origin, dir, THROW_SPEED); }
 
   release() {
+    if (this._state === 'idle' || this._state === 'retracting') return;
     this._charging = false;
-    this._state    = 'idle';
+    this._caught   = null;
+    this._loop.visible = false;
+    this._showUI(null);
+    // Animación de retracción en lugar de desaparecer instantáneamente
+    if (this._state === 'flying' || this._state === 'caught') {
+      this._state     = 'retracting';
+      this._retractT  = 0;
+    } else {
+      this._state        = 'idle';
+      this._line.visible = false;
+      this._tip.visible  = false;
+    }
+  }
+
+  /** Cancela y oculta instantáneamente (uso interno). */
+  _forceIdle() {
+    this._charging     = false;
+    this._state        = 'idle';
+    this._retractT     = 0;
     this._line.visible = false;
     this._tip.visible  = false;
     this._loop.visible = false;
-    this._caught = null;
+    this._caught       = null;
     this._showUI(null);
   }
 
@@ -221,6 +253,28 @@ export class LassoSystem {
     }
 
     if (this._state === 'idle') return;
+
+    // ── Retracting: lerp all nodes toward gun then hide ───────────────────
+    if (this._state === 'retracting') {
+      this._retractT += dt;
+      for (let i = ROPE_NODES - 1; i >= 1; i--) {
+        const factor = 5 + i * 0.5;
+        this._nodes[i].pos.lerp(gunPos, Math.min(1, dt * factor));
+        this._nodes[i].prev.copy(this._nodes[i].pos);
+      }
+      const attr = this._line.geometry.attributes.position;
+      for (let i = 0; i < ROPE_NODES; i++) {
+        attr.setXYZ(i, this._nodes[i].pos.x, this._nodes[i].pos.y, this._nodes[i].pos.z);
+      }
+      attr.needsUpdate = true;
+      this._line.geometry.computeBoundingSphere();
+      this._tip.visible = false;
+      if (this._retractT > 0.4) {
+        this._state = 'idle';
+        this._line.visible = false;
+      }
+      return;
+    }
 
     // Anchor first node to gun
     this._nodes[0].pos.copy(gunPos);

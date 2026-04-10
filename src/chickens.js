@@ -239,6 +239,7 @@ export class ChickenSystem {
           // Límites del corral
           corrX: group.x,  corrZ: group.z,
           corrHW: ghw,      corrHD: ghd,
+          escaped: false,
         });
         id++;
       }
@@ -343,7 +344,7 @@ export class ChickenSystem {
   }
 
   // ── Update ───────────────────────────────────────────────────────────────
-  update(dt, playerPositions) {
+  update(dt, playerPositions, openGates) {
     let pickup = null;
 
     // Tick parts volando (todas las gallinas incluyendo heridas)
@@ -468,17 +469,28 @@ export class ChickenSystem {
       c.mesh.position.x += c.vx * dt;
       c.mesh.position.z += c.vz * dt;
 
-      // ── Confinar al corral ────────────────────────────────────────────
-      if (c.corrHW < 900) {
+      // ── Confinar al corral (repulsión suave + escape por puerta) ──────────
+      if (c.corrHW < 900 && !c.escaped) {
         const minX = c.corrX - c.corrHW, maxX = c.corrX + c.corrHW;
         const minZ = c.corrZ - c.corrHD, maxZ = c.corrZ + c.corrHD;
-        if (c.mesh.position.x < minX) { c.mesh.position.x = minX; c.vx = Math.abs(c.vx) * 0.4; }
-        if (c.mesh.position.x > maxX) { c.mesh.position.x = maxX; c.vx = -Math.abs(c.vx) * 0.4; }
-        if (c.mesh.position.z < minZ) { c.mesh.position.z = minZ; c.vz = Math.abs(c.vz) * 0.4; }
-        if (c.mesh.position.z > maxZ) { c.mesh.position.z = maxZ; c.vz = -Math.abs(c.vz) * 0.4; }
-        // Clamp waypoint también
-        c.waypoint.x = Math.max(minX + 0.5, Math.min(maxX - 0.5, c.waypoint.x));
-        c.waypoint.z = Math.max(minZ + 0.5, Math.min(maxZ - 0.5, c.waypoint.z));
+        // Puerta sur: corrHD de movimiento = fenceHD - 1 → gateZ = corrZ + corrHD + 1
+        const gateKey  = `${Math.round(c.corrX)},${Math.round(c.corrZ + c.corrHD + 1)}`;
+        const southOpen = openGates && openGates.has(gateKey);
+        // Si pasó al sur con puerta abierta → escape definitivo
+        if (southOpen && c.mesh.position.z > maxZ + 0.5) { c.escaped = true; }
+        if (!c.escaped) {
+          const margin = 1.2, strength = 22;
+          const dX0 = c.mesh.position.x - minX;
+          const dX1 = maxX - c.mesh.position.x;
+          const dZ0 = c.mesh.position.z - minZ;
+          const dZ1 = maxZ - c.mesh.position.z;
+          if (dX0 < margin) c.vx += strength * (1 - dX0 / margin) * dt;
+          if (dX1 < margin) c.vx -= strength * (1 - dX1 / margin) * dt;
+          if (dZ0 < margin) c.vz += strength * (1 - dZ0 / margin) * dt;
+          if (!southOpen && dZ1 < margin) c.vz -= strength * (1 - dZ1 / margin) * dt;
+          c.waypoint.x = Math.max(minX + 0.5, Math.min(maxX - 0.5, c.waypoint.x));
+          c.waypoint.z = Math.max(minZ + 0.5, Math.min(southOpen ? maxZ + 5 : maxZ - 0.5, c.waypoint.z));
+        }
       }
 
       // ── Rotar + picar (bob) ────────────────────────────────────────────

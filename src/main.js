@@ -991,7 +991,8 @@ function gameLoop() {
   if (myId && !isDead) {
     const ppList = pos ? [{ x: pos.x, z: pos.z }] : [];
     for (const [, pm] of remotePlayers) ppList.push({ x: pm.group.position.x, z: pm.group.position.z });
-    const chickenPickup = chickenSystem.update(dt, ppList);
+    const _openGates = new Set(villageGates.filter(g => g.isOpen).map(g => `${Math.round(g.cx)},${Math.round(g.gateZ)}`));
+    const chickenPickup = chickenSystem.update(dt, ppList, _openGates);
     if (chickenPickup && pos && !isDead) {
       if (Inventory.add('chicken', chickenPickup.hunger, chickenPickup.hp)) _updateInventoryHUD();
     }
@@ -1030,7 +1031,8 @@ function gameLoop() {
     for (const [, pm] of remotePlayers) {
       playerPositions.push({ x: pm.group.position.x, z: pm.group.position.z });
     }
-    const newlyCorralled = cowSystem.update(dt, playerPositions);
+    const _cowOpenGates = new Set(villageGates.filter(g => g.isOpen).map(g => `${Math.round(g.cx)},${Math.round(g.gateZ)}`));
+    const newlyCorralled = cowSystem.update(dt, playerPositions, _cowOpenGates);
     for (const id of newlyCorralled) {
       cowSystem.corrall(id);
       Network.sendCowCorralled(id);

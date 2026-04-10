@@ -287,10 +287,11 @@ export class CowSystem {
         removed:      false,
 
         // ── Corral confinement ────────────────────────────────────────────────
-        corrX:  inCorral ? VILLAGE_CORRAL.x  : null,
-        corrZ:  inCorral ? VILLAGE_CORRAL.z  : null,
-        corrHW: inCorral ? VILLAGE_CORRAL.hw : 9999,
-        corrHD: inCorral ? VILLAGE_CORRAL.hd : 9999,
+        corrX:   inCorral ? VILLAGE_CORRAL.x  : null,
+        corrZ:   inCorral ? VILLAGE_CORRAL.z  : null,
+        corrHW:  inCorral ? VILLAGE_CORRAL.hw : 9999,
+        corrHD:  inCorral ? VILLAGE_CORRAL.hd : 9999,
+        escaped: false,
 
         // ── HP / wound state ─────────────────────────────────────────────────
         hp:            2,
@@ -577,7 +578,7 @@ export class CowSystem {
    * playerPositions: array of {x, z}
    * Returns array of cow IDs that entered the stable this frame.
    */
-  update(dt, playerPositions) {
+  update(dt, playerPositions, openGates) {
     const newlyCorralled = [];
 
     // ── Tick detached flying parts for all cows (including wounded/removed) ──
@@ -734,16 +735,28 @@ export class CowSystem {
       cow.mesh.position.x += cow.vx * dt;
       cow.mesh.position.z += cow.vz * dt;
 
-      // ── Corral boundary clamp ─────────────────────────────────────────────
-      if (cow.corrHW < 9999) {
+      // ── Corral boundary (repulsión suave + escape por puerta sur) ─────────
+      if (cow.corrHW < 9999 && !cow.escaped) {
         const minX = cow.corrX - cow.corrHW, maxX = cow.corrX + cow.corrHW;
         const minZ = cow.corrZ - cow.corrHD, maxZ = cow.corrZ + cow.corrHD;
-        if (cow.mesh.position.x < minX) { cow.mesh.position.x = minX; cow.vx =  Math.abs(cow.vx) * 0.3; }
-        if (cow.mesh.position.x > maxX) { cow.mesh.position.x = maxX; cow.vx = -Math.abs(cow.vx) * 0.3; }
-        if (cow.mesh.position.z < minZ) { cow.mesh.position.z = minZ; cow.vz =  Math.abs(cow.vz) * 0.3; }
-        if (cow.mesh.position.z > maxZ) { cow.mesh.position.z = maxZ; cow.vz = -Math.abs(cow.vz) * 0.3; }
-        cow.waypoint.x = Math.max(minX + 1, Math.min(maxX - 1, cow.waypoint.x));
-        cow.waypoint.z = Math.max(minZ + 1, Math.min(maxZ - 1, cow.waypoint.z));
+        // Puerta sur del corral: gateZ = corrZ + corrHD (para vacas corrHD == fenceHD)
+        const gateKey   = `${Math.round(cow.corrX)},${Math.round(cow.corrZ + cow.corrHD)}`;
+        const southOpen = openGates && openGates.has(gateKey);
+        // Pasó al sur con puerta abierta → escape definitivo
+        if (southOpen && cow.mesh.position.z > maxZ + 1.0) { cow.escaped = true; }
+        if (!cow.escaped) {
+          const margin = 2.0, strength = 18;
+          const dX0 = cow.mesh.position.x - minX;
+          const dX1 = maxX - cow.mesh.position.x;
+          const dZ0 = cow.mesh.position.z - minZ;
+          const dZ1 = maxZ - cow.mesh.position.z;
+          if (dX0 < margin) cow.vx += strength * (1 - dX0 / margin) * dt;
+          if (dX1 < margin) cow.vx -= strength * (1 - dX1 / margin) * dt;
+          if (dZ0 < margin) cow.vz += strength * (1 - dZ0 / margin) * dt;
+          if (!southOpen && dZ1 < margin) cow.vz -= strength * (1 - dZ1 / margin) * dt;
+          cow.waypoint.x = Math.max(minX + 1, Math.min(maxX - 1, cow.waypoint.x));
+          cow.waypoint.z = Math.max(minZ + 1, Math.min(southOpen ? maxZ + 8 : maxZ - 1, cow.waypoint.z));
+        }
       }
 
       // ── Rotate & horse-like leg animation ────────────────────────────────
