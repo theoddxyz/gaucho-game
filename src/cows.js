@@ -38,9 +38,10 @@ const SPAWN_X   = 3.8;
 const SPAWN_Z   = -69;
 const N_COWS    = 33;
 
-// ─── Corral del pueblo — 8 vacas confinadas cerca de las granjas ──────────────
-export const VILLAGE_CORRAL = { x: 0, z: -215, hw: 16, hd: 12 };
-const N_CORRAL_COWS = 8;
+// ─── Corrales del nuevo mapa — 4+4 vacas distribuidas en los dos corrales ─────
+export const VILLAGE_CORRAL  = { x: -137, z:  12, hw: 16, hd: 12 };
+export const VILLAGE_CORRAL2 = { x: -139, z: -39, hw: 16, hd: 12 };
+const N_CORRAL_COWS = 8;  // 4 en cada corral
 
 const WALK_SPEED  = 1.8;
 const FLEE_SPEED  = 5.0;
@@ -244,11 +245,14 @@ export class CowSystem {
     const rng = _rng(98765);
     for (let i = 0; i < N_COWS; i++) {
       const mesh  = buildCow(rng);
-      // First N_CORRAL_COWS spawn inside the village corral
+      // First 4 cows → corral A, next 4 → corral B, rest → free range
       let x, z;
-      if (i < N_CORRAL_COWS) {
-        x = VILLAGE_CORRAL.x + (rng() * 2 - 1) * (VILLAGE_CORRAL.hw - 2.5);
-        z = VILLAGE_CORRAL.z + (rng() * 2 - 1) * (VILLAGE_CORRAL.hd - 2.5);
+      if (i < 4) {
+        x = VILLAGE_CORRAL.x  + (rng() * 2 - 1) * (VILLAGE_CORRAL.hw  - 2.5);
+        z = VILLAGE_CORRAL.z  + (rng() * 2 - 1) * (VILLAGE_CORRAL.hd  - 2.5);
+      } else if (i < N_CORRAL_COWS) {
+        x = VILLAGE_CORRAL2.x + (rng() * 2 - 1) * (VILLAGE_CORRAL2.hw - 2.5);
+        z = VILLAGE_CORRAL2.z + (rng() * 2 - 1) * (VILLAGE_CORRAL2.hd - 2.5);
       } else {
         const angle = rng() * Math.PI * 2;
         const dist  = 8 + rng() * 50;
@@ -287,10 +291,10 @@ export class CowSystem {
         removed:      false,
 
         // ── Corral confinement ────────────────────────────────────────────────
-        corrX:   inCorral ? VILLAGE_CORRAL.x  : null,
-        corrZ:   inCorral ? VILLAGE_CORRAL.z  : null,
-        corrHW:  inCorral ? VILLAGE_CORRAL.hw : 9999,
-        corrHD:  inCorral ? VILLAGE_CORRAL.hd : 9999,
+        corrX:   i < 4             ? VILLAGE_CORRAL.x   : i < N_CORRAL_COWS ? VILLAGE_CORRAL2.x  : null,
+        corrZ:   i < 4             ? VILLAGE_CORRAL.z   : i < N_CORRAL_COWS ? VILLAGE_CORRAL2.z  : null,
+        corrHW:  i < N_CORRAL_COWS ? VILLAGE_CORRAL.hw  : 9999,
+        corrHD:  i < N_CORRAL_COWS ? VILLAGE_CORRAL.hd  : 9999,
         escaped: false,
 
         // ── HP / wound state ─────────────────────────────────────────────────
