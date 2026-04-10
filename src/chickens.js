@@ -106,12 +106,13 @@ const PALETTES = [
 const M_HIT = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
 
 // ─── Spots de spawn: 5 grupos distribuidos por el mapa ───────────────────────
+// hw/hd = medio ancho/profundidad del corral (buildCorral usa cw=10, cd=10 → 4.5 de margen)
 const SPAWN_GROUPS = [
-  { x:  44, z: -133, n: 5 },   // corral casa 1
-  { x: -44, z: -133, n: 5 },   // corral casa 2
-  { x:  44, z: -147, n: 5 },   // corral casa 3
-  { x: -44, z: -147, n: 5 },   // corral casa 4
-  { x:   0, z: -189, n: 6 },   // corral casa 5
+  { x:  44, z: -133, n: 5, hw: 4, hd: 4 },
+  { x: -44, z: -133, n: 5, hw: 4, hd: 4 },
+  { x:  44, z: -147, n: 5, hw: 4, hd: 4 },
+  { x: -44, z: -147, n: 5, hw: 4, hd: 4 },
+  { x:   0, z: -189, n: 6, hw: 4, hd: 4 },
 ];
 
 // ─── dBBMM parámetros para gallinas ──────────────────────────────────────────
@@ -197,19 +198,24 @@ export class ChickenSystem {
     let id = 0;
 
     for (const group of SPAWN_GROUPS) {
+      const ghw = group.hw ?? 999;
+      const ghd = group.hd ?? 999;
       for (let i = 0; i < group.n; i++) {
         const mesh = buildChicken(rng);
-        const jx   = group.x + (rng() - 0.5) * 8;
-        const jz   = group.z + (rng() - 0.5) * 8;
+        // Spawn dentro del corral
+        const jx = Math.max(group.x - ghw + 0.5, Math.min(group.x + ghw - 0.5,
+                      group.x + (rng() - 0.5) * ghw * 1.6));
+        const jz = Math.max(group.z - ghd + 0.5, Math.min(group.z + ghd - 0.5,
+                      group.z + (rng() - 0.5) * ghd * 1.6));
         mesh.position.set(jx, 0, jz);
         mesh.rotation.y = rng() * Math.PI * 2;
         scene.add(mesh);
         this._hitboxMap.set(mesh._hitbox, id);
 
-        const initState = rng() < 0.7 ? 'grazing' : 'traveling';
+        const initState = 'grazing';   // dentro del corral solo pacen
         const initP     = BB_STATES[initState];
         const initAng   = rng() * Math.PI * 2;
-        const initDist  = initP.wpRadius[0] + rng() * (initP.wpRadius[1] - initP.wpRadius[0]);
+        const initDist  = Math.min(2.5, initP.wpRadius[0] + rng() * 1.5);
 
         this._chickens.push({
           id,
@@ -226,10 +232,13 @@ export class ChickenSystem {
           hp:            2,
           wounded:       false,
           woundedT:      0,
-          woundedMaxT:   2.5 + rng() * 1.5,   // gallinas caen más rápido
+          woundedMaxT:   2.5 + rng() * 1.5,
           detachedParts: [],
           spawnX:        jx,
           spawnZ:        jz,
+          // Límites del corral
+          corrX: group.x,  corrZ: group.z,
+          corrHW: ghw,      corrHD: ghd,
         });
         id++;
       }
@@ -458,6 +467,19 @@ export class ChickenSystem {
       // ── Mover ─────────────────────────────────────────────────────────
       c.mesh.position.x += c.vx * dt;
       c.mesh.position.z += c.vz * dt;
+
+      // ── Confinar al corral ────────────────────────────────────────────
+      if (c.corrHW < 900) {
+        const minX = c.corrX - c.corrHW, maxX = c.corrX + c.corrHW;
+        const minZ = c.corrZ - c.corrHD, maxZ = c.corrZ + c.corrHD;
+        if (c.mesh.position.x < minX) { c.mesh.position.x = minX; c.vx = Math.abs(c.vx) * 0.4; }
+        if (c.mesh.position.x > maxX) { c.mesh.position.x = maxX; c.vx = -Math.abs(c.vx) * 0.4; }
+        if (c.mesh.position.z < minZ) { c.mesh.position.z = minZ; c.vz = Math.abs(c.vz) * 0.4; }
+        if (c.mesh.position.z > maxZ) { c.mesh.position.z = maxZ; c.vz = -Math.abs(c.vz) * 0.4; }
+        // Clamp waypoint también
+        c.waypoint.x = Math.max(minX + 0.5, Math.min(maxX - 0.5, c.waypoint.x));
+        c.waypoint.z = Math.max(minZ + 0.5, Math.min(maxZ - 0.5, c.waypoint.z));
+      }
 
       // ── Rotar + picar (bob) ────────────────────────────────────────────
       const spd = Math.sqrt(c.vx*c.vx + c.vz*c.vz);

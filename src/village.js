@@ -164,19 +164,11 @@ function buildCorral(scene, cx, cz, cw = 10, cd = 10) {
   sb(MAT_WOOD,  2.2, 0.5, 0.7,  hw - 1.5, 0, 0, g);
   sb(MAT_STONE, 1.8, 0.3, 0.4,  hw - 1.5, 0.5, 0, g);
 
-  // Cerco perimetral con hueco en la cara norte (entrada desde la granja)
-  fence(g, -2.0, -hd, -hw, -hd);   // norte izquierda
-  fence(g,  hw,  -hd,  2.0, -hd);  // norte derecha
-  fence(g, -hw,   hd,  hw,   hd);  // sur
-  fence(g, -hw,  -hd, -hw,   hd);  // oeste
-  fence(g,  hw,  -hd,  hw,   hd);  // este
-
-  // Postes del portón norte
-  for (const ox of [-2.0, 2.0]) {
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.6, 0.18), MAT_FENCE);
-    p.position.set(ox, 0.8, -hd);
-    g.add(p);
-  }
+  // Cerco perimetral completamente cerrado (sin hueco — las gallinas no escapan)
+  fence(g, -hw, -hd,  hw, -hd);   // norte completo
+  fence(g, -hw,  hd,  hw,  hd);   // sur
+  fence(g, -hw, -hd, -hw,  hd);   // oeste
+  fence(g,  hw, -hd,  hw,  hd);   // este
 
   // Pequeño gallinero (caseta) en esquina sur
   const hen = new THREE.Group();
