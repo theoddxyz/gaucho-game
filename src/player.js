@@ -1,26 +1,41 @@
 // --- Player rendering (remote + local players) ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader }  from 'three/addons/loaders/FBXLoader.js';
 
-const loader = new GLTFLoader();
-let playerTemplate = null;
-let botTemplate    = null;
+const gltfLoader = new GLTFLoader();
+const fbxLoader  = new FBXLoader();
 
-function loadTemplate(isBot = false) {
-  if (isBot) {
-    if (botTemplate) return botTemplate;
-    botTemplate = new Promise(resolve =>
-      loader.load('/models/bot.glb', g => resolve(g.scene), undefined, () => resolve(null))
-    );
-    return botTemplate;
-  }
-  if (playerTemplate) return playerTemplate;
-  playerTemplate = new Promise((resolve) => {
-    loader.load('/models/player.glb', (gltf) => resolve(gltf.scene), undefined, () => resolve(null));
+// ─── Asset cache ─────────────────────────────────────────────────────────────
+// Walking.fbx  → character mesh + walk clip (one load, cloned per instance)
+let _playerFBXReady = null;  // Promise<{template:Object3D, clip:AnimationClip}>
+let _botGLBReady    = null;  // Promise<Object3D|null>
+
+function loadPlayerFBX() {
+  if (_playerFBXReady) return _playerFBXReady;
+  _playerFBXReady = new Promise((resolve) => {
+    fbxLoader.load('/models/Walking.fbx', (obj) => {
+      const clip = obj.animations[0] || null;
+      resolve({ template: obj, clip });
+    }, undefined, () => {
+      // fallback: gaucho2 static mesh, no animation
+      fbxLoader.load('/models/gaucho2.fbx', (obj) => {
+        resolve({ template: obj, clip: null });
+      }, undefined, () => resolve({ template: null, clip: null }));
+    });
   });
-  return playerTemplate;
+  return _playerFBXReady;
 }
 
+function loadBotGLB() {
+  if (_botGLBReady) return _botGLBReady;
+  _botGLBReady = new Promise(r =>
+    gltfLoader.load('/models/bot.glb', g => r(g.scene), undefined, () => r(null))
+  );
+  return _botGLBReady;
+}
+
+// ─── Fallback procedural model ───────────────────────────────────────────────
 function buildFallbackModel(color) {
   const group = new THREE.Group();
   const c = new THREE.Color(color);
@@ -28,37 +43,23 @@ function buildFallbackModel(color) {
   const skinMat = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0xffffff), 0.3), roughness: 0.85 });
   const darkMat = new THREE.MeshStandardMaterial({ color: c.clone().lerp(new THREE.Color(0x000000), 0.25), roughness: 0.9 });
 
-  // Torso
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.10, 0.50), bodyMat);
-  body.position.set(0, 0.62, 0);
-  body.name = 'body';
-  body.castShadow = true;
+  body.position.set(0, 0.62, 0); body.name = 'body'; body.castShadow = true;
 
-  // Head
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.46), skinMat);
-  head.position.set(0, 1.44, 0);
-  head.name = 'head';
-  head.castShadow = true;
+  head.position.set(0, 1.44, 0); head.name = 'head'; head.castShadow = true;
 
-  // Arms (left / right)
   const armGeo = new THREE.BoxGeometry(0.22, 0.85, 0.22);
   const leftArm = new THREE.Mesh(armGeo, bodyMat.clone());
-  leftArm.position.set(-0.50, 0.58, 0);
-  leftArm.castShadow = true;
+  leftArm.position.set(-0.50, 0.58, 0); leftArm.castShadow = true;
   const rightArm = new THREE.Mesh(armGeo, bodyMat.clone());
-  rightArm.position.set(0.50, 0.58, 0);
-  rightArm.castShadow = true;
+  rightArm.position.set(0.50, 0.58, 0); rightArm.castShadow = true;
 
-  // Legs (left / right)
   const legGeo = new THREE.BoxGeometry(0.26, 0.78, 0.26);
   const leftLeg = new THREE.Mesh(legGeo, darkMat.clone());
-  leftLeg.position.set(-0.19, -0.22, 0);
-  leftLeg.name = 'leg_left';
-  leftLeg.castShadow = true;
+  leftLeg.position.set(-0.19, -0.22, 0); leftLeg.name = 'leg_left'; leftLeg.castShadow = true;
   const rightLeg = new THREE.Mesh(legGeo, darkMat.clone());
-  rightLeg.position.set(0.19, -0.22, 0);
-  rightLeg.name = 'leg_right';
-  rightLeg.castShadow = true;
+  rightLeg.position.set(0.19, -0.22, 0); rightLeg.name = 'leg_right'; rightLeg.castShadow = true;
 
   group.add(body, head, leftArm, rightArm, leftLeg, rightLeg);
   group._hitboxes  = [body, head];
@@ -67,668 +68,474 @@ function buildFallbackModel(color) {
   return group;
 }
 
-/**
- * Modelo procedural "indio hacker" para bots enemigos.
- * Estética nativa + pintura de guerra en tonos tecnológicos.
- */
+// ─── Bot model (procedural) ──────────────────────────────────────────────────
 function buildBotModel() {
   const grp = new THREE.Group();
-
   const mk = (w, h, d, col, x, y, z) => {
     const m = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
       new THREE.MeshStandardMaterial({ color: col, roughness: 0.85 })
     );
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    grp.add(m);
-    return m;
+    m.position.set(x, y, z); m.castShadow = true; grp.add(m); return m;
   };
-
-  // Piel oscura / tonos tierra
-  const SKIN  = 0x6B3A1F;
-  const CLOTH = 0x2A1A08;   // tela oscura / cuero
-  const PAINT = 0xCC2200;   // pintura de guerra roja
-  const TECH  = 0x004488;   // acento hacker azul
-  const BONE  = 0xD4C090;   // huesos / collares
-
-  // Torso
-  const body = mk(0.80, 1.10, 0.50, CLOTH, 0, 0.55, 0);
-  body.name = 'body';
-  // Detalles de tela en el pecho
-  mk(0.78, 0.12, 0.52, TECH,  0, 0.88, 0.01);  // banda tecnológica
-  mk(0.78, 0.12, 0.52, PAINT, 0, 0.72, 0.01);  // banda roja
-
-  // Cabeza
-  const head = mk(0.48, 0.46, 0.46, SKIN, 0, 1.43, 0);
-  head.name = 'head';
-  // Pintura de guerra — rayas rojas en la cara
-  mk(0.50, 0.08, 0.10, PAINT, 0, 1.50,  0.24);
-  mk(0.50, 0.08, 0.10, PAINT, 0, 1.36,  0.24);
-  // Punto tecnológico (ojo cyberpunk)
-  mk(0.10, 0.10, 0.05, TECH, -0.14, 1.46, 0.25);
-  mk(0.10, 0.10, 0.05, TECH,  0.14, 1.46, 0.25);
-
-  // Plumas del tocado — triángulos voxel
-  for (let i = -2; i <= 2; i++) {
-    const h2 = 0.20 + Math.abs(i) * 0.04;
-    const col = i % 2 === 0 ? PAINT : BONE;
-    mk(0.10, h2, 0.06, col, i * 0.10, 1.70 + h2 * 0.5, 0);
+  const SKIN=0x6B3A1F, CLOTH=0x2A1A08, PAINT=0xCC2200, TECH=0x004488, BONE=0xD4C090;
+  const body = mk(0.80,1.10,0.50, CLOTH, 0,0.55,0); body.name='body';
+  mk(0.78,0.12,0.52, TECH,  0,0.88,0.01);
+  mk(0.78,0.12,0.52, PAINT, 0,0.72,0.01);
+  const head = mk(0.48,0.46,0.46, SKIN, 0,1.43,0); head.name='head';
+  mk(0.50,0.08,0.10, PAINT, 0,1.50, 0.24);
+  mk(0.50,0.08,0.10, PAINT, 0,1.36, 0.24);
+  mk(0.10,0.10,0.05, TECH, -0.14,1.46,0.25);
+  mk(0.10,0.10,0.05, TECH,  0.14,1.46,0.25);
+  for (let i=-2; i<=2; i++) {
+    const h2=0.20+Math.abs(i)*0.04;
+    mk(0.10,h2,0.06, i%2===0?PAINT:BONE, i*0.10,1.70+h2*0.5,0);
   }
-
-  // Brazos
-  mk(0.22, 0.90, 0.22, SKIN,  0.51, 0.60, 0);
-  mk(0.22, 0.90, 0.22, SKIN, -0.51, 0.60, 0);
-  // Pulseras bone en cada muñeca
-  mk(0.24, 0.07, 0.24, BONE,  0.51, 0.15, 0);
-  mk(0.24, 0.07, 0.24, BONE, -0.51, 0.15, 0);
-
-  // Piernas (guardamos referencias para poder volarlas)
-  const leftLeg  = mk(0.28, 0.80, 0.28, CLOTH,  0.20, -0.40, 0);
-  const rightLeg = mk(0.28, 0.80, 0.28, CLOTH, -0.20, -0.40, 0);
-  leftLeg.name  = 'leg_left';
-  rightLeg.name = 'leg_right';
-  // Mocasines
-  mk(0.30, 0.10, 0.36, BONE,  0.20, -0.85, 0.04);
-  mk(0.30, 0.10, 0.36, BONE, -0.20, -0.85, 0.04);
-
-  // Collar de huesos
-  mk(0.72, 0.10, 0.10, BONE, 0, 1.10, 0.26);
-
-  grp._hitboxes  = [body, head];
-  grp._headMesh  = head;
-  grp._legMeshes = [leftLeg, rightLeg];
+  mk(0.22,0.90,0.22, SKIN,  0.51,0.60,0);
+  mk(0.22,0.90,0.22, SKIN, -0.51,0.60,0);
+  mk(0.24,0.07,0.24, BONE,  0.51,0.15,0);
+  mk(0.24,0.07,0.24, BONE, -0.51,0.15,0);
+  const leftLeg  = mk(0.28,0.80,0.28, CLOTH,  0.20,-0.40,0); leftLeg.name='leg_left';
+  const rightLeg = mk(0.28,0.80,0.28, CLOTH, -0.20,-0.40,0); rightLeg.name='leg_right';
+  mk(0.30,0.10,0.36, BONE,  0.20,-0.85,0.04);
+  mk(0.30,0.10,0.36, BONE, -0.20,-0.85,0.04);
+  mk(0.72,0.10,0.10, BONE, 0,1.10,0.26);
+  grp._hitboxes=[body,head]; grp._headMesh=head; grp._legMeshes=[leftLeg,rightLeg];
   return grp;
 }
 
+// ─── Apply FBX character template ────────────────────────────────────────────
+// Returns {model, mixer, walkAction}
+function applyFBXTemplate(template, clip, color) {
+  const model = template.clone(true);
+  model.visible = true;
+
+  // Fix materials, shadows, cast-shadows
+  model.traverse((obj) => {
+    obj.visible = true;
+    if (obj.isMesh || obj.isSkinnedMesh) {
+      obj.castShadow    = true;
+      obj.receiveShadow = false;
+      // Keep original material but ensure it's a standard material
+      if (!obj.material || Array.isArray(obj.material)) return;
+      obj.material.roughness  = 0.85;
+      obj.material.metalness  = 0.0;
+      obj.material.transparent = false;
+      obj.material.depthWrite  = true;
+    }
+  });
+
+  // Auto-scale to TARGET_H
+  model.updateWorldMatrix(true, true);
+  const bbox = new THREE.Box3().setFromObject(model);
+  const h = bbox.max.y - bbox.min.y;
+  const TARGET_H = 1.75;
+  if (h > 0.01) {
+    model.scale.setScalar(TARGET_H / h);
+    model.updateWorldMatrix(true, true);
+    bbox.setFromObject(model);
+  }
+  // Align base to y = 0
+  if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
+
+  // Collect hitboxes
+  const hitboxes = [], legMeshes = [];
+  let headMesh = null;
+  model.traverse((obj) => {
+    if (!obj.isMesh && !obj.isSkinnedMesh) return;
+    const n = obj.name.toLowerCase();
+    // FBX Mixamo skinned mesh is typically one SkinnedMesh named "Ch..." or similar
+    if (obj.isSkinnedMesh) { hitboxes.push(obj); if (!headMesh) headMesh = obj; }
+    if (n.includes('leg') || n.includes('thigh') || n.includes('shin')) legMeshes.push(obj);
+  });
+
+  // AnimationMixer + walk action
+  let mixer = null, walkAction = null;
+  if (clip) {
+    mixer = new THREE.AnimationMixer(model);
+    walkAction = mixer.clipAction(clip);
+    walkAction.play();
+    walkAction.paused = true;   // start frozen at frame 0 (standing pose)
+  }
+
+  return { model, mixer, walkAction, hitboxes, headMesh, legMeshes };
+}
+
+// ─── Apply GLB template (bots) ───────────────────────────────────────────────
+function applyGLBTemplate(template, color) {
+  const model = template.clone(true);
+  model.visible = true;
+  const gunNodes = [];
+  let gun = null, gunRestPos = null, hat = null, firepoint = null;
+  model.traverse((obj) => {
+    obj.visible = true;
+    if (obj.isMesh) {
+      obj.castShadow = true;
+      const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+      obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+      if (obj.name === 'body' || obj.name === 'torso') obj.material.color.set(color);
+    }
+    const n = obj.name.toLowerCase().trim();
+    if (n==='gun'||n==='weapon'||n==='pistol'||n==='rifle'||n==='revolver') {
+      gun=obj; gunRestPos=obj.position.clone(); gunNodes.push(obj);
+    }
+    if (n.includes('hat')||n.includes('sombrero')||n.includes('cap')) hat=obj;
+    if (n.includes('firepoint')||n.includes('fire_point')||n.includes('muzzle')) {
+      firepoint=obj; obj.visible=false;
+    }
+  });
+  for (const gn of gunNodes) { gn.visible=false; gn.traverse(c=>c.visible=false); }
+  model.updateWorldMatrix(true, true);
+  const bbox = new THREE.Box3().setFromObject(model);
+  const h = bbox.max.y - bbox.min.y;
+  if (h > 0.01) {
+    model.scale.setScalar(1.75 / h);
+    model.updateWorldMatrix(true, true);
+    bbox.setFromObject(model);
+  }
+  if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
+  const hitboxes=[], legMeshes=[]; let headMesh=null;
+  model.traverse((obj) => {
+    if (!obj.isMesh) return;
+    const n=obj.name.toLowerCase().trim();
+    if (n==='body'||n==='torso') hitboxes.push(obj);
+    if (n==='head'||n.startsWith('head')||n==='eyes') { hitboxes.push(obj); headMesh=obj; }
+    if (n.includes('leg')||n.includes('pierna')) legMeshes.push(obj);
+  });
+  return { model, hitboxes, headMesh, legMeshes, gun, gunRestPos, hat, firepoint };
+}
+
+// ─── PlayerModel ─────────────────────────────────────────────────────────────
 export class PlayerModel {
   constructor(scene, data) {
-    this.id = data.id;
-    this.name = data.name;
-    this.color = data.color || '#ff4444';
-    this.hp = data.hp;
+    this.id       = data.id;
+    this.name     = data.name;
+    this.color    = data.color || '#ff4444';
+    this.hp       = data.hp;
     this._isLocal = !!data.local;
+    this._isBot   = !!data.isBot;
     this.targetPos = new THREE.Vector3(data.x, data.y ?? 1.0, data.z);
-    this.targetRY = data.ry || 0;
-    this._hitboxes = [];
+    this.targetRY  = data.ry || 0;
+
+    this._hitboxes      = [];
+    this._headMesh      = null;
+    this._legMeshes     = [];
+    this._detachedParts = [];
+    this._staggerVel    = 0;
+    this._staggerPos    = 0;
+
+    this._hat       = null;
+    this._hatFlying = false;
+    this._hatVel    = new THREE.Vector3();
+    this._hatAngVel = new THREE.Vector3();
+
+    this._gun        = null;
+    this._firepoint  = null;
+    this._gunRecoil  = 0;
+    this._gunRestPos = null;
+    this._hpBar      = null;
+    this._maxHp      = 200;
+
+    this._dying  = false;
+    this._dyingT = 0;
+
+    // Walk animation (FBX mixer path)
+    this._mixer      = null;
+    this._walkAction = null;
+    this._walkSpd    = 0;      // smoothed playback speed (0=idle, 1=walking)
+
+    // Velocity measurement (fallback for procedural models)
+    this._prevPos   = new THREE.Vector3();
+    this._moveSpeed = 0;
 
     this.group = new THREE.Group();
     this.group.position.set(data.x, 0, data.z);
     scene.add(this.group);
-
     this._scene = scene;
 
-    this._hat = null; // set only if GLB has a hat node
-    this._hatFlying = false;
-    this._hatVel = new THREE.Vector3();
-    this._hatAngVel = new THREE.Vector3();
-
-    // Impact physics
-    this._headMesh      = null;
-    this._legMeshes     = [];
-    this._detachedParts = [];   // flying body parts
-    this._staggerVel    = 0;    // spring-damper bodyshot stagger
-    this._staggerPos    = 0;
-
-    // Name label
     if (data.name) this._addNameLabel(data.name);
 
-    this._gun = null;
-    this._firepoint = null;
-    this._gunRecoil  = 0;
-    this._gunRestPos = null; // local position stored once gun is found
-    this._hpBar  = null;
-    this._maxHp  = 200;
-
-    // Muerte / caída
-    this._dying  = false;
-    this._dyingT = 0;
-    this._isBot  = !!data.isBot;
-
-    // ── Walk animation state ──────────────────────────────────────────────────
-    this._walkT         = 0;
-    this._legPivots     = [];   // kept for compat, unused
-    this._armPivots     = [];
-    this._legMeshDirect = [];   // [ { mesh, phase } ] — direct rotation
-    this._armMeshDirect = [];
-    this._prevPos       = new THREE.Vector3();
-    this._moveSpeed     = 0;
-
-    // Helper: apply GLB template clone with material fix + node detection
-    const _applyGLBTemplate = (template) => {
-      const model = template.clone(true);
-      model.visible = true;
-      // First pass: make everything visible, replace materials, detect special nodes
-      const gunNodes = [];
-      model.traverse((obj) => {
-        obj.visible = true;
-        if (obj.isMesh) {
-          obj.castShadow = true;
-          const origColor = (obj.material?.color)
-            ? obj.material.color.clone()
-            : new THREE.Color(0x9a7a50);
-          obj.material = new THREE.MeshStandardMaterial({
-            color: origColor, roughness: 0.85, metalness: 0.0,
-            transparent: false, opacity: 1.0, depthWrite: true, depthTest: true,
-          });
-          // Colorear torso con el color del jugador (nuevo modelo usa "torso" en vez de "body")
-          if (obj.name === 'body' || obj.name === 'torso') obj.material.color.set(this.color);
-        }
-        const n = obj.name.toLowerCase().trim();
-        if (n === 'gun' || n === 'weapon' || n === 'pistol' || n === 'rifle' || n === 'revolver') {
-          this._gun = obj; this._gunRestPos = obj.position.clone();
-          gunNodes.push(obj);
-        }
-        if (n.includes('hat') || n.includes('sombrero') || n.includes('cap')) { this._hat = obj; }
-        if (n.includes('firepoint') || n.includes('fire_point') || n.includes('muzzle')) {
-          this._firepoint = obj; obj.visible = false;
-          if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
-        }
-      });
-      // Hide gun and all its children AFTER the visibility pass
-      for (const gn of gunNodes) {
-        gn.visible = false;
-        gn.traverse(c => { c.visible = false; });
-      }
-      // Now that all nodes are visible, compute bbox, auto-scale y align base to y=0
-      model.updateWorldMatrix(true, true);
-      {
-        const bbox = new THREE.Box3();
-        bbox.setFromObject(model);
-        const h = bbox.max.y - bbox.min.y;
-        // Auto-escalar SIEMPRE a TARGET_H (sin importar si ya está a escala "razonable")
-        const TARGET_H = 1.75;
-        if (h > 0.01) {
-          model.scale.setScalar(TARGET_H / h);
-          model.updateWorldMatrix(true, true);
-          bbox.setFromObject(model);
-        }
-        if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
-      }
-      // ── Walk animation: collect limb mesh refs (direct rotation) ────────────
-      // El origen del mesh 'leg left/right' está en la parte SUPERIOR de la pierna
-      // (geo.max.y ≈ 0), así que rotation.x directo funciona como pivote de cadera.
-      this._legPivots     = [];  // mantenido por compatibilidad
-      this._armPivots     = [];
-      this._legMeshDirect = [];
-      this._armMeshDirect = [];
-      const limbDirect = {
-        'leg left':  { arr: this._legMeshDirect, phase: 0       },
-        'leg right': { arr: this._legMeshDirect, phase: Math.PI },
-        'arm right': { arr: this._armMeshDirect, phase: 0       },
-        'arm left':  { arr: this._armMeshDirect, phase: Math.PI },
-      };
-      model.traverse((obj) => {
-        if (!obj.isMesh) return;
-        const key = obj.name.toLowerCase().trim();
-        if (limbDirect[key]) {
-          limbDirect[key].arr.push({ mesh: obj, phase: limbDirect[key].phase });
-        }
-      });
-      // ── Collect hitboxes ────────────────────────────────────────────────────
-      this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
-      model.traverse((obj) => {
-        if (!obj.isMesh) return;
-        const n = obj.name.toLowerCase().trim();
-        if (n === 'body' || n === 'torso') this._hitboxes.push(obj);
-        if (n === 'head' || n.startsWith('head') || n === 'eyes') {
-          this._hitboxes.push(obj); this._headMesh = obj;
-        }
-        if (n.includes('leg') || n.includes('pierna') || n.includes('thigh') || n.includes('shin')) {
-          this._legMeshes.push(obj);
-        }
-      });
-      return model;
-    };
-
-    // Local player: add placeholder IMMEDIATELY (synchronous), then swap to GLB when loaded
-    if (data.local) {
-      const placeholder = buildFallbackModel(this.color);
+    // ── Load model ──────────────────────────────────────────────────────────
+    if (this._isBot) {
+      // Bots: GLB procedural
+      const placeholder = buildBotModel();
       this._hitboxes  = placeholder._hitboxes  || [];
       this._headMesh  = placeholder._headMesh  || null;
       this._legMeshes = placeholder._legMeshes || [];
       this.group.add(placeholder);
-
-      loadTemplate(false).then((template) => {
-        if (!template) return; // keep placeholder
+      loadBotGLB().then((tmpl) => {
+        if (!tmpl) return;
         this.group.remove(placeholder);
-        const model = _applyGLBTemplate(template);
+        const { model, hitboxes, headMesh, legMeshes, gun, gunRestPos, hat, firepoint }
+          = applyGLBTemplate(tmpl, this.color);
+        this._hitboxes  = hitboxes;
+        this._headMesh  = headMesh;
+        this._legMeshes = legMeshes;
+        this._gun        = gun;
+        this._gunRestPos = gunRestPos;
+        this._hat        = hat;
+        this._firepoint  = firepoint;
         this.group.add(model);
+        this._buildHPBar();
       });
       return;
     }
 
-    // Remote players: load GLB async
-    loadTemplate(!!data.isBot).then((template) => {
-      let model;
-      if (template) {
-        model = _applyGLBTemplate(template);
-      } else {
-        model = this._isBot ? buildBotModel() : buildFallbackModel(this.color);
-        this._hitboxes  = model._hitboxes  || [];
-        this._headMesh  = model._headMesh  || null;
-        this._legMeshes = model._legMeshes || [];
-      }
+    // Players (local + remote): FBX gaucho character
+    const placeholder = buildFallbackModel(this.color);
+    this._hitboxes  = placeholder._hitboxes  || [];
+    this._headMesh  = placeholder._headMesh  || null;
+    this._legMeshes = placeholder._legMeshes || [];
+    this.group.add(placeholder);
+
+    loadPlayerFBX().then(({ template, clip }) => {
+      if (!template) return; // keep fallback
+      this.group.remove(placeholder);
+      const { model, mixer, walkAction, hitboxes, headMesh, legMeshes }
+        = applyFBXTemplate(template, clip, this.color);
+      this._hitboxes   = hitboxes;
+      this._headMesh   = headMesh;
+      this._legMeshes  = legMeshes;
+      this._mixer      = mixer;
+      this._walkAction = walkAction;
       this.group.add(model);
-      // HP bar for bots
-      if (this._isBot) this._buildHPBar();
     });
   }
 
-  /**
-   * Build a procedural cowboy hat from Two CylinderGeometry meshes.
-   * Brim: CylinderGeometry(0.44, 0.46, 0.06, 12)
-   * Crown: CylinderGeometry(0.20, 0.25, 0.38, 12) at y=0.22
-   */
+  // ── HP bar ──────────────────────────────────────────────────────────────────
   _buildHat() {
     const hatGroup = new THREE.Group();
     const hatMat = new THREE.MeshStandardMaterial({ color: 0x2d1a0a });
-
-    const brimGeo = new THREE.CylinderGeometry(0.44, 0.46, 0.06, 12);
-    const brim = new THREE.Mesh(brimGeo, hatMat);
-    brim.castShadow = true;
-    hatGroup.add(brim);
-
-    const crownGeo = new THREE.CylinderGeometry(0.20, 0.25, 0.38, 12);
-    const crown = new THREE.Mesh(crownGeo, hatMat);
-    crown.position.y = 0.22;
-    crown.castShadow = true;
-    hatGroup.add(crown);
-
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.46,0.06,12), hatMat);
+    brim.castShadow = true; hatGroup.add(brim);
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.20,0.25,0.38,12), hatMat);
+    crown.position.y = 0.22; crown.castShadow = true; hatGroup.add(crown);
     return hatGroup;
   }
 
-  /**
-   * Detach the hat from the player and launch it with physics.
-   * If hat is already flying or gone, returns early.
-   */
   detachHat() {
     if (this._hatFlying || !this._hat) return;
-
-    // Save world position before reparenting
     const worldPos = this._hat.getWorldPosition(new THREE.Vector3());
-
-    // Reparent to scene
     this.group.remove(this._hat);
     this._scene.add(this._hat);
-
-    // Set world position
     this._hat.position.copy(worldPos);
-
-    // Random launch velocity
-    this._hatVel.set(
-      (Math.random() - 0.5) * 10,
-      5 + Math.random() * 5,
-      (Math.random() - 0.5) * 10
-    );
-
-    // Random angular velocity
-    this._hatAngVel.set(
-      (Math.random() - 0.5) * 15,
-      (Math.random() - 0.5) * 15,
-      (Math.random() - 0.5) * 15
-    );
-
+    this._hatVel.set((Math.random()-0.5)*10, 5+Math.random()*5, (Math.random()-0.5)*10);
+    this._hatAngVel.set((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*15);
     this._hatFlying = true;
   }
 
-  /**
-   * Update hat physics each frame.
-   */
   updateHat(dt) {
-    // Gun recoil kick — push along local Z then spring back
     if (this._gun && this._gunRestPos) {
       this._gunRecoil = Math.max(0, this._gunRecoil - dt / 0.10);
       const kick = this._gunRecoil * 0.22;
-      this._gun.position.set(
-        this._gunRestPos.x,
-        this._gunRestPos.y,
-        this._gunRestPos.z + kick
-      );
+      this._gun.position.set(this._gunRestPos.x, this._gunRestPos.y, this._gunRestPos.z + kick);
     }
     if (!this._hatFlying || !this._hat) return;
-
-    // Gravity
     this._hatVel.y -= 18 * dt;
-
-    // Move
     this._hat.position.addScaledVector(this._hatVel, dt);
-
-    // Rotate
     this._hat.rotation.x += this._hatAngVel.x * dt;
     this._hat.rotation.y += this._hatAngVel.y * dt;
     this._hat.rotation.z += this._hatAngVel.z * dt;
-
-    // Bounce on ground
     if (this._hat.position.y < 0.08) {
       this._hat.position.y = 0.08;
-      this._hatVel.y *= -0.3;
-      this._hatVel.x *= 0.6;
-      this._hatVel.z *= 0.6;
+      this._hatVel.y *= -0.3; this._hatVel.x *= 0.6; this._hatVel.z *= 0.6;
       this._hatAngVel.multiplyScalar(0.4);
-
-      // Come to rest if bounce is very small
       if (Math.abs(this._hatVel.y) < 0.3) {
         this._hatFlying = false;
-        this._hatVel.set(0, 0, 0);
-        this._hatAngVel.set(0, 0, 0);
+        this._hatVel.set(0,0,0); this._hatAngVel.set(0,0,0);
       }
     }
   }
 
-  /**
-   * Respawn: remove flying hat from scene, create a fresh one on the player.
-   */
   respawnHat() {
-    if (this._hat && this._hatFlying) {
-      this._scene.remove(this._hat);
-    }
-    this._hat = null;
-    this._hatFlying = false;
-    this._hatVel.set(0, 0, 0);
-    this._hatAngVel.set(0, 0, 0);
+    if (this._hat && this._hatFlying) this._scene.remove(this._hat);
+    this._hat=null; this._hatFlying=false;
+    this._hatVel.set(0,0,0); this._hatAngVel.set(0,0,0);
   }
 
   _addNameLabel(name) {
     const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 64;
+    canvas.width=256; canvas.height=64;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.roundRect(0, 10, 256, 44, 8);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.roundRect(0,10,256,44,8); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 28px sans-serif'; ctx.textAlign='center';
     ctx.fillText(name, 128, 42);
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-    sprite.scale.set(2, 0.5, 1);
-    sprite.position.y = 2.2;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(canvas), transparent: true
+    }));
+    sprite.scale.set(2,0.5,1); sprite.position.y=2.2;
     this.group.add(sprite);
   }
 
   _buildHPBar() {
     const canvas = document.createElement('canvas');
-    canvas.width  = 128;
-    canvas.height = 18;
-    this._hpBarCanvas = canvas;
-    const tex     = new THREE.CanvasTexture(canvas);
-    const sprite  = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-    sprite.scale.set(1.4, 0.20, 1);
-    sprite.position.y = 2.6;
+    canvas.width=128; canvas.height=18;
+    this._hpBarCanvas=canvas;
+    const tex = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false }));
+    sprite.scale.set(1.4,0.20,1); sprite.position.y=2.6;
     this.group.add(sprite);
-    this._hpBar    = sprite;
-    this._hpBarTex = tex;
+    this._hpBar=sprite; this._hpBarTex=tex;
     this._drawHPBar(this.hp ?? 200);
   }
 
   _drawHPBar(hp) {
     if (!this._hpBarCanvas) return;
-    const canvas = this._hpBarCanvas;
-    const ctx    = canvas.getContext('2d');
-    const ratio  = Math.max(0, Math.min(1, hp / this._maxHp));
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Background
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.roundRect(0, 0, canvas.width, canvas.height, 4);
-    ctx.fill();
-    // HP fill
-    const fillW = Math.round((canvas.width - 4) * ratio);
-    const hue   = ratio * 120;  // red→green
-    ctx.fillStyle = `hsl(${hue},90%,45%)`;
-    ctx.roundRect(2, 2, fillW, canvas.height - 4, 3);
-    ctx.fill();
-    if (this._hpBarTex) this._hpBarTex.needsUpdate = true;
+    const canvas=this._hpBarCanvas, ctx=canvas.getContext('2d');
+    const ratio=Math.max(0,Math.min(1,hp/this._maxHp));
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.roundRect(0,0,canvas.width,canvas.height,4); ctx.fill();
+    const fillW=Math.round((canvas.width-4)*ratio);
+    ctx.fillStyle=`hsl(${ratio*120},90%,45%)`; ctx.roundRect(2,2,fillW,canvas.height-4,3); ctx.fill();
+    if (this._hpBarTex) this._hpBarTex.needsUpdate=true;
   }
 
-  setHP(hp) {
-    this.hp = hp;
-    if (this._isBot) this._drawHPBar(hp);
-  }
+  setHP(hp) { this.hp=hp; if (this._isBot) this._drawHPBar(hp); }
 
-  /** Dispara la animación de caída (se queda en el suelo, no desaparece). */
-  startDying() {
-    if (this._dying) return;
-    this._dying  = true;
-    this._dyingT = 0;
-  }
+  startDying() { if (this._dying) return; this._dying=true; this._dyingT=0; }
 
+  // ── Main update ─────────────────────────────────────────────────────────────
   update(dt) {
-    // ── Flying body-part physics ─────────────────────────────────────────────
-    for (let i = this._detachedParts.length - 1; i >= 0; i--) {
-      const p = this._detachedParts[i];
-      p.t += dt;
-      if (p.t >= p.maxT) {
-        this._scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
-        p.mesh.material.dispose();
-        this._detachedParts.splice(i, 1);
-        continue;
+    // Flying body-part physics
+    for (let i=this._detachedParts.length-1; i>=0; i--) {
+      const p=this._detachedParts[i]; p.t+=dt;
+      if (p.t>=p.maxT) {
+        this._scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+        this._detachedParts.splice(i,1); continue;
       }
-      // Gravity
-      p.vel.y -= 20 * dt;
-      p.mesh.position.addScaledVector(p.vel, dt);
-      p.mesh.rotation.x += p.angVel.x * dt;
-      p.mesh.rotation.y += p.angVel.y * dt;
-      p.mesh.rotation.z += p.angVel.z * dt;
-      // Ground bounce
-      if (p.mesh.position.y < 0.04) {
-        p.mesh.position.y = 0.04;
-        p.vel.y  *= -0.28;
-        p.vel.x  *= 0.60;
-        p.vel.z  *= 0.60;
-        p.angVel.multiplyScalar(0.45);
+      p.vel.y-=20*dt; p.mesh.position.addScaledVector(p.vel,dt);
+      p.mesh.rotation.x+=p.angVel.x*dt; p.mesh.rotation.y+=p.angVel.y*dt; p.mesh.rotation.z+=p.angVel.z*dt;
+      if (p.mesh.position.y<0.04) {
+        p.mesh.position.y=0.04; p.vel.y*=-0.28; p.vel.x*=0.60; p.vel.z*=0.60; p.angVel.multiplyScalar(0.45);
       }
-      // Fade out last 0.6 s
-      if (p.t > p.maxT - 0.6) {
-        p.mesh.material.opacity = Math.max(0, (p.maxT - p.t) / 0.6);
-      }
+      if (p.t>p.maxT-0.6) p.mesh.material.opacity=Math.max(0,(p.maxT-p.t)/0.6);
     }
 
-    // ── Spring-damper bodyshot stagger ───────────────────────────────────────
-    if (Math.abs(this._staggerVel) > 0.001 || Math.abs(this._staggerPos) > 0.001) {
-      const K = 32, D = 7;
-      this._staggerVel -= this._staggerPos * K * dt;
-      this._staggerVel *= (1 - D * dt);
-      this._staggerPos += this._staggerVel * dt;
-      if (!this._dying) this.group.rotation.z = this._staggerPos * 0.07;
-      if (Math.abs(this._staggerPos) < 0.004 && Math.abs(this._staggerVel) < 0.004) {
-        this._staggerVel = 0;
-        this._staggerPos = 0;
-        if (!this._dying) this.group.rotation.z = 0;
+    // Stagger spring
+    if (Math.abs(this._staggerVel)>0.001||Math.abs(this._staggerPos)>0.001) {
+      const K=32,D=7;
+      this._staggerVel-=this._staggerPos*K*dt; this._staggerVel*=(1-D*dt); this._staggerPos+=this._staggerVel*dt;
+      if (!this._dying) this.group.rotation.z=this._staggerPos*0.07;
+      if (Math.abs(this._staggerPos)<0.004&&Math.abs(this._staggerVel)<0.004) {
+        this._staggerVel=0; this._staggerPos=0; if (!this._dying) this.group.rotation.z=0;
       }
     }
 
     if (this._dying) {
-      this._dyingT += dt;
-      // Caer de costado en ~0.6 s
-      this.group.rotation.z = Math.min(Math.PI / 2, this._dyingT * 3.5);
-      // Hundirse levemente en el suelo
-      this.group.position.y = Math.max(-0.25, this.group.position.y - dt * 0.4);
+      this._dyingT+=dt;
+      this.group.rotation.z=Math.min(Math.PI/2, this._dyingT*3.5);
+      this.group.position.y=Math.max(-0.25, this.group.position.y-dt*0.4);
       this.updateHat(dt);
-      return;  // no seguir interpolando posición
+      return;
     }
-    // Jugador local: posición la setea main.js directo — no lerpeamos
+
+    // Position / rotation (remote players)
     if (!this._isLocal) {
-      this.group.position.lerp(this.targetPos, Math.min(1, 8 * dt));
-      let diff = this.targetRY - this.group.rotation.y;
-      while (diff >  Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      this.group.rotation.y += diff * Math.min(1, 10 * dt);
+      this.group.position.lerp(this.targetPos, Math.min(1,8*dt));
+      let diff=this.targetRY-this.group.rotation.y;
+      while (diff> Math.PI) diff-=Math.PI*2;
+      while (diff<-Math.PI) diff+=Math.PI*2;
+      this.group.rotation.y+=diff*Math.min(1,10*dt);
     }
     this.updateHat(dt);
 
-    // ── Walk animation ────────────────────────────────────────────────────────
-    // Medir velocidad real del modelo (funciona para local y remoto)
+    // ── FBX skeletal walk animation ───────────────────────────────────────────
     const moved = this.group.position.distanceTo(this._prevPos);
     this._moveSpeed = moved / Math.max(dt, 0.001);
     this._prevPos.copy(this.group.position);
 
     const isMoving = this._moveSpeed > 0.08;
-    const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
 
-    if (isMoving) this._walkT += dt * Math.min(this._moveSpeed, 8) * 1.6;
+    if (this._mixer) {
+      // Smooth walk speed: 0 = idle (frozen), 1 = normal walk, >1 = fast
+      const targetSpd = isMoving ? Math.min(this._moveSpeed * 0.55, 2.5) : 0;
+      this._walkSpd += (targetSpd - this._walkSpd) * Math.min(1, 8 * dt);
 
-    // Rotación directa sobre el mesh — para el nuevo player.glb el origen de
-    // las piernas está en la parte superior, así que esto es correcto.
-    for (const { mesh, phase } of this._legMeshDirect) {
-      const target = isMoving ? Math.sin(this._walkT * freq + phase) * legAmp : 0;
-      mesh.rotation.x += (target - mesh.rotation.x) * Math.min(1, 12 * dt);
-    }
-    for (const { mesh, phase } of this._armMeshDirect) {
-      const target = isMoving ? Math.sin(this._walkT * freq + phase) * armAmp : 0;
-      mesh.rotation.x += (target - mesh.rotation.x) * Math.min(1, 12 * dt);
-    }
-    // Bob vertical suave
-    if (isMoving && this._legMeshDirect.length > 0) {
-      this.group.position.y += Math.abs(Math.sin(this._walkT * freq)) * 0.016;
+      if (this._walkAction) {
+        this._walkAction.paused    = false;
+        this._walkAction.timeScale = this._walkSpd;
+      }
+      this._mixer.update(dt);
     }
   }
 
-  setTarget(x, y, z, ry) {
-    this.targetPos.set(x, y, z);
-    this.targetRY = ry;
-  }
+  setTarget(x, y, z, ry) { this.targetPos.set(x,y,z); this.targetRY=ry; }
 
-  /** Snaps position immediately — use for mounted riders so they don't lag behind horse. */
   snapTo(x, y, z, ry) {
-    this.group.position.set(x, y, z);
-    this.targetPos.set(x, y, z);
-    this.group.rotation.y = ry;
-    this.targetRY = ry;
+    this.group.position.set(x,y,z); this.targetPos.set(x,y,z);
+    this.group.rotation.y=ry; this.targetRY=ry;
   }
 
-  setAiming(isAiming) {
-    if (this._gun) this._gun.visible = isAiming;
-  }
-
-  triggerGunRecoil() { this._gunRecoil = 1; }
+  setAiming(isAiming) { if (this._gun) this._gun.visible=isAiming; }
+  triggerGunRecoil()  { this._gunRecoil=1; }
 
   getFirepointWorldPos() {
-    if (this._firepoint) {
-      return this._firepoint.getWorldPosition(new THREE.Vector3());
-    }
+    if (this._firepoint) return this._firepoint.getWorldPosition(new THREE.Vector3());
     return null;
   }
 
-  /**
-   * Apply visual impact reaction — purely local, no network sync.
-   * @param {'head'|'leg'|'body'} hitZone
-   * @param {THREE.Vector3} hitPoint  — world position of impact
-   */
   applyImpact(hitZone, hitPoint) {
-    if (hitZone === 'head') {
-      // Determine world position of head
+    if (hitZone==='head') {
       let headWorldPos;
       if (this._headMesh) {
-        this._headMesh.updateWorldMatrix(true, false);
-        headWorldPos = this._headMesh.getWorldPosition(new THREE.Vector3());
-        const geo = this._headMesh.geometry.clone();
-        const col = this._headMesh.material?.color?.getHex?.() ?? 0x8b6040;
-        this._headMesh.visible = false;
-        this._spawnFlyingPart(headWorldPos, geo, col, hitPoint, 3.5);
+        this._headMesh.updateWorldMatrix(true,false);
+        headWorldPos=this._headMesh.getWorldPosition(new THREE.Vector3());
+        const geo=this._headMesh.geometry.clone();
+        const col=this._headMesh.material?.color?.getHex?.()??0x8b6040;
+        this._headMesh.visible=false;
+        this._spawnFlyingPart(headWorldPos,geo,col,hitPoint,3.5);
       } else {
-        headWorldPos = this.group.position.clone().add(new THREE.Vector3(0, 1.5, 0));
-        this._spawnFlyingPart(
-          headWorldPos,
-          new THREE.BoxGeometry(0.46, 0.46, 0.46),
-          0x8b6040, hitPoint, 3.5
-        );
+        headWorldPos=this.group.position.clone().add(new THREE.Vector3(0,1.5,0));
+        this._spawnFlyingPart(headWorldPos,new THREE.BoxGeometry(0.46,0.46,0.46),0x8b6040,hitPoint,3.5);
       }
-
-    } else if (hitZone === 'leg') {
-      let legMesh = null;
-      if (this._legMeshes.length > 0) {
-        // Pick a still-visible leg
-        const visible = this._legMeshes.filter(l => l.visible);
-        legMesh = visible.length > 0
-          ? visible[Math.floor(Math.random() * visible.length)]
-          : this._legMeshes[Math.floor(Math.random() * this._legMeshes.length)];
+    } else if (hitZone==='leg') {
+      let legMesh=null;
+      if (this._legMeshes.length>0) {
+        const visible=this._legMeshes.filter(l=>l.visible);
+        legMesh=visible.length>0
+          ? visible[Math.floor(Math.random()*visible.length)]
+          : this._legMeshes[Math.floor(Math.random()*this._legMeshes.length)];
       }
-
-      let legWorldPos;
       if (legMesh) {
-        legMesh.updateWorldMatrix(true, false);
-        legWorldPos = legMesh.getWorldPosition(new THREE.Vector3());
-        const geo = legMesh.geometry.clone();
-        const col = legMesh.material?.color?.getHex?.() ?? 0x2a1a08;
-        legMesh.visible = false;
-        this._spawnFlyingPart(legWorldPos, geo, col, hitPoint, 3.5);
+        legMesh.updateWorldMatrix(true,false);
+        const legWorldPos=legMesh.getWorldPosition(new THREE.Vector3());
+        const geo=legMesh.geometry.clone();
+        const col=legMesh.material?.color?.getHex?.()??0x2a1a08;
+        legMesh.visible=false;
+        this._spawnFlyingPart(legWorldPos,geo,col,hitPoint,3.5);
       } else {
-        // Fallback: spawn chunk at lower body
-        legWorldPos = this.group.position.clone().add(
-          new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.35, 0)
-        );
-        this._spawnFlyingPart(
-          legWorldPos,
-          new THREE.BoxGeometry(0.26, 0.70, 0.26),
-          0x2a1a08, hitPoint, 3.5
-        );
+        const legWorldPos=this.group.position.clone().add(new THREE.Vector3((Math.random()-0.5)*0.3,0.35,0));
+        this._spawnFlyingPart(legWorldPos,new THREE.BoxGeometry(0.26,0.70,0.26),0x2a1a08,hitPoint,3.5);
       }
-
     } else {
-      // bodyshot — spring-damper rotation stagger
-      this._staggerPos = 0;
-      this._staggerVel = 5.0 * (Math.random() < 0.5 ? 1 : -1);
+      this._staggerPos=0; this._staggerVel=5.0*(Math.random()<0.5?1:-1);
     }
   }
 
-  /**
-   * Spawn a body part that flies through the air with physics.
-   */
-  _spawnFlyingPart(worldPos, geo, color, hitPoint, maxT = 3.0) {
-    const mat  = new THREE.MeshStandardMaterial({ color, roughness: 0.85, transparent: true, opacity: 1 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(worldPos);
-    mesh.castShadow = true;
+  _spawnFlyingPart(worldPos, geo, color, hitPoint, maxT=3.0) {
+    const mat=new THREE.MeshStandardMaterial({color,roughness:0.85,transparent:true,opacity:1});
+    const mesh=new THREE.Mesh(geo,mat); mesh.position.copy(worldPos); mesh.castShadow=true;
     this._scene.add(mesh);
-
-    // Launch: mostly away from hit point + upward jolt
-    const away = new THREE.Vector3().subVectors(worldPos, hitPoint).normalize();
-    const vel  = new THREE.Vector3(
-      away.x * 6 + (Math.random() - 0.5) * 5,
-      Math.abs(away.y) * 2 + 5 + Math.random() * 4,
-      away.z * 6 + (Math.random() - 0.5) * 5
-    );
-    const angVel = new THREE.Vector3(
-      (Math.random() - 0.5) * 20,
-      (Math.random() - 0.5) * 20,
-      (Math.random() - 0.5) * 20
-    );
-
-    this._detachedParts.push({ mesh, vel, angVel, t: 0, maxT });
+    const away=new THREE.Vector3().subVectors(worldPos,hitPoint).normalize();
+    const vel=new THREE.Vector3(away.x*6+(Math.random()-0.5)*5, Math.abs(away.y)*2+5+Math.random()*4, away.z*6+(Math.random()-0.5)*5);
+    const angVel=new THREE.Vector3((Math.random()-0.5)*20,(Math.random()-0.5)*20,(Math.random()-0.5)*20);
+    this._detachedParts.push({mesh,vel,angVel,t:0,maxT});
   }
 
-  /**
-   * Reset all impact state — call on respawn.
-   */
   resetImpact() {
-    if (this._headMesh) this._headMesh.visible = true;
-    for (const leg of this._legMeshes) leg.visible = true;
-    for (const p of this._detachedParts) {
-      this._scene.remove(p.mesh);
-      p.mesh.geometry.dispose();
-      p.mesh.material.dispose();
-    }
-    this._detachedParts = [];
-    this._staggerVel    = 0;
-    this._staggerPos    = 0;
+    if (this._headMesh) this._headMesh.visible=true;
+    for (const leg of this._legMeshes) leg.visible=true;
+    for (const p of this._detachedParts) { this._scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); }
+    this._detachedParts=[]; this._staggerVel=0; this._staggerPos=0;
   }
 
   remove(scene) {
     scene.remove(this.group);
-    if (this._hat && this._hatFlying) {
-      scene.remove(this._hat);
-    }
-    // Clean up any flying parts
-    for (const p of this._detachedParts) {
-      scene.remove(p.mesh);
-      p.mesh.geometry.dispose();
-      p.mesh.material.dispose();
-    }
-    this._detachedParts = [];
+    if (this._hat && this._hatFlying) scene.remove(this._hat);
+    for (const p of this._detachedParts) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); }
+    this._detachedParts=[];
+    if (this._mixer) this._mixer.stopAllAction();
   }
 
-  getHitboxes() {
-    return this._hitboxes;
-  }
+  getHitboxes() { return this._hitboxes; }
 }
