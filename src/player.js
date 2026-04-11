@@ -1,7 +1,8 @@
 // --- Player rendering (remote + local players) ---
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { FBXLoader }  from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader }     from 'three/addons/loaders/FBXLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 const gltfLoader = new GLTFLoader();
 const fbxLoader  = new FBXLoader();
@@ -107,21 +108,29 @@ function buildBotModel() {
 // ─── Apply FBX character template ────────────────────────────────────────────
 // Returns {model, mixer, walkAction}
 function applyFBXTemplate(template, clip, color) {
-  const model = template.clone(true);
+  // SkeletonUtils.clone() correctly rewires SkinnedMesh → cloned Skeleton bones
+  const model = SkeletonUtils.clone(template);
   model.visible = true;
 
-  // Fix materials, shadows, cast-shadows
+  // Fix materials (clone so each instance gets its own), shadows
   model.traverse((obj) => {
     obj.visible = true;
     if (obj.isMesh || obj.isSkinnedMesh) {
       obj.castShadow    = true;
       obj.receiveShadow = false;
-      // Keep original material but ensure it's a standard material
-      if (!obj.material || Array.isArray(obj.material)) return;
-      obj.material.roughness  = 0.85;
-      obj.material.metalness  = 0.0;
-      obj.material.transparent = false;
-      obj.material.depthWrite  = true;
+      // Clone material so instances don't share
+      if (obj.material) {
+        if (Array.isArray(obj.material)) {
+          obj.material = obj.material.map(m => m.clone());
+        } else {
+          obj.material = obj.material.clone();
+        }
+        obj.material.roughness   = 0.85;
+        obj.material.metalness   = 0.0;
+        obj.material.transparent = false;
+        obj.material.depthWrite  = true;
+        obj.material.needsUpdate = true;
+      }
     }
   });
 
