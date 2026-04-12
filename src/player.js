@@ -3,9 +3,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
-let playerTemplate = null;
-let botTemplate    = null;
+let playerTemplate    = null;
+let botTemplate       = null;
 let horseRideTemplate = null;
+let shootWalkTemplate = null;
 
 function loadTemplate(isBot = false) {
   if (isBot) {
@@ -28,6 +29,14 @@ function loadHorseRideTemplate() {
     loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return horseRideTemplate;
+}
+
+function loadShootWalkTemplate() {
+  if (shootWalkTemplate) return shootWalkTemplate;
+  shootWalkTemplate = new Promise((resolve) => {
+    loader.load('/models/CAMINANDOALOSTIROSPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+  });
+  return shootWalkTemplate;
 }
 
 function buildFallbackModel(color) {
@@ -203,12 +212,14 @@ export class PlayerModel {
     this._prevPos       = new THREE.Vector3();
     this._moveSpeed     = 0;
     // AnimationMixer (para WALKINGPEROBIEN.glb con esqueleto Mixamo)
-    this._mixer       = null;
-    this._walkAction  = null;
-    this._horseAction = null;
-    this._walkSpd     = 0;
-    this._rootBone    = null;
-    this._isRiding    = false;
+    this._mixer           = null;
+    this._walkAction      = null;
+    this._horseAction     = null;
+    this._shootWalkAction = null;
+    this._walkSpd         = 0;
+    this._rootBone        = null;
+    this._isRiding        = false;
+    this._isAimingAnim    = false;
     // Smoke (cigarrillo) — posición desde Head bone
     this._headBone       = null;
     this._smokeParticles = [];
@@ -264,7 +275,7 @@ export class PlayerModel {
         bbox.setFromObject(model);
         const h = bbox.max.y - bbox.min.y;
         // Auto-escalar SIEMPRE a TARGET_H (sin importar si ya está a escala "razonable")
-        const TARGET_H = 3.5;
+        const TARGET_H = 2.8;
         if (h > 0.01) {
           model.scale.setScalar(TARGET_H / h);
           model.updateWorldMatrix(true, true);
@@ -329,9 +340,18 @@ export class PlayerModel {
           if (!gltf || !gltf.animations?.length) return;
           this._horseAction = this._mixer.clipAction(gltf.animations[0]);
           this._horseAction.setLoop(THREE.LoopRepeat, Infinity);
-          this._horseAction.weight = 0;
+          this._horseAction.setEffectiveWeight(0);
           this._horseAction.play();
           this._horseAction.paused = true;
+        });
+        // Cargar animación de caminar con escopeta
+        loadShootWalkTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          this._shootWalkAction = this._mixer.clipAction(gltf.animations[0]);
+          this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._shootWalkAction.setEffectiveWeight(0);
+          this._shootWalkAction.play();
+          this._shootWalkAction.paused = true;
         });
       }
       return model;
@@ -621,14 +641,27 @@ export class PlayerModel {
 
     if (this._mixer) {
       if (this._isRiding) {
-        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(0); }
-        if (this._horseAction) { this._horseAction.paused = false; this._horseAction.setEffectiveWeight(1); }
+        // Caballo: sólo horseAction
+        if (this._walkAction)      { this._walkAction.paused      = false; this._walkAction.setEffectiveWeight(0); }
+        if (this._shootWalkAction) { this._shootWalkAction.paused = false; this._shootWalkAction.setEffectiveWeight(0); }
+        if (this._horseAction)     { this._horseAction.paused     = false; this._horseAction.setEffectiveWeight(1); }
         this._mixer.update(dt);
-      } else {
+      } else if (this._isAimingAnim && this._shootWalkAction) {
+        // Caminando con escopeta
         const target = isMoving ? 1.0 : 0;
         this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
-        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(1); }
-        if (this._horseAction) { this._horseAction.setEffectiveWeight(0); }
+        if (this._walkAction)      { this._walkAction.paused      = false; this._walkAction.setEffectiveWeight(0); }
+        if (this._horseAction)     { this._horseAction.setEffectiveWeight(0); }
+        this._shootWalkAction.paused = false;
+        this._shootWalkAction.setEffectiveWeight(1);
+        this._mixer.update(dt * this._walkSpd);
+      } else {
+        // Caminata normal
+        const target = isMoving ? 1.0 : 0;
+        this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
+        if (this._walkAction)      { this._walkAction.paused      = false; this._walkAction.setEffectiveWeight(1); }
+        if (this._horseAction)     { this._horseAction.setEffectiveWeight(0); }
+        if (this._shootWalkAction) { this._shootWalkAction.setEffectiveWeight(0); }
         this._mixer.update(dt * this._walkSpd);
       }
     } else {
@@ -745,6 +778,7 @@ export class PlayerModel {
 
   setAiming(isAiming) {
     if (this._gun) this._gun.visible = isAiming;
+    this._isAimingAnim = isAiming;
   }
 
   triggerGunRecoil() { this._gunRecoil = 1; }

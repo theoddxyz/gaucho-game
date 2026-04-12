@@ -595,7 +595,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   Audio.shotgun();
   try {
   const pos    = controls.getPosition();
-  const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+  const riderY = horseManager?.isMounted() ? 1.5 : pos.y;
   const gunY   = riderY + 0.55;
   const fp     = localPlayerModel?.getFirepointWorldPos();
   const origin = fp ? { x: fp.x, y: fp.y, z: fp.z } : null;
@@ -768,7 +768,7 @@ renderer.domElement.addEventListener('mouseup', (e) => {
     if (lassoSystem._state === 'charging') {
       // Release charge → throw lasso toward mouse cursor
       const pos    = controls.getPosition();
-      const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+      const riderY = horseManager?.isMounted() ? 1.5 : pos.y;
       const gunY   = riderY + 0.55;
       const fp     = localPlayerModel?.getFirepointWorldPos();
       const origin = fp
@@ -914,12 +914,12 @@ function gameLoop() {
     const facingAngle = _facingAngle;
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
-      // Y: mount/dismount anim → horse jump (2.5 + jump offset) → ground jump → ground
+      // Y: mount/dismount anim → horse jump (1.5 + jump offset) → ground jump → ground
       const animY  = horseManager?.getAnimY();
       const riderY = animY != null
         ? animY
         : horseManager?.isMounted()
-          ? 2.5 + pos.y          // horse jump: rider rises above saddle
+          ? 1.5 + pos.y          // horse jump: rider rides on saddle
           : pos.y;               // normal ground jump (pos.y goes up on Space)
 
       // XZ: arc from player pos → horse on mount, horse → landing on dismount
@@ -983,7 +983,7 @@ function gameLoop() {
 
   // ── Lazo ─────────────────────────────────────────────────────────────────
   if (lassoSystem.isActive() && pos) {
-    const riderY = horseManager?.isMounted() ? 2.5 : pos.y;
+    const riderY = horseManager?.isMounted() ? 1.5 : pos.y;
     const gunY   = riderY + 0.55;
     const fp     = localPlayerModel?.getFirepointWorldPos();
     const gunPos = fp
