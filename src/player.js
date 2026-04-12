@@ -15,9 +15,9 @@ function loadTemplate(isBot = false) {
     return botTemplate;
   }
   if (playerTemplate) return playerTemplate;
-  // Cargar CAMINANDO.glb (tiene esqueleto Mixamo + animación de caminata)
+  // WALKINGPEROBIEN.glb — animación in-place, loop limpio
   playerTemplate = new Promise((resolve) => {
-    loader.load('/models/CAMINANDO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+    loader.load('/models/WALKINGPEROBIEN.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return playerTemplate;
 }
@@ -599,13 +599,6 @@ export class PlayerModel {
       this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
       if (this._walkAction) this._walkAction.paused = false;
       this._mixer.update(dt * this._walkSpd);
-      // Resetear posición horizontal del root bone después del update
-      // — evita que el personaje se desplace solo y el salto al reiniciar el loop
-      if (this._rootBone) {
-        this._rootBone.position.x = 0;
-        this._rootBone.position.z = 0;
-        this._rootBone.updateMatrix();
-      }
     } else {
       // Fallback: rotación directa de meshes (player.glb sin esqueleto)
       const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
