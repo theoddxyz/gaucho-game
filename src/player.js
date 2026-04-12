@@ -198,6 +198,7 @@ export class PlayerModel {
     this._mixer         = null;
     this._walkAction    = null;
     this._walkSpd       = 0;
+    this._rootBone      = null;
 
     // Helper: apply GLB template with material fix + node detection
     const _applyGLBTemplate = (gltfOrScene) => {
@@ -294,16 +295,16 @@ export class PlayerModel {
       });
       // ── AnimationMixer (esqueleto Mixamo de CAMINANDO.glb) ──────────────────
       if (clips.length > 0) {
-        const clip = clips[0];
-        // Eliminar posición horizontal del root bone → evita el salto al hacer loop
-        clip.tracks = clip.tracks.filter(t => {
-          const low = t.name.toLowerCase();
-          return !((low.includes('hips') || low.includes('mixamorigroot'))
-                   && low.endsWith('.position'));
+        // Buscar el root bone (Hips) para resetear X/Z cada frame
+        // — así el personaje no se desplaza solo ni salta al reiniciar el loop
+        this._rootBone = null;
+        model.traverse(obj => {
+          if (obj.isBone && obj.name.toLowerCase().includes('hips') && !this._rootBone) {
+            this._rootBone = obj;
+          }
         });
-        THREE.AnimationClip.optimize(clip);
         this._mixer      = new THREE.AnimationMixer(model);
-        this._walkAction = this._mixer.clipAction(clip);
+        this._walkAction = this._mixer.clipAction(clips[0]);
         this._walkAction.setLoop(THREE.LoopRepeat, Infinity);
         this._walkAction.play();
         this._walkAction.paused = true;
@@ -594,11 +595,16 @@ export class PlayerModel {
     const isMoving = this._moveSpeed > 0.08;
 
     if (this._mixer) {
-      // AnimationMixer (CAMINANDO.glb con esqueleto real)
       const target = isMoving ? 1.0 : 0;
       this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
       if (this._walkAction) this._walkAction.paused = false;
       this._mixer.update(dt * this._walkSpd);
+      // Resetear posición horizontal del root bone después del update
+      // — evita que el personaje se desplace solo y el salto al reiniciar el loop
+      if (this._rootBone) {
+        this._rootBone.position.x = 0;
+        this._rootBone.position.z = 0;
+      }
     } else {
       // Fallback: rotación directa de meshes (player.glb sin esqueleto)
       const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
