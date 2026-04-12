@@ -15,8 +15,9 @@ function loadTemplate(isBot = false) {
     return botTemplate;
   }
   if (playerTemplate) return playerTemplate;
+  // Cargar CAMINANDO.glb (tiene esqueleto Mixamo + animación de caminata)
   playerTemplate = new Promise((resolve) => {
-    loader.load('/models/player.glb', (gltf) => resolve(gltf.scene), undefined, () => resolve(null));
+    loader.load('/models/CAMINANDO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return playerTemplate;
 }
@@ -187,15 +188,23 @@ export class PlayerModel {
 
     // ── Walk animation state ──────────────────────────────────────────────────
     this._walkT         = 0;
-    this._legPivots     = [];   // kept for compat, unused
+    this._legPivots     = [];
     this._armPivots     = [];
-    this._legMeshDirect = [];   // [ { mesh, phase } ] — direct rotation
+    this._legMeshDirect = [];
     this._armMeshDirect = [];
     this._prevPos       = new THREE.Vector3();
     this._moveSpeed     = 0;
+    // AnimationMixer (para CAMINANDO.glb con esqueleto Mixamo)
+    this._mixer         = null;
+    this._walkAction    = null;
+    this._walkSpd       = 0;
 
     // Helper: apply GLB template clone with material fix + node detection
-    const _applyGLBTemplate = (template) => {
+    // gltfOrScene: puede ser gltf completo (con .scene + .animations) o solo scene
+    const _applyGLBTemplate = (gltfOrScene) => {
+      const isFullGLTF = gltfOrScene.scene !== undefined;
+      const template   = isFullGLTF ? gltfOrScene.scene : gltfOrScene;
+      const clips      = isFullGLTF ? (gltfOrScene.animations || []) : [];
       const model = template.clone(true);
       model.visible = true;
       // First pass: make everything visible, replace materials, detect special nodes
@@ -268,9 +277,11 @@ export class PlayerModel {
       // ── Collect hitboxes ────────────────────────────────────────────────────
       this._hitboxes = []; this._headMesh = null; this._legMeshes = [];
       model.traverse((obj) => {
-        if (!obj.isMesh) return;
+        const isSkinned = obj.isSkinnedMesh;
+        if (!obj.isMesh && !isSkinned) return;
         const n = obj.name.toLowerCase().trim();
-        if (n === 'body' || n === 'torso') this._hitboxes.push(obj);
+        if (isSkinned) { obj.frustumCulled = false; }  // evita culling incorrecto
+        if (n === 'body' || n === 'torso' || isSkinned) this._hitboxes.push(obj);
         if (n === 'head' || n.startsWith('head') || n === 'eyes') {
           this._hitboxes.push(obj); this._headMesh = obj;
         }
@@ -278,6 +289,14 @@ export class PlayerModel {
           this._legMeshes.push(obj);
         }
       });
+      // ── AnimationMixer (esqueleto Mixamo de CAMINANDO.glb) ──────────────────
+      if (clips.length > 0) {
+        this._mixer     = new THREE.AnimationMixer(model);
+        this._walkAction = this._mixer.clipAction(clips[0]);
+        this._walkAction.setLoop(THREE.LoopRepeat, Infinity);
+        this._walkAction.play();
+        this._walkAction.paused = true;  // empieza en idle
+      }
       return model;
     };
 
@@ -558,29 +577,29 @@ export class PlayerModel {
     this.updateHat(dt);
 
     // ── Walk animation ────────────────────────────────────────────────────────
-    // Medir velocidad real del modelo (funciona para local y remoto)
     const moved = this.group.position.distanceTo(this._prevPos);
     this._moveSpeed = moved / Math.max(dt, 0.001);
     this._prevPos.copy(this.group.position);
-
     const isMoving = this._moveSpeed > 0.08;
-    const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
 
-    if (isMoving) this._walkT += dt * Math.min(this._moveSpeed, 8) * 1.6;
-
-    // Rotación directa sobre el mesh — para el nuevo player.glb el origen de
-    // las piernas está en la parte superior, así que esto es correcto.
-    for (const { mesh, phase } of this._legMeshDirect) {
-      const target = isMoving ? Math.sin(this._walkT * freq + phase) * legAmp : 0;
-      mesh.rotation.x += (target - mesh.rotation.x) * Math.min(1, 12 * dt);
-    }
-    for (const { mesh, phase } of this._armMeshDirect) {
-      const target = isMoving ? Math.sin(this._walkT * freq + phase) * armAmp : 0;
-      mesh.rotation.x += (target - mesh.rotation.x) * Math.min(1, 12 * dt);
-    }
-    // Bob vertical suave
-    if (isMoving && this._legMeshDirect.length > 0) {
-      this.group.position.y += Math.abs(Math.sin(this._walkT * freq)) * 0.016;
+    if (this._mixer) {
+      // AnimationMixer (CAMINANDO.glb con esqueleto real)
+      const target = isMoving ? 1.0 : 0;
+      this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
+      if (this._walkAction) this._walkAction.paused = false;
+      this._mixer.update(dt * this._walkSpd);
+    } else {
+      // Fallback: rotación directa de meshes (player.glb sin esqueleto)
+      const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
+      if (isMoving) this._walkT += dt * Math.min(this._moveSpeed, 8) * 1.6;
+      for (const { mesh, phase } of this._legMeshDirect) {
+        const t = isMoving ? Math.sin(this._walkT * freq + phase) * legAmp : 0;
+        mesh.rotation.x += (t - mesh.rotation.x) * Math.min(1, 12 * dt);
+      }
+      for (const { mesh, phase } of this._armMeshDirect) {
+        const t = isMoving ? Math.sin(this._walkT * freq + phase) * armAmp : 0;
+        mesh.rotation.x += (t - mesh.rotation.x) * Math.min(1, 12 * dt);
+      }
     }
   }
 
