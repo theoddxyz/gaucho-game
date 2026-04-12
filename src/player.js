@@ -199,13 +199,16 @@ export class PlayerModel {
     this._walkAction    = null;
     this._walkSpd       = 0;
 
-    // Helper: apply GLB template clone with material fix + node detection
-    // gltfOrScene: puede ser gltf completo (con .scene + .animations) o solo scene
+    // Helper: apply GLB template with material fix + node detection
     const _applyGLBTemplate = (gltfOrScene) => {
       const isFullGLTF = gltfOrScene.scene !== undefined;
-      const template   = isFullGLTF ? gltfOrScene.scene : gltfOrScene;
       const clips      = isFullGLTF ? (gltfOrScene.animations || []) : [];
-      const model = template.clone(true);
+      // SkinnedMesh con esqueleto NO se puede clonar con .clone(true) en Three.js
+      // — las referencias de los huesos quedan rotas y el mesh es invisible.
+      // Usamos la scene directamente cuando hay animaciones.
+      const model = (clips.length > 0)
+        ? (isFullGLTF ? gltfOrScene.scene : gltfOrScene)
+        : (isFullGLTF ? gltfOrScene.scene : gltfOrScene).clone(true);
       model.visible = true;
       // First pass: make everything visible, replace materials, detect special nodes
       const gunNodes = [];
