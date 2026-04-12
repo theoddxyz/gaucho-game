@@ -6,6 +6,7 @@ const loader             = new GLTFLoader();
 const MOUNT_RADIUS       = 3.0;
 const HORSE_SPEED_MULT   = 1.4;
 const HORSE_SPRINT_EXTRA = 1.25; // total = 1.4 × 1.25 = 1.75x base
+const SADDLE_HEIGHT      = 1.75; // altura del lomo sobre el origen del mesh
 const WALK_FREQ          = 6.0;
 const WALK_FREQ_SPRINT   = 11.0;  // faster legs when sprinting
 const WALK_AMP           = 0.45;
@@ -465,13 +466,28 @@ export class HorseManager {
     if (!this._anim) return null;
     const t = this._anim.t;
     if (this._anim.type === 'mount') {
-      // Smoothstep from startY → 2.5, tiny bounce at end
+      // Smoothstep from startY → SADDLE_HEIGHT, tiny bounce at end
       const ease = t * t * (3 - 2 * t);
-      return this._anim.startY + (2.5 - this._anim.startY) * ease + Math.sin(t * Math.PI) * 0.25;
+      return this._anim.startY + (SADDLE_HEIGHT - this._anim.startY) * ease + Math.sin(t * Math.PI) * 0.25;
     } else {
-      // Dismount: arc from 2.5 → 0
-      return (1 - t) * 2.5 + Math.sin(t * Math.PI) * 0.5;
+      // Dismount: arc from SADDLE_HEIGHT → 0
+      return (1 - t) * SADDLE_HEIGHT + Math.sin(t * Math.PI) * 0.5;
     }
+  }
+
+  /** Y del lomo del caballo montado (base + bob del paso). Usar como riderY en main.js. */
+  getRiderY() {
+    if (this.myHorseId === null) return SADDLE_HEIGHT;
+    const horse = this.horses.get(this.myHorseId);
+    if (!horse) return SADDLE_HEIGHT;
+    return horse._baseY + horse._bobY + SADDLE_HEIGHT;
+  }
+
+  /** Roll lateral del caballo montado — para que el player se incline con él. */
+  getHorseRoll() {
+    if (this.myHorseId === null) return 0;
+    const horse = this.horses.get(this.myHorseId);
+    return horse?.mesh?.rotation?.z ?? 0;
   }
 
   /** During mount: smoothstep XZ from player position → horse position */
@@ -545,7 +561,7 @@ export class HorseManager {
     horse.mesh.position.z = z;
     horse._targetRY = ry + Math.PI;
     // Snap remote player model directly to horse — avoids interpolation lag
-    if (remotePlayer) remotePlayer.snapTo(x, 2.5, z, ry);
+    if (remotePlayer) remotePlayer.snapTo(x, SADDLE_HEIGHT, z, ry);
   }
 
   /** True if this player ID is currently riding any horse (for network filtering). */
