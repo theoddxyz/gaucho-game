@@ -131,7 +131,7 @@ export class IsoControls {
       this._velX += (targetX - this._velX) * alpha;
       this._velZ += (targetZ - this._velZ) * alpha;
     } else {
-      const accel = dir.length() > 0 ? 5 : 8;
+      const accel = dir.length() > 0 ? 5 : 2;   // frenado suave → sincroniza con fade animación
       this._velX += (targetX - this._velX) * Math.min(1, accel * dt);
       this._velZ += (targetZ - this._velZ) * Math.min(1, accel * dt);
     }

@@ -199,6 +199,9 @@ export class PlayerModel {
     this._walkAction    = null;
     this._walkSpd       = 0;
     this._rootBone      = null;
+    // Smoke particles (cigarrillo)
+    this._ember         = null;   // mesh rojo = brasa
+    this._smokeParticles = [];    // [{mesh, vel, life, maxLife}]
 
     // Helper: apply GLB template with material fix + node detection
     const _applyGLBTemplate = (gltfOrScene) => {
@@ -293,6 +296,20 @@ export class PlayerModel {
           this._legMeshes.push(obj);
         }
       });
+      // ── Brasa del cigarrillo (material rojo brillante) ──────────────────────
+      this._ember = null;
+      model.traverse((obj) => {
+        if (!obj.isMesh && !obj.isSkinnedMesh) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          if (!m?.color) continue;
+          // rojo brillante: r > 0.6, g < 0.15, b < 0.15
+          if (m.color.r > 0.6 && m.color.g < 0.15 && m.color.b < 0.15) {
+            this._ember = obj;
+          }
+        }
+      });
+
       // ── AnimationMixer (esqueleto Mixamo de CAMINANDO.glb) ──────────────────
       if (clips.length > 0) {
         // Buscar el root bone (Hips) para resetear X/Z cada frame
@@ -612,6 +629,79 @@ export class PlayerModel {
         mesh.rotation.x += (t - mesh.rotation.x) * Math.min(1, 12 * dt);
       }
     }
+
+    // ── Smoke particles (cigarrillo) ─────────────────────────────────────────
+    this._updateSmoke(dt);
+  }
+
+  _updateSmoke(dt) {
+    if (!this._ember) return;
+
+    // Emitir 1-2 partículas por frame
+    this._smokeEmitAcc = (this._smokeEmitAcc || 0) + dt;
+    const emitRate = 0.08; // una partícula cada ~80ms
+    while (this._smokeEmitAcc >= emitRate) {
+      this._smokeEmitAcc -= emitRate;
+      this._emitSmokeParticle();
+    }
+
+    // Actualizar partículas existentes
+    const _tmp = new THREE.Vector3();
+    for (let i = this._smokeParticles.length - 1; i >= 0; i--) {
+      const p = this._smokeParticles[i];
+      p.life += dt;
+      const t = p.life / p.maxLife;   // 0 → 1
+
+      // Movimiento
+      p.vel.y  -= 0.3 * dt;           // leve gravedad inversa (sube)
+      p.vel.y  = Math.max(p.vel.y, 0.4);
+      p.mesh.position.addScaledVector(p.vel, dt);
+
+      // Escala crece
+      const s = p.startScale * (1 + t * 3);
+      p.mesh.scale.setScalar(s);
+
+      // Fade out
+      p.mesh.material.opacity = (1 - t) * 0.55;
+
+      // Eliminar cuando termina
+      if (p.life >= p.maxLife) {
+        this._scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        this._smokeParticles.splice(i, 1);
+      }
+    }
+  }
+
+  _emitSmokeParticle() {
+    // Posición world de la brasa
+    const pos = this._ember.getWorldPosition(new THREE.Vector3());
+
+    const geo = new THREE.SphereGeometry(0.04, 4, 4);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xcccccc,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(pos);
+    this._scene.add(mesh);
+
+    const angle = Math.random() * Math.PI * 2;
+    const spread = 0.06;
+    this._smokeParticles.push({
+      mesh,
+      vel: new THREE.Vector3(
+        Math.cos(angle) * spread,
+        0.6 + Math.random() * 0.4,
+        Math.sin(angle) * spread
+      ),
+      life:       0,
+      maxLife:    0.8 + Math.random() * 0.6,
+      startScale: 0.5 + Math.random() * 0.5,
+    });
   }
 
   setTarget(x, y, z, ry) {
