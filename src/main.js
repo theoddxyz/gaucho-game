@@ -959,6 +959,7 @@ function gameLoop() {
   }
 
   for (const [, pm] of remotePlayers) pm.update(dt);
+  localPlayerModel?.setRiding(horseManager?.isMounted() ?? false);
   localPlayerModel?.update(dt);
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);

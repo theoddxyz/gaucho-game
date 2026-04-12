@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const loader = new GLTFLoader();
 let playerTemplate = null;
 let botTemplate    = null;
+let horseRideTemplate = null;
 
 function loadTemplate(isBot = false) {
   if (isBot) {
@@ -15,11 +16,18 @@ function loadTemplate(isBot = false) {
     return botTemplate;
   }
   if (playerTemplate) return playerTemplate;
-  // WALKINGPEROBIEN.glb — animación in-place, loop limpio
   playerTemplate = new Promise((resolve) => {
     loader.load('/models/WALKINGPEROBIEN.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return playerTemplate;
+}
+
+function loadHorseRideTemplate() {
+  if (horseRideTemplate) return horseRideTemplate;
+  horseRideTemplate = new Promise((resolve) => {
+    loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+  });
+  return horseRideTemplate;
 }
 
 function buildFallbackModel(color) {
@@ -194,14 +202,17 @@ export class PlayerModel {
     this._armMeshDirect = [];
     this._prevPos       = new THREE.Vector3();
     this._moveSpeed     = 0;
-    // AnimationMixer (para CAMINANDO.glb con esqueleto Mixamo)
-    this._mixer         = null;
-    this._walkAction    = null;
-    this._walkSpd       = 0;
-    this._rootBone      = null;
-    // Smoke particles (cigarrillo)
-    this._ember         = null;   // mesh rojo = brasa
-    this._smokeParticles = [];    // [{mesh, vel, life, maxLife}]
+    // AnimationMixer (para WALKINGPEROBIEN.glb con esqueleto Mixamo)
+    this._mixer       = null;
+    this._walkAction  = null;
+    this._horseAction = null;
+    this._walkSpd     = 0;
+    this._rootBone    = null;
+    this._isRiding    = false;
+    // Smoke (cigarrillo) — posición desde Head bone
+    this._headBone       = null;
+    this._smokeParticles = [];
+    this._smokeEmitAcc   = 0;
 
     // Helper: apply GLB template with material fix + node detection
     const _applyGLBTemplate = (gltfOrScene) => {
@@ -296,35 +307,32 @@ export class PlayerModel {
           this._legMeshes.push(obj);
         }
       });
-      // ── Brasa del cigarrillo (material rojo brillante) ──────────────────────
-      this._ember = null;
+      // ── Head bone para posición del humo ────────────────────────────────────
+      this._headBone = null;
       model.traverse((obj) => {
-        if (!obj.isMesh && !obj.isSkinnedMesh) return;
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) {
-          if (!m?.color) continue;
-          // rojo brillante: r > 0.6, g < 0.15, b < 0.15
-          if (m.color.r > 0.6 && m.color.g < 0.15 && m.color.b < 0.15) {
-            this._ember = obj;
-          }
+        if (obj.isBone && obj.name.toLowerCase().includes('head') &&
+            !obj.name.toLowerCase().includes('top') && !this._headBone) {
+          this._headBone = obj;
         }
       });
 
-      // ── AnimationMixer (esqueleto Mixamo de CAMINANDO.glb) ──────────────────
+      // ── AnimationMixer ────────────────────────────────────────────────────────
       if (clips.length > 0) {
-        // Buscar el root bone (Hips) para resetear X/Z cada frame
-        // — así el personaje no se desplaza solo ni salta al reiniciar el loop
-        this._rootBone = null;
-        model.traverse(obj => {
-          if (obj.isBone && obj.name.toLowerCase().includes('hips') && !this._rootBone) {
-            this._rootBone = obj;
-          }
-        });
         this._mixer      = new THREE.AnimationMixer(model);
         this._walkAction = this._mixer.clipAction(clips[0]);
         this._walkAction.setLoop(THREE.LoopRepeat, Infinity);
         this._walkAction.play();
         this._walkAction.paused = true;
+
+        // Cargar animación de caballo y agregarla al mismo mixer
+        loadHorseRideTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          this._horseAction = this._mixer.clipAction(gltf.animations[0]);
+          this._horseAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._horseAction.weight = 0;
+          this._horseAction.play();
+          this._horseAction.paused = true;
+        });
       }
       return model;
     };
@@ -612,10 +620,17 @@ export class PlayerModel {
     const isMoving = this._moveSpeed > 0.08;
 
     if (this._mixer) {
-      const target = isMoving ? 1.0 : 0;
-      this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
-      if (this._walkAction) this._walkAction.paused = false;
-      this._mixer.update(dt * this._walkSpd);
+      if (this._isRiding) {
+        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(0); }
+        if (this._horseAction) { this._horseAction.paused = false; this._horseAction.setEffectiveWeight(1); }
+        this._mixer.update(dt);
+      } else {
+        const target = isMoving ? 1.0 : 0;
+        this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
+        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(1); }
+        if (this._horseAction) { this._horseAction.setEffectiveWeight(0); }
+        this._mixer.update(dt * this._walkSpd);
+      }
     } else {
       // Fallback: rotación directa de meshes (player.glb sin esqueleto)
       const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
@@ -635,7 +650,7 @@ export class PlayerModel {
   }
 
   _updateSmoke(dt) {
-    if (!this._ember) return;
+    if (!this._headBone) return;
 
     // Emitir 1-2 partículas por frame
     this._smokeEmitAcc = (this._smokeEmitAcc || 0) + dt;
@@ -675,8 +690,15 @@ export class PlayerModel {
   }
 
   _emitSmokeParticle() {
-    // Posición world de la brasa
-    const pos = this._ember.getWorldPosition(new THREE.Vector3());
+    // Posición world del Head bone + pequeño offset hacia adelante/arriba
+    const pos = this._headBone.getWorldPosition(new THREE.Vector3());
+    // Offset en la dirección que mira el player (cigarrillo sale de la boca)
+    const fwd = new THREE.Vector3(
+      Math.sin(this.group.rotation.y),
+      0.12,
+      Math.cos(this.group.rotation.y)
+    ).normalize().multiplyScalar(0.18);
+    pos.add(fwd);
 
     const geo = new THREE.SphereGeometry(0.04, 4, 4);
     const mat = new THREE.MeshBasicMaterial({
@@ -715,6 +737,10 @@ export class PlayerModel {
     this.targetPos.set(x, y, z);
     this.group.rotation.y = ry;
     this.targetRY = ry;
+  }
+
+  setRiding(isRiding) {
+    this._isRiding = isRiding;
   }
 
   setAiming(isAiming) {
