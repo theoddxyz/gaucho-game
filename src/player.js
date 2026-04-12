@@ -123,24 +123,32 @@ function applyFBXTemplate(template, clip, color) {
   const model = SkeletonUtils.clone(template);
   model.visible = true;
 
-  // Fix materials (clone so each instance gets its own), shadows
+  const fixMat = (m) => {
+    m.roughness   = 0.85;
+    m.metalness   = 0.0;
+    m.transparent = false;
+    m.depthWrite  = true;
+    m.side        = THREE.FrontSide;
+    m.needsUpdate = true;
+  };
+
   model.traverse((obj) => {
     obj.visible = true;
     if (obj.isMesh || obj.isSkinnedMesh) {
       obj.castShadow    = true;
       obj.receiveShadow = false;
-      // Clone material so instances don't share
+      // SkinnedMesh bounding sphere is computed from bind pose only → wrong when animated.
+      // Disable frustum culling so the renderer never skips it.
+      obj.frustumCulled = false;
+
+      // Clone material per instance, fix properties
       if (obj.material) {
         if (Array.isArray(obj.material)) {
-          obj.material = obj.material.map(m => m.clone());
+          obj.material = obj.material.map(m => { const c = m.clone(); fixMat(c); return c; });
         } else {
           obj.material = obj.material.clone();
+          fixMat(obj.material);
         }
-        obj.material.roughness   = 0.85;
-        obj.material.metalness   = 0.0;
-        obj.material.transparent = false;
-        obj.material.depthWrite  = true;
-        obj.material.needsUpdate = true;
       }
     }
   });
@@ -310,15 +318,21 @@ export class PlayerModel {
 
     loadPlayerFBX().then(({ template, clip }) => {
       if (!template) return; // keep fallback
+      let result;
+      try {
+        result = applyFBXTemplate(template, clip, this.color);
+      } catch (e) {
+        console.error('[PlayerModel] applyFBXTemplate error:', e);
+        return; // keep placeholder
+      }
+      // Only swap once model is confirmed built
       this.group.remove(placeholder);
-      const { model, mixer, walkAction, hitboxes, headMesh, legMeshes }
-        = applyFBXTemplate(template, clip, this.color);
-      this._hitboxes   = hitboxes;
-      this._headMesh   = headMesh;
-      this._legMeshes  = legMeshes;
-      this._mixer      = mixer;
-      this._walkAction = walkAction;
-      this.group.add(model);
+      this._hitboxes   = result.hitboxes;
+      this._headMesh   = result.headMesh;
+      this._legMeshes  = result.legMeshes;
+      this._mixer      = result.mixer;
+      this._walkAction = result.walkAction;
+      this.group.add(result.model);
     });
   }
 
