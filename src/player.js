@@ -1,50 +1,50 @@
 // --- Player rendering (remote + local players) ---
 import * as THREE from 'three';
-import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
-import { FBXLoader }     from 'three/addons/loaders/FBXLoader.js';
-import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader }  from 'three/addons/loaders/FBXLoader.js';
 
 const gltfLoader = new GLTFLoader();
-const fbxLoader  = new FBXLoader();
 
-// ─── Asset cache ─────────────────────────────────────────────────────────────
-// Walking.fbx  → character mesh + walk clip (one load, cloned per instance)
-let _playerFBXReady = null;  // Promise<{template:Object3D, clip:AnimationClip}>
-let _botGLBReady    = null;  // Promise<Object3D|null>
+// ─── Loaders: carga fresca por instancia (sin clonar SkinnedMesh) ────────────
+// Clonar SkinnedMesh con animaciones en Three.js es propenso a errores;
+// cargar fresh garantiza que cada instancia tiene su propio contexto limpio.
 
-function loadPlayerFBX() {
-  if (_playerFBXReady) return _playerFBXReady;
-  _playerFBXReady = new Promise((resolve) => {
-    fbxLoader.load('/models/Walking.fbx', (obj) => {
-      let clip = obj.animations[0] || null;
-      if (clip) {
-        // Only strip the root bone's horizontal position (X/Z) — this is the
-        // "forward walk" track that teleports back to origin on loop.
-        // Keep Y (up/down bob) and all rotations — they make the cycle look natural.
-        clip.tracks = clip.tracks.filter(t => {
-          const low = t.name.toLowerCase();
-          if ((low.includes('hips') || low.startsWith('mixamorigroot')) &&
-               low.endsWith('.position')) return false;
-          return true;
-        });
-        clip = THREE.AnimationClip.optimize(clip);
+function loadFreshPlayerFBX() {
+  return new Promise((resolve) => {
+    const loader = new FBXLoader();
+    loader.load('/models/Walking.fbx',
+      (obj) => {
+        let clip = obj.animations[0] || null;
+        if (clip) {
+          // Eliminar solo la posición horizontal del root bone (evita el jump en el loop)
+          clip.tracks = clip.tracks.filter(t => {
+            const low = t.name.toLowerCase();
+            return !((low.includes('hips') || low.startsWith('mixamorigroot'))
+                     && low.endsWith('.position'));
+          });
+          THREE.AnimationClip.optimize(clip);
+        }
+        resolve({ obj, clip });
+      },
+      undefined,
+      (err) => {
+        console.error('[FBX] Walking.fbx error:', err);
+        // fallback: gaucho2 sin animación
+        const l2 = new FBXLoader();
+        l2.load('/models/gaucho2.fbx',
+          (obj2) => resolve({ obj: obj2, clip: null }),
+          undefined,
+          ()  => resolve({ obj: null, clip: null })
+        );
       }
-      resolve({ template: obj, clip });
-    }, undefined, () => {
-      fbxLoader.load('/models/gaucho2.fbx', (obj) => {
-        resolve({ template: obj, clip: null });
-      }, undefined, () => resolve({ template: null, clip: null }));
-    });
+    );
   });
-  return _playerFBXReady;
 }
 
 function loadBotGLB() {
-  if (_botGLBReady) return _botGLBReady;
-  _botGLBReady = new Promise(r =>
+  return new Promise(r =>
     gltfLoader.load('/models/bot.glb', g => r(g.scene), undefined, () => r(null))
   );
-  return _botGLBReady;
 }
 
 // ─── Fallback procedural model ───────────────────────────────────────────────
@@ -116,74 +116,59 @@ function buildBotModel() {
   return grp;
 }
 
-// ─── Apply FBX character template ────────────────────────────────────────────
-// Returns {model, mixer, walkAction}
-function applyFBXTemplate(template, clip, color) {
-  // SkeletonUtils.clone() correctly rewires SkinnedMesh → cloned Skeleton bones
-  const model = SkeletonUtils.clone(template);
+// ─── Setup FBX object (cargado fresco, sin clonar) ───────────────────────────
+function setupFBXModel(obj, clip) {
+  const model = obj;
   model.visible = true;
 
-  const fixMat = (m) => {
-    m.roughness   = 0.85;
-    m.metalness   = 0.0;
-    m.transparent = false;
-    m.depthWrite  = true;
-    m.side        = THREE.FrontSide;
-    m.needsUpdate = true;
-  };
-
-  model.traverse((obj) => {
-    obj.visible = true;
-    if (obj.isMesh || obj.isSkinnedMesh) {
-      obj.castShadow    = true;
-      obj.receiveShadow = false;
-      // SkinnedMesh bounding sphere is computed from bind pose only → wrong when animated.
-      // Disable frustum culling so the renderer never skips it.
-      obj.frustumCulled = false;
-
-      // Clone material per instance, fix properties
-      if (obj.material) {
-        if (Array.isArray(obj.material)) {
-          obj.material = obj.material.map(m => { const c = m.clone(); fixMat(c); return c; });
-        } else {
-          obj.material = obj.material.clone();
-          fixMat(obj.material);
-        }
-      }
+  model.traverse((child) => {
+    child.visible = true;
+    if (child.isMesh || child.isSkinnedMesh) {
+      child.castShadow    = true;
+      child.receiveShadow = false;
+      // Frustum culling incorrecto en SkinnedMesh animado → desactivar
+      child.frustumCulled = false;
+      // Arreglar materiales
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach(m => {
+        if (!m) return;
+        m.transparent = false;
+        m.depthWrite  = true;
+        m.side        = THREE.FrontSide;
+        m.needsUpdate = true;
+      });
     }
   });
 
-  // Auto-scale to TARGET_H
+  // Auto-escalar a 1.75 m
   model.updateWorldMatrix(true, true);
   const bbox = new THREE.Box3().setFromObject(model);
   const h = bbox.max.y - bbox.min.y;
-  const TARGET_H = 1.75;
   if (h > 0.01) {
-    model.scale.setScalar(TARGET_H / h);
+    model.scale.setScalar(1.75 / h);
     model.updateWorldMatrix(true, true);
     bbox.setFromObject(model);
   }
-  // Align base to y = 0
   if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
 
-  // Collect hitboxes
+  // Hitboxes
   const hitboxes = [], legMeshes = [];
   let headMesh = null;
-  model.traverse((obj) => {
-    if (!obj.isMesh && !obj.isSkinnedMesh) return;
-    const n = obj.name.toLowerCase();
-    // FBX Mixamo skinned mesh is typically one SkinnedMesh named "Ch..." or similar
-    if (obj.isSkinnedMesh) { hitboxes.push(obj); if (!headMesh) headMesh = obj; }
-    if (n.includes('leg') || n.includes('thigh') || n.includes('shin')) legMeshes.push(obj);
+  model.traverse((child) => {
+    if (!child.isMesh && !child.isSkinnedMesh) return;
+    if (child.isSkinnedMesh) { hitboxes.push(child); if (!headMesh) headMesh = child; }
+    const n = child.name.toLowerCase();
+    if (n.includes('leg') || n.includes('thigh') || n.includes('shin')) legMeshes.push(child);
   });
 
-  // AnimationMixer + walk action
+  // AnimationMixer
   let mixer = null, walkAction = null;
   if (clip) {
-    mixer = new THREE.AnimationMixer(model);
+    mixer      = new THREE.AnimationMixer(model);
     walkAction = mixer.clipAction(clip);
+    walkAction.setLoop(THREE.LoopRepeat, Infinity);
     walkAction.play();
-    walkAction.paused = true;   // start frozen at frame 0 (standing pose)
+    walkAction.paused = true;
   }
 
   return { model, mixer, walkAction, hitboxes, headMesh, legMeshes };
@@ -316,16 +301,15 @@ export class PlayerModel {
     this._legMeshes = placeholder._legMeshes || [];
     this.group.add(placeholder);
 
-    loadPlayerFBX().then(({ template, clip }) => {
-      if (!template) return; // keep fallback
+    loadFreshPlayerFBX().then(({ obj, clip }) => {
+      if (!obj) return; // keep fallback
       let result;
       try {
-        result = applyFBXTemplate(template, clip, this.color);
+        result = setupFBXModel(obj, clip);
       } catch (e) {
-        console.error('[PlayerModel] applyFBXTemplate error:', e);
+        console.error('[PlayerModel] setupFBXModel error:', e);
         return; // keep placeholder
       }
-      // Only swap once model is confirmed built
       this.group.remove(placeholder);
       this._hitboxes   = result.hitboxes;
       this._headMesh   = result.headMesh;
