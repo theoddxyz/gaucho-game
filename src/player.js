@@ -16,10 +16,21 @@ function loadPlayerFBX() {
   if (_playerFBXReady) return _playerFBXReady;
   _playerFBXReady = new Promise((resolve) => {
     fbxLoader.load('/models/Walking.fbx', (obj) => {
-      const clip = obj.animations[0] || null;
+      let clip = obj.animations[0] || null;
+      if (clip) {
+        // Only strip the root bone's horizontal position (X/Z) — this is the
+        // "forward walk" track that teleports back to origin on loop.
+        // Keep Y (up/down bob) and all rotations — they make the cycle look natural.
+        clip.tracks = clip.tracks.filter(t => {
+          const low = t.name.toLowerCase();
+          if ((low.includes('hips') || low.startsWith('mixamorigroot')) &&
+               low.endsWith('.position')) return false;
+          return true;
+        });
+        clip = THREE.AnimationClip.optimize(clip);
+      }
       resolve({ template: obj, clip });
     }, undefined, () => {
-      // fallback: gaucho2 static mesh, no animation
       fbxLoader.load('/models/gaucho2.fbx', (obj) => {
         resolve({ template: obj, clip: null });
       }, undefined, () => resolve({ template: null, clip: null }));
@@ -456,15 +467,12 @@ export class PlayerModel {
     const isMoving = this._moveSpeed > 0.08;
 
     if (this._mixer) {
-      // Smooth walk speed: 0 = idle (frozen), 1 = normal walk, >1 = fast
-      const targetSpd = isMoving ? Math.min(this._moveSpeed * 0.55, 2.5) : 0;
-      this._walkSpd += (targetSpd - this._walkSpd) * Math.min(1, 8 * dt);
-
-      if (this._walkAction) {
-        this._walkAction.paused    = false;
-        this._walkAction.timeScale = this._walkSpd;
-      }
-      this._mixer.update(dt);
+      // Velocidad fija 1.0 cuando camina — el clip de Mixamo está diseñado
+      // para verse bien a esa velocidad; escalar por moveSpeed rompe el ciclo.
+      // Solo suavizamos el fade in/out entre idle y walk.
+      const targetSpd = isMoving ? 1.0 : 0;
+      this._walkSpd += (targetSpd - this._walkSpd) * Math.min(1, 10 * dt);
+      this._mixer.update(dt * this._walkSpd);
     }
   }
 
