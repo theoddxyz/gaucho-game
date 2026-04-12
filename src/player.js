@@ -218,6 +218,7 @@ export class PlayerModel {
     this._shootWalkAction = null;
     this._shootMuzzle     = null;  // Empty "muzzle" del modelo de disparo
     this._smokePoint      = null;  // Empty "smoke_point" del modelo principal
+    this._shootSmokePoint = null;  // Empty "smoke_point" del modelo de disparo
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
@@ -388,9 +389,8 @@ export class PlayerModel {
               obj.visible = false; // invisible helper node
             }
             if (n === 'smoke_point') {
-              // También guardamos el smoke_point del modelo de disparo
-              // (si el modelo principal no lo tiene ya)
-              if (!this._smokePoint) this._smokePoint = obj;
+              // Smoke point del modelo de disparo — se usa cuando _isAimingAnim
+              this._shootSmokePoint = obj;
             }
           });
 
@@ -730,7 +730,7 @@ export class PlayerModel {
   }
 
   _updateSmoke(dt) {
-    if (!this._smokePoint && !this._headBone) return;
+    if (!this._smokePoint && !this._shootSmokePoint && !this._headBone) return;
 
     // Emitir 1-2 partículas por frame
     this._smokeEmitAcc = (this._smokeEmitAcc || 0) + dt;
@@ -773,11 +773,13 @@ export class PlayerModel {
     // Posición world: preferimos el Empty "smoke_point" del GLB;
     // si no está, usamos el Head bone + offset manual.
     let pos;
-    if (this._smokePoint) {
-      // El modelo activo puede ser mainModel o shootWalkModel;
-      // smoke_point es hijo del armature y sigue los huesos automáticamente.
-      this._smokePoint.updateWorldMatrix(true, false);
-      pos = this._smokePoint.getWorldPosition(new THREE.Vector3());
+    // Elegir el smoke_point del modelo que está activo en este frame
+    const activeSmokePoint = (this._isAimingAnim && this._shootSmokePoint)
+      ? this._shootSmokePoint
+      : this._smokePoint;
+    if (activeSmokePoint) {
+      activeSmokePoint.updateWorldMatrix(true, false);
+      pos = activeSmokePoint.getWorldPosition(new THREE.Vector3());
     } else if (this._headBone) {
       pos = this._headBone.getWorldPosition(new THREE.Vector3());
       const fwd = new THREE.Vector3(
