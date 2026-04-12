@@ -6,7 +6,7 @@ const loader             = new GLTFLoader();
 const MOUNT_RADIUS       = 3.0;
 const HORSE_SPEED_MULT   = 1.4;
 const HORSE_SPRINT_EXTRA = 1.25; // total = 1.4 × 1.25 = 1.75x base
-const SADDLE_HEIGHT      = 1.75; // altura del lomo sobre el origen del mesh
+const SADDLE_HEIGHT      = 2.1;  // altura del lomo sobre el origen del mesh
 const WALK_FREQ          = 6.0;
 const WALK_FREQ_SPRINT   = 11.0;  // faster legs when sprinting
 const WALK_AMP           = 0.45;

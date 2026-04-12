@@ -133,8 +133,11 @@ document.addEventListener('keyup', (e) => {
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(1);
-renderer.shadowMap.enabled = false;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 // --- Camera (isometric) ---
@@ -868,9 +871,11 @@ function gameLoop() {
     // Chunk streaming
     chunkManager.update(pos);
 
-    // Shadow follows player — directional light moves with camera so frustum covers local area
+    // Shadow follows player — frustum centrado en el jugador para sombras siempre visibles
     sun.position.set(pos.x + 90, 22, pos.z + 25);
     sun.target.position.set(pos.x, 0, pos.z);
+    sun.target.updateMatrixWorld();
+    sun.shadow.camera.updateProjectionMatrix();
     sun.target.updateMatrixWorld();
 
     // Moon follows player (opposite offset to sun) so shadow frustum always covers local area

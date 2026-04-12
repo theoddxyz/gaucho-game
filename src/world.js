@@ -27,13 +27,14 @@ export function createWorld(scene) {
   const sun = new THREE.DirectionalLight(0xffcc77, 1.3);
   sun.position.set(90, 22, 25);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far  = 350;
-  sun.shadow.camera.left   = -120;
-  sun.shadow.camera.right  =  120;
-  sun.shadow.camera.top    =  120;
-  sun.shadow.camera.bottom = -120;
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.camera.near   = 1;
+  sun.shadow.camera.far    = 400;
+  sun.shadow.camera.left   = -80;
+  sun.shadow.camera.right  =  80;
+  sun.shadow.camera.top    =  80;
+  sun.shadow.camera.bottom = -80;
+  sun.shadow.bias          = -0.0003;  // evita shadow acne en suelo plano
   scene.add(sun);
   scene.add(sun.target); // target must be in scene for updates to work
 
