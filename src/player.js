@@ -294,11 +294,19 @@ export class PlayerModel {
       });
       // ── AnimationMixer (esqueleto Mixamo de CAMINANDO.glb) ──────────────────
       if (clips.length > 0) {
-        this._mixer     = new THREE.AnimationMixer(model);
-        this._walkAction = this._mixer.clipAction(clips[0]);
+        const clip = clips[0];
+        // Eliminar posición horizontal del root bone → evita el salto al hacer loop
+        clip.tracks = clip.tracks.filter(t => {
+          const low = t.name.toLowerCase();
+          return !((low.includes('hips') || low.includes('mixamorigroot'))
+                   && low.endsWith('.position'));
+        });
+        THREE.AnimationClip.optimize(clip);
+        this._mixer      = new THREE.AnimationMixer(model);
+        this._walkAction = this._mixer.clipAction(clip);
         this._walkAction.setLoop(THREE.LoopRepeat, Infinity);
         this._walkAction.play();
-        this._walkAction.paused = true;  // empieza en idle
+        this._walkAction.paused = true;
       }
       return model;
     };
