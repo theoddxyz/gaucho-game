@@ -216,6 +216,7 @@ export class PlayerModel {
     this._walkAction      = null;
     this._horseAction     = null;
     this._shootWalkAction = null;
+    this._shootGun        = null;  // mesh del arma del template de disparo
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
@@ -344,9 +345,63 @@ export class PlayerModel {
           this._horseAction.play();
           this._horseAction.paused = true;
         });
-        // Cargar animación de caminar con escopeta
+        // Cargar animación de caminar con escopeta + extraer mesh del arma
         loadShootWalkTemplate().then((gltf) => {
           if (!gltf || !gltf.animations?.length) return;
+
+          // ── Buscar mesh "gun" en la escena del template de disparo ──────────
+          let gunMesh = null;
+          gltf.scene.traverse(obj => {
+            if (gunMesh || !obj.isMesh) return;
+            const n = obj.name.toLowerCase().trim();
+            if (n === 'gun' || n === 'weapon' || n === 'escopeta' ||
+                n.includes('gun') || n.includes('rifle') || n.includes('shotgun')) {
+              gunMesh = obj;
+            }
+          });
+
+          if (gunMesh) {
+            // El arma estaba en el template de disparo — buscar el hueso padre homólogo
+            // en el modelo principal (mismo nombre de hueso de la mano derecha)
+            const parentBoneName = gunMesh.parent?.name ?? '';
+            let targetBone = null;
+
+            // 1) Hueso con el mismo nombre exacto en el modelo principal
+            model.traverse(obj => {
+              if (!targetBone && obj.isBone && obj.name === parentBoneName) targetBone = obj;
+            });
+            // 2) Fallback: cualquier hueso de la mano derecha de Mixamo
+            if (!targetBone) {
+              const rhNames = ['mixamorig:righthand', 'righthand', 'hand_r', 'wrist_r', 'r_hand'];
+              model.traverse(obj => {
+                if (!targetBone && obj.isBone) {
+                  const bn = obj.name.toLowerCase();
+                  if (rhNames.some(rh => bn.includes(rh))) targetBone = obj;
+                }
+              });
+            }
+
+            if (targetBone) {
+              // Conservar los transforms locales del arma dentro de su hueso original
+              const lp = gunMesh.position.clone();
+              const lq = gunMesh.quaternion.clone();
+              const ls = gunMesh.scale.clone();
+              gunMesh.removeFromParent();
+              targetBone.add(gunMesh);
+              gunMesh.position.copy(lp);
+              gunMesh.quaternion.copy(lq);
+              gunMesh.scale.copy(ls);
+              gunMesh.frustumCulled = false;
+              gunMesh.castShadow = true;
+              if (gunMesh.material) {
+                gunMesh.material = gunMesh.material.clone();
+                gunMesh.material.roughness = 0.6;
+              }
+              gunMesh.visible = false;  // oculto hasta que apunte
+              this._shootGun = gunMesh;
+            }
+          }
+
           this._shootWalkAction = this._mixer.clipAction(gltf.animations[0]);
           this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
           this._shootWalkAction.setEffectiveWeight(0);
@@ -777,7 +832,11 @@ export class PlayerModel {
   }
 
   setAiming(isAiming) {
-    if (this._gun) this._gun.visible = isAiming;
+    if (this._gun) {
+      this._gun.visible = isAiming;
+      this._gun.traverse(c => { c.visible = isAiming; });
+    }
+    if (this._shootGun) this._shootGun.visible = isAiming;
     this._isAimingAnim = isAiming;
   }
 

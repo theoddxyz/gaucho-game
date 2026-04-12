@@ -7,7 +7,7 @@ import { WATER_ZONES } from './landmarks.js';
 export const CHUNK_SIZE   = 200;
 const LOAD_RADIUS         = 1;      // 3×3 = 9 chunks visibles
 const UNLOAD_DIST         = 2;
-const SUB                 = 10;     // subdivisiones del plano (menos = más rápido)
+const SUB                 = 20;     // subdivisiones del plano — más detalle de color
 const TREES_PER_CHUNK     = 4;
 const ROCKS_PER_CHUNK     = 4;
 const BUSHES_PER_CHUNK    = 4;
@@ -51,17 +51,68 @@ function _fbm(px, py) {
   return v;
 }
 function _terrainColor(wx, wz) {
-  const n = _fbm(wx / 90, wz / 90) * 0.7 + _fbm(wx / 18 + 7.3, wz / 18 + 3.9) * 0.3;
-  if (n < 0.36) {
-    const t = n / 0.36;
-    return [0.04 + 0.36*t, 0.02 + 0.23*t, 0.002 + 0.07*t];
+  // Desierto pampeano: tierra ocre/roja + pasto seco amarillo + arena
+  const n  = _fbm(wx / 90, wz / 90) * 0.6 + _fbm(wx / 22 + 7.3, wz / 22 + 3.9) * 0.25
+           + _fbm(wx / 6  + 31.1, wz / 6  + 17.4) * 0.15;
+  const n2 = _fbm(wx / 5  + 55,   wz / 5  + 88) * 0.5 + 0.5; // high-freq grain
+  // Banda baja: tierra roja/ocre (0x6B3510 → 0x9C5E1A)
+  // Banda alta: pasto seco / arena dorada (0xC8A040 → 0xE8C870)
+  let r, g, b;
+  if (n < 0.28) {
+    const t = n / 0.28;
+    r = 0.30 + 0.22*t; g = 0.14 + 0.18*t; b = 0.03 + 0.05*t; // tierra oscura roja
+  } else if (n < 0.55) {
+    const t = (n - 0.28) / 0.27;
+    r = 0.52 + 0.18*t; g = 0.32 + 0.14*t; b = 0.08 + 0.04*t; // ocre medio
+  } else {
+    const t = (n - 0.55) / 0.45;
+    r = 0.70 + 0.12*t; g = 0.52 + 0.12*t; b = 0.12 + 0.10*t; // pasto seco / arena dorada
   }
-  const t = (n - 0.36) / 0.64;
-  return [0.40 + 0.18*t, 0.25 + 0.16*t, 0.07 + 0.12*t];
+  // Ruido fino de grano — evita color plano
+  const grain = (n2 - 0.5) * 0.08;
+  return [
+    Math.max(0, Math.min(1, r + grain)),
+    Math.max(0, Math.min(1, g + grain * 0.8)),
+    Math.max(0, Math.min(1, b + grain * 0.5)),
+  ];
 }
 
+// ─── Textura procedural de arena (canvas noise) ──────────────────────────────
+function _buildSandTexture() {
+  const SZ = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = SZ;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(SZ, SZ);
+  const d   = img.data;
+  for (let i = 0; i < SZ * SZ; i++) {
+    const x = i % SZ, y = Math.floor(i / SZ);
+    // 3 octavas de ruido para granulado de arena fino
+    const n1 = _noise(x / 14 + 3.1,  y / 14 + 9.7);
+    const n2 = _noise(x / 5  + 71.3, y / 5  + 33.1) * 0.4;
+    const n3 = _noise(x / 2  + 130,  y / 2.5 + 55 ) * 0.15;
+    const v  = (n1 + n2 + n3) / 1.55;  // ~0..1
+    // Tono cálido arena: ligeramente más R que G que B
+    const base = Math.floor(185 + v * 55);
+    d[i*4]   = Math.min(255, base + 18);
+    d[i*4+1] = Math.min(255, base +  4);
+    d[i*4+2] = Math.max(  0, base - 22);
+    d[i*4+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(12, 12);  // grano fino repetido
+  return tex;
+}
+const _sandTex = _buildSandTexture();
+
 // ─── Materiales compartidos ──────────────────────────────────────────────────
-const TERRAIN_MAT = new THREE.MeshStandardMaterial({ roughness: 0.92, vertexColors: true });
+const TERRAIN_MAT = new THREE.MeshStandardMaterial({
+  roughness: 0.94, metalness: 0.0,
+  vertexColors: true,
+  map: _sandTex,       // textura de arena multiplica sobre vertex colors
+});
 
 const ROCK_MATS = [
   new THREE.MeshStandardMaterial({ color: 0x7a7a7a, roughness: 0.97 }),

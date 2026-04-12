@@ -919,14 +919,15 @@ function gameLoop() {
     const facingAngle = _facingAngle;
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
-      // Y: mount/dismount anim → lomo del caballo (bob incluido) → salto → suelo
+      // Y: mount/dismount anim → lomo world-space (localToWorld) → salto → suelo
       const animY   = horseManager?.getAnimY();
       const mounted = horseManager?.isMounted() ?? false;
+      const saddlePos = mounted ? horseManager.getSaddleWorldPos() : null;
       const riderY  = animY != null
         ? animY
-        : mounted
-          ? (horseManager.getRiderY()) + pos.y  // lomo dinámico + salto sobre caballo
-          : pos.y;                               // salto normal en suelo
+        : saddlePos != null
+          ? saddlePos.y + pos.y    // lomo real (roll + bob incluidos) + salto sobre caballo
+          : pos.y;                 // salto normal en suelo
 
       // XZ: arc from player pos → horse on mount, horse → landing on dismount
       const mountXZ    = horseManager?.getMountModelPos();

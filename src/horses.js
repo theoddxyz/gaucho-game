@@ -475,7 +475,16 @@ export class HorseManager {
     }
   }
 
-  /** Y del lomo del caballo montado (base + bob del paso). Usar como riderY en main.js. */
+  /** Posición world del lomo del caballo montado — incluye bob, roll y toda la transformación del mesh. */
+  getSaddleWorldPos() {
+    if (this.myHorseId === null) return null;
+    const horse = this.horses.get(this.myHorseId);
+    if (!horse) return null;
+    horse.mesh.updateWorldMatrix(true, false);
+    return horse.mesh.localToWorld(new THREE.Vector3(0, SADDLE_HEIGHT, 0));
+  }
+
+  /** Y del lomo (fallback simple si localToWorld no está disponible). */
   getRiderY() {
     if (this.myHorseId === null) return SADDLE_HEIGHT;
     const horse = this.horses.get(this.myHorseId);
