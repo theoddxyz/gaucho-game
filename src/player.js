@@ -216,7 +216,8 @@ export class PlayerModel {
     this._walkAction      = null;
     this._horseAction     = null;
     this._shootWalkAction = null;
-    this._shootGun        = null;  // mesh del arma del template de disparo
+    this._shootMuzzle     = null;  // Empty "muzzle" del modelo de disparo
+    this._smokePoint      = null;  // Empty "smoke_point" del modelo principal
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
@@ -263,6 +264,7 @@ export class PlayerModel {
           this._firepoint = obj; obj.visible = false;
           if (obj.isMesh) { obj.castShadow = false; obj.receiveShadow = false; }
         }
+        if (n === 'smoke_point') { this._smokePoint = obj; }
       });
       // Hide gun and all its children AFTER the visibility pass
       for (const gn of gunNodes) {
@@ -371,7 +373,7 @@ export class PlayerModel {
           if (!gltf || !gltf.animations?.length) return;
           const shootScene = gltf.scene;  // usamos la escena directamente (SkinnedMesh)
 
-          // Hacer visible todo y arreglar materiales (igual que _applyGLBTemplate)
+          // Hacer visible todo, arreglar materiales y detectar nodos especiales
           shootScene.traverse((obj) => {
             obj.visible = true;
             if (obj.isMesh || obj.isSkinnedMesh) {
@@ -379,6 +381,16 @@ export class PlayerModel {
               obj.frustumCulled = false;
               const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+            const n = obj.name.toLowerCase().trim();
+            if (n === 'muzzle') {
+              this._shootMuzzle = obj;
+              obj.visible = false; // invisible helper node
+            }
+            if (n === 'smoke_point') {
+              // También guardamos el smoke_point del modelo de disparo
+              // (si el modelo principal no lo tiene ya)
+              if (!this._smokePoint) this._smokePoint = obj;
             }
           });
 
@@ -718,7 +730,7 @@ export class PlayerModel {
   }
 
   _updateSmoke(dt) {
-    if (!this._headBone) return;
+    if (!this._smokePoint && !this._headBone) return;
 
     // Emitir 1-2 partículas por frame
     this._smokeEmitAcc = (this._smokeEmitAcc || 0) + dt;
@@ -758,15 +770,25 @@ export class PlayerModel {
   }
 
   _emitSmokeParticle() {
-    // Posición world del Head bone + pequeño offset hacia adelante/arriba
-    const pos = this._headBone.getWorldPosition(new THREE.Vector3());
-    // Offset en la dirección que mira el player (cigarrillo sale de la boca)
-    const fwd = new THREE.Vector3(
-      Math.sin(this.group.rotation.y),
-      0.12,
-      Math.cos(this.group.rotation.y)
-    ).normalize().multiplyScalar(0.18);
-    pos.add(fwd);
+    // Posición world: preferimos el Empty "smoke_point" del GLB;
+    // si no está, usamos el Head bone + offset manual.
+    let pos;
+    if (this._smokePoint) {
+      // El modelo activo puede ser mainModel o shootWalkModel;
+      // smoke_point es hijo del armature y sigue los huesos automáticamente.
+      this._smokePoint.updateWorldMatrix(true, false);
+      pos = this._smokePoint.getWorldPosition(new THREE.Vector3());
+    } else if (this._headBone) {
+      pos = this._headBone.getWorldPosition(new THREE.Vector3());
+      const fwd = new THREE.Vector3(
+        Math.sin(this.group.rotation.y),
+        0.12,
+        Math.cos(this.group.rotation.y)
+      ).normalize().multiplyScalar(0.18);
+      pos.add(fwd);
+    } else {
+      return;
+    }
 
     const geo = new THREE.SphereGeometry(0.04, 4, 4);
     const mat = new THREE.MeshBasicMaterial({
@@ -823,6 +845,12 @@ export class PlayerModel {
   triggerGunRecoil() { this._gunRecoil = 1; }
 
   getFirepointWorldPos() {
+    // Cuando el modelo de disparo está activo, usar el Empty "muzzle" de ese modelo
+    if (this._isAimingAnim && this._shootMuzzle) {
+      this._shootMuzzle.updateWorldMatrix(true, false);
+      return this._shootMuzzle.getWorldPosition(new THREE.Vector3());
+    }
+    // Fallback: firepoint del modelo principal
     if (this._firepoint) {
       return this._firepoint.getWorldPosition(new THREE.Vector3());
     }
