@@ -250,7 +250,7 @@ export class PlayerModel {
         bbox.setFromObject(model);
         const h = bbox.max.y - bbox.min.y;
         // Auto-escalar SIEMPRE a TARGET_H (sin importar si ya está a escala "razonable")
-        const TARGET_H = 1.75;
+        const TARGET_H = 3.5;
         if (h > 0.01) {
           model.scale.setScalar(TARGET_H / h);
           model.updateWorldMatrix(true, true);
@@ -604,6 +604,7 @@ export class PlayerModel {
       if (this._rootBone) {
         this._rootBone.position.x = 0;
         this._rootBone.position.z = 0;
+        this._rootBone.updateMatrix();
       }
     } else {
       // Fallback: rotación directa de meshes (player.glb sin esqueleto)
