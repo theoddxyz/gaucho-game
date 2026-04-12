@@ -345,69 +345,8 @@ export class PlayerModel {
           this._horseAction.play();
           this._horseAction.paused = true;
         });
-        // Cargar animación de caminar con escopeta + extraer mesh del arma
-        loadShootWalkTemplate().then((gltf) => {
-          if (!gltf || !gltf.animations?.length) return;
-
-          // ── Buscar mesh "gun" en la escena del template de disparo ──────────
-          let gunMesh = null;
-          gltf.scene.traverse(obj => {
-            if (gunMesh || !obj.isMesh) return;
-            const n = obj.name.toLowerCase().trim();
-            if (n === 'gun' || n === 'weapon' || n === 'escopeta' ||
-                n.includes('gun') || n.includes('rifle') || n.includes('shotgun')) {
-              gunMesh = obj;
-            }
-          });
-
-          if (gunMesh) {
-            // El arma estaba en el template de disparo — buscar el hueso padre homólogo
-            // en el modelo principal (mismo nombre de hueso de la mano derecha)
-            const parentBoneName = gunMesh.parent?.name ?? '';
-            let targetBone = null;
-
-            // 1) Hueso con el mismo nombre exacto en el modelo principal
-            model.traverse(obj => {
-              if (!targetBone && obj.isBone && obj.name === parentBoneName) targetBone = obj;
-            });
-            // 2) Fallback: cualquier hueso de la mano derecha de Mixamo
-            if (!targetBone) {
-              const rhNames = ['mixamorig:righthand', 'righthand', 'hand_r', 'wrist_r', 'r_hand'];
-              model.traverse(obj => {
-                if (!targetBone && obj.isBone) {
-                  const bn = obj.name.toLowerCase();
-                  if (rhNames.some(rh => bn.includes(rh))) targetBone = obj;
-                }
-              });
-            }
-
-            if (targetBone) {
-              // Conservar los transforms locales del arma dentro de su hueso original
-              const lp = gunMesh.position.clone();
-              const lq = gunMesh.quaternion.clone();
-              const ls = gunMesh.scale.clone();
-              gunMesh.removeFromParent();
-              targetBone.add(gunMesh);
-              gunMesh.position.copy(lp);
-              gunMesh.quaternion.copy(lq);
-              gunMesh.scale.copy(ls);
-              gunMesh.frustumCulled = false;
-              gunMesh.castShadow = true;
-              if (gunMesh.material) {
-                gunMesh.material = gunMesh.material.clone();
-                gunMesh.material.roughness = 0.6;
-              }
-              gunMesh.visible = false;  // oculto hasta que apunte
-              this._shootGun = gunMesh;
-            }
-          }
-
-          this._shootWalkAction = this._mixer.clipAction(gltf.animations[0]);
-          this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
-          this._shootWalkAction.setEffectiveWeight(0);
-          this._shootWalkAction.play();
-          this._shootWalkAction.paused = true;
-        });
+        // Shoot-walk: solo se carga para el jugador LOCAL (ver bloque más abajo)
+        // Los remotos no necesitan este modelo
       }
       return model;
     };
@@ -424,7 +363,22 @@ export class PlayerModel {
         if (!template) return; // keep placeholder
         this.group.remove(placeholder);
         const model = _applyGLBTemplate(template);
+        this._mainModel = model;
         this.group.add(model);
+
+        // ── Modelo de disparo: solo jugador local, gltf.scene directo (no clonar) ──
+        loadShootWalkTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const shootModel = _applyGLBTemplate(gltf, true); // keepGun=true
+          shootModel.visible = false;
+          this.group.add(shootModel);
+          this._shootWalkModel  = shootModel;
+          this._shootWalkMixer  = new THREE.AnimationMixer(shootModel);
+          this._shootWalkAction = this._shootWalkMixer.clipAction(gltf.animations[0]);
+          this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._shootWalkAction.play();
+          this._shootWalkAction.paused = true;
+        });
       });
       return;
     }
@@ -694,31 +648,32 @@ export class PlayerModel {
     this._prevPos.copy(this.group.position);
     const isMoving = this._moveSpeed > 0.08;
 
+    // ── Model swap: modelo de disparo (con arma) ↔ modelo normal ────────────────
+    const useShootModel = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
+    if (this._mainModel)      this._mainModel.visible      = !useShootModel;
+    if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
+
     if (this._mixer) {
       if (this._isRiding) {
-        // Caballo: sólo horseAction
-        if (this._walkAction)      { this._walkAction.paused      = false; this._walkAction.setEffectiveWeight(0); }
-        if (this._shootWalkAction) { this._shootWalkAction.paused = false; this._shootWalkAction.setEffectiveWeight(0); }
-        if (this._horseAction)     { this._horseAction.paused     = false; this._horseAction.setEffectiveWeight(1); }
+        // Caballo: sólo horseAction en mixer principal
+        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(0); }
+        if (this._horseAction) { this._horseAction.paused = false; this._horseAction.setEffectiveWeight(1); }
         this._mixer.update(dt);
-      } else if (this._isAimingAnim && this._shootWalkAction) {
-        // Caminando con escopeta
+      } else if (!useShootModel) {
+        // Caminata normal (modelo principal visible)
         const target = isMoving ? 1.0 : 0;
         this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
-        if (this._walkAction)      { this._walkAction.paused      = false; this._walkAction.setEffectiveWeight(0); }
-        if (this._horseAction)     { this._horseAction.setEffectiveWeight(0); }
-        this._shootWalkAction.paused = false;
-        this._shootWalkAction.setEffectiveWeight(1);
-        this._mixer.update(dt * this._walkSpd);
-      } else {
-        // Caminata normal
-        const target = isMoving ? 1.0 : 0;
-        this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
-        if (this._walkAction)      { this._walkAction.paused      = false; this._walkAction.setEffectiveWeight(1); }
-        if (this._horseAction)     { this._horseAction.setEffectiveWeight(0); }
-        if (this._shootWalkAction) { this._shootWalkAction.setEffectiveWeight(0); }
+        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(1); }
+        if (this._horseAction) { this._horseAction.setEffectiveWeight(0); }
         this._mixer.update(dt * this._walkSpd);
       }
+    }
+    // Mixer independiente del modelo de disparo (solo cuando está activo)
+    if (this._shootWalkMixer && useShootModel) {
+      const target = isMoving ? 1.0 : 0;
+      this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
+      if (this._shootWalkAction) this._shootWalkAction.paused = false;
+      this._shootWalkMixer.update(dt * this._walkSpd);
     } else {
       // Fallback: rotación directa de meshes (player.glb sin esqueleto)
       const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
