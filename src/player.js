@@ -366,14 +366,39 @@ export class PlayerModel {
         this._mainModel = model;
         this.group.add(model);
 
-        // ── Modelo de disparo: solo jugador local, gltf.scene directo (no clonar) ──
+        // ── Modelo de disparo: construir SIN tocar this._mixer / this._walkAction ──
         loadShootWalkTemplate().then((gltf) => {
           if (!gltf || !gltf.animations?.length) return;
-          const shootModel = _applyGLBTemplate(gltf, true); // keepGun=true
-          shootModel.visible = false;
-          this.group.add(shootModel);
-          this._shootWalkModel  = shootModel;
-          this._shootWalkMixer  = new THREE.AnimationMixer(shootModel);
+          const shootScene = gltf.scene;  // usamos la escena directamente (SkinnedMesh)
+
+          // Hacer visible todo y arreglar materiales (igual que _applyGLBTemplate)
+          shootScene.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow    = true;
+              obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+
+          // Escalar a TARGET_H = 2.8 y alinear base a y=0
+          shootScene.updateWorldMatrix(true, true);
+          const bbox = new THREE.Box3().setFromObject(shootScene);
+          const h = bbox.max.y - bbox.min.y;
+          if (h > 0.01) {
+            shootScene.scale.setScalar(2.8 / h);
+            shootScene.updateWorldMatrix(true, true);
+            const b2 = new THREE.Box3().setFromObject(shootScene);
+            shootScene.position.y -= b2.min.y;
+          }
+
+          shootScene.visible = false;
+          this.group.add(shootScene);
+          this._shootWalkModel = shootScene;
+
+          // Mixer PROPIO — no toca this._mixer ni this._walkAction
+          this._shootWalkMixer  = new THREE.AnimationMixer(shootScene);
           this._shootWalkAction = this._shootWalkMixer.clipAction(gltf.animations[0]);
           this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
           this._shootWalkAction.play();
