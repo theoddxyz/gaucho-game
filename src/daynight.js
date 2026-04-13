@@ -78,34 +78,18 @@ function _lerp3(keys, t) {
   const last = keys[keys.length - 1]; return [last[1], last[2], last[3]];
 }
 
-// ─── Fog keyframes (near / far) ───────────────────────────────────────────────
-// Pampa: niebla densa al amanecer, despejada al mediodía, leve polvo al atardecer
-const FOG_NEAR_KEYS = [
-  [0.00, 120], [0.20,  80], [0.25,  18], // madrugada → amanecer denso
-  [0.30,  80], [0.50, 260], [0.68, 220], // mañana → mediodía claro
-  [0.75, 180], [0.82, 120], [1.00, 120], // atardecer polvoriento → noche
-];
-const FOG_FAR_KEYS = [
-  [0.00, 300], [0.20, 200], [0.25,  80], // niebla muy densa al amanecer
-  [0.30, 220], [0.50, 480], [0.68, 420],
-  [0.75, 360], [0.82, 280], [1.00, 300],
-];
-
 // ─── Main update ──────────────────────────────────────────────────────────────
 export function updateDayNight(dt, scene, sun, ambient, moon = null) {
   if (!_locked) _t = (_t + dt / DAY_DURATION) % 1;
 
-  // Sky + fog color
+  // Sky + fog
   const [sr, sg, sb] = _lerp3(SKY_KEYS, _t);
   scene.background.setRGB(sr / 255, sg / 255, sb / 255);
-
-  // Niebla: color levemente más oscuro que el cielo, densidad variable
-  scene.fog.color.setRGB(sr / 255 * 0.80, sg / 255 * 0.78, sb / 255 * 0.74);
-  scene.fog.near = _lerp1(FOG_NEAR_KEYS, _t);
-  scene.fog.far  = _lerp1(FOG_FAR_KEYS,  _t);
+  scene.fog.color.setRGB(sr / 255 * 0.82, sg / 255 * 0.82, sb / 255 * 0.78);
 
   // Ambient
   ambient.intensity = _lerp1(AMB_INT_KEYS, _t);
+  // Ambient color: warm during day, cool blue-grey at night
   const nightFrac = _t < 0.25
     ? Math.max(0, 1 - _t / 0.22)
     : _t > 0.78 ? Math.min(1, (_t - 0.78) / 0.10) : 0;
@@ -115,25 +99,13 @@ export function updateDayNight(dt, scene, sun, ambient, moon = null) {
     0.55 + nightFrac * 0.30,
   );
 
-  // Sun — arco en el cielo: sale por el este, se pone por el oeste
+  // Sun
   sun.intensity = _lerp1(SUN_INT_KEYS, _t);
   const [cr, cg, cb] = _lerp3(SUN_COLOR_KEYS, _t);
   sun.color.setRGB(cr / 255, cg / 255, cb / 255);
-  // Ángulo: t=0.25 (amanecer) → este, t=0.5 (mediodía) → arriba, t=0.75 (atardecer) → oeste
-  const sunAngle = (_t - 0.25) * Math.PI / 0.5; // 0 a PI de amanecer a atardecer
-  const sunR = 110;
-  sun.position.set(
-    Math.cos(sunAngle) * sunR,          // X: este→oeste
-    Math.abs(Math.sin(sunAngle)) * 80 + 8, // Y: alto al mediodía, bajo al amanecer/atardecer
-    -30
-  );
 
   // Moon
-  if (moon) {
-    moon.intensity = _lerp1(MOON_INT_KEYS, _t);
-    const moonAngle = sunAngle + Math.PI;
-    moon.position.set(Math.cos(moonAngle) * sunR, Math.abs(Math.sin(moonAngle)) * 60 + 5, -30);
-  }
+  if (moon) moon.intensity = _lerp1(MOON_INT_KEYS, _t);
 }
 
 // Moon intensity keyframes: bright at midnight, gone during day

@@ -939,38 +939,6 @@ export class PlayerModel {
     this._bodyRecoilVel = -9.0;
   }
 
-  /** Emite humo desde el muzzle al disparar. dir = {x,z} normalizado. */
-  emitMuzzleSmoke(dirX, dirZ) {
-    const origin = this.getFirepointWorldPos();
-    if (!origin) return;
-    const count = 10;
-    for (let i = 0; i < count; i++) {
-      const geo = new THREE.SphereGeometry(0.06 + Math.random() * 0.06, 4, 4);
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0.82 + Math.random() * 0.1, 0.80 + Math.random() * 0.1, 0.75 + Math.random() * 0.1),
-        transparent: true, opacity: 0.55 + Math.random() * 0.2,
-        depthWrite: false, depthTest: true,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.renderOrder = 10;
-      mesh.position.copy(origin);
-      this._scene.add(mesh);
-      const spread = 0.18;
-      const spd = 1.8 + Math.random() * 1.2;
-      this._smokeParticles.push({
-        mesh,
-        vel: new THREE.Vector3(
-          dirX * spd + (Math.random() - 0.5) * spread,
-          0.4 + Math.random() * 0.6,
-          dirZ * spd + (Math.random() - 0.5) * spread
-        ),
-        life: 0,
-        maxLife: 0.6 + Math.random() * 0.5,
-        startScale: 1.0 + Math.random() * 0.5,
-      });
-    }
-  }
-
   getFirepointWorldPos() {
     // Cuando el modelo de disparo está activo, usar el Empty "muzzle" de ese modelo
     if (this._isAimingAnim && this._shootMuzzle) {

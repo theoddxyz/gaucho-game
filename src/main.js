@@ -1,8 +1,5 @@
 // --- GAUCHO: Main Game Loop ---
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
-import { ShaderPass }     from 'three/addons/postprocessing/ShaderPass.js';
 import { IsoControls } from './controls.js';
 import { createWorld }  from './world.js';
 import { ChunkManager } from './chunk.js';
@@ -142,69 +139,6 @@ renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 renderer.toneMapping       = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
-
-// --- Post-processing: color grading (western) + chromatic aberration on damage ---
-const _westernShader = {
-  uniforms: {
-    tDiffuse:   { value: null },
-    aberration: { value: 0.0 },   // 0=none, 1=full hit flash
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }
-  `,
-  fragmentShader: `
-    uniform sampler2D tDiffuse;
-    uniform float aberration;
-    varying vec2 vUv;
-
-    vec3 colorGrade(vec3 c) {
-      // Lift shadows toward warm brown
-      c = mix(c, c + vec3(0.04, 0.02, -0.02), smoothstep(0.0, 0.3, 1.0 - c.r));
-      // Push highlights warm/yellow
-      float lum = dot(c, vec3(0.299, 0.587, 0.114));
-      c = mix(c, c * vec3(1.06, 1.02, 0.88), smoothstep(0.5, 1.0, lum));
-      // Slight desaturation in midtones (dusty pampa feel)
-      float mid = smoothstep(0.25, 0.75, lum);
-      float sat = mix(1.0, 0.82, mid * 0.4);
-      c = mix(vec3(lum), c, sat);
-      // Vignette
-      vec2 uv2 = vUv * (1.0 - vUv.yx);
-      float vig = pow(uv2.x * uv2.y * 18.0, 0.35);
-      c *= mix(1.0, vig, 0.45);
-      return c;
-    }
-
-    void main() {
-      float ab = aberration * 0.012;
-      vec2 rOff = vec2(ab, 0.0);
-      vec2 bOff = vec2(-ab, 0.0);
-      float r = texture2D(tDiffuse, vUv + rOff).r;
-      float g = texture2D(tDiffuse, vUv).g;
-      float b = texture2D(tDiffuse, vUv + bOff).b;
-      vec3 col = colorGrade(vec3(r, g, b));
-      // Red flash vignette on damage
-      if (aberration > 0.01) {
-        vec2 uv2 = vUv * (1.0 - vUv.yx);
-        float edge = 1.0 - pow(uv2.x * uv2.y * 15.0, 0.3);
-        col = mix(col, vec3(0.8, 0.0, 0.0), edge * aberration * 0.55);
-      }
-      gl_FragColor = vec4(col, 1.0);
-    }
-  `,
-};
-
-const _composer = new EffectComposer(renderer);
-_composer.addPass(new RenderPass(scene, camera));
-const _fxPass = new ShaderPass(_westernShader);
-_fxPass.renderToScreen = true;
-_composer.addPass(_fxPass);
-
-let _aberration = 0;  // decays each frame
-
-window.addEventListener('resize', () => {
-  _composer.setSize(window.innerWidth, window.innerHeight);
-});
 
 // --- Camera (isometric) ---
 const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 600);
@@ -411,7 +345,6 @@ Network.onPlayerHit((data) => {
     myData.hp = data.hp;
     UI.updateHP(myData.hp);
     UI.showDamageFlash();
-    _aberration = 1.0;   // aberración cromática + flash rojo
     localPlayerModel?.detachHat();
     Audio.playerHurt();
     if (myData.hp <= 30) Audio.startHeartbeat();
@@ -674,7 +607,6 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (!result) return;
   controls.applyRecoil();
   localPlayerModel?.triggerGunRecoil();
-  localPlayerModel?.emitMuzzleSmoke(dir.x, dir.z);
   muzzleFlash(scene, result.origin);
 
   // ── Camera-ray hitscan — SAME ray used by red crosshair ────────────────────
@@ -1287,10 +1219,7 @@ function gameLoop() {
     }
   }
 
-  // Aberración cromática: decay
-  _aberration = Math.max(0, _aberration - dt * 3.5);
-  _fxPass.uniforms.aberration.value = _aberration;
-  _composer.render();
+  renderer.render(scene, camera);
   soulMap.draw();
 }
 
