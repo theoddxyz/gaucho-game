@@ -134,6 +134,32 @@ function _buildWheatMesh() {
   return grp;
 }
 
+// ─── Helpers para contexto de chat ───────────────────────────────────────────
+function _intentionLabel(intention) {
+  const map = {
+    OFFERING:  'trascendente y colectivo',
+    HOARDING:  'trascendente pero solitario',
+    SHARING:   'material y generoso',
+    CONSUMING: 'material y egoísta',
+    BAR:       'rebelde, sin ataduras',
+  };
+  return map[intention] || intention;
+}
+
+function _calcTrayectoria(u) {
+  const h = u.history;
+  if (!h || h.length < 3) return 'estable';
+  const first = h[0], last = h[h.length - 1];
+  const dx = last.x - first.x, dy = last.y - first.y;
+  if (Math.sqrt(dx * dx + dy * dy) < 15) return 'estable';
+  const toGroup = dx > 0;
+  const toTrans  = dy < 0;  // y=0 es arriba (trascendente)
+  if ( toGroup &&  toTrans) return 'abriéndose al grupo y a lo espiritual';
+  if (!toGroup &&  toTrans) return 'buscando trascendencia en soledad';
+  if ( toGroup && !toTrans) return 'abriéndose a compartir lo material';
+  return 'cayendo hacia el consumo propio';
+}
+
 // ─── SoulSystem ───────────────────────────────────────────────────────────────
 export class SoulSystem {
   constructor(scene) {
@@ -571,6 +597,19 @@ export class SoulSystem {
         }
       }
     });
+  }
+
+  // ─── Contexto para conversación con aldeanos ─────────────────────────────────
+  getContextForChat() {
+    return this._units.map(u => ({
+      id:         u.id,
+      name:       u.name,
+      intention:  getIntention(u.metaPos),
+      cuadrante:  _intentionLabel(getIntention(u.metaPos)),
+      trayectoria:_calcTrayectoria(u),
+      energia:    Math.round(u.energy),
+      recursos:   u.inventory,
+    }));
   }
 
   dispose() {
