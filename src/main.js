@@ -25,8 +25,10 @@ import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
 import { BirdSystem } from './birds.js';
+import { MusicPlayer } from './music.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
+import { getAudioCtx, getMasterGain } from './audio.js';
 import * as Inventory from './inventory.js';
 import { createVillage, getVillageGates } from './village.js';
 
@@ -272,11 +274,22 @@ let _npcDone   = false;   // player already completed dialogue this session
 // --- Network ---
 Network.connect();
 
+let _musicPlayer = null;
+
 function startGame(name) {
   Audio.initAudio();
   Audio.stopLobbyMusic();
   Audio.startWind();
   Audio.startAmbientDrone();
+  // Música MIDI — arranca con fade-in tras un pequeño delay
+  try {
+    const ctx  = getAudioCtx();
+    const out  = getMasterGain();
+    if (ctx && out) {
+      _musicPlayer = new MusicPlayer(ctx, out);
+      setTimeout(() => { _musicPlayer.start(); _musicPlayer.fadeIn(3.0); }, 2000);
+    }
+  } catch(e) { console.warn('[MUSIC]', e); }
   const roomId = Network.getRoomId() || Network.generateRoomId();
   UI.hideLobby();
   UI.showCoords();

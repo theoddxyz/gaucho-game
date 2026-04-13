@@ -827,3 +827,7 @@ export function stopLobbyMusic() { _lobbyNodes.forEach(n=>n.stop?.()); _lobbyNod
 export function setMasterVolume(v) {
   if (_out) _out.gain.value = Math.max(0, Math.min(1, v));
 }
+
+// ── Acceso al contexto y master gain (para MusicPlayer) ──────────────────────
+export function getAudioCtx()   { _ctx_(); return _ctx; }
+export function getMasterGain() { _ctx_(); return _out; }
