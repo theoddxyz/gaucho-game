@@ -111,9 +111,28 @@ function getDoor(bKey, houseId) {
   return HOUSES[houseId].pos;
 }
 
-// ─── Recurso 3D ───────────────────────────────────────────────────────────────
-const _resMat = new THREE.MeshStandardMaterial({ color: 0xf0c040, emissive: 0x604010, roughness: 0.6 });
-const _resGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+// ─── Recurso 3D: atado de trigo ───────────────────────────────────────────────
+const _resMat  = new THREE.MeshStandardMaterial({ color: 0xC89420, emissive: 0x4a3008, roughness: 0.85 });
+const _resMat2 = new THREE.MeshStandardMaterial({ color: 0xDDAA28, emissive: 0x503810, roughness: 0.80 });
+// Atado de trigo: cilindro central + cuatro "espigas" inclinadas alrededor
+function _buildWheatMesh() {
+  const grp = new THREE.Group();
+  // Paja central (tallo del atado)
+  const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.50, 5), _resMat.clone());
+  stalk.castShadow = true;
+  grp.add(stalk);
+  // Cuatro espigas inclinadas
+  for (let i = 0; i < 4; i++) {
+    const ang = (i / 4) * Math.PI * 2;
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.34, 4), _resMat2.clone());
+    s.castShadow = true;
+    s.position.set(Math.cos(ang) * 0.07, 0.14, Math.sin(ang) * 0.07);
+    s.rotation.z = (Math.random() > 0.5 ? 1 : -1) * 0.28;
+    s.rotation.x = Math.cos(ang) * 0.20;
+    grp.add(s);
+  }
+  return grp;
+}
 
 // ─── SoulSystem ───────────────────────────────────────────────────────────────
 export class SoulSystem {
@@ -256,8 +275,9 @@ export class SoulSystem {
           y: farm.y + (Math.random() - 0.5) * 10,
         };
         this._resources.push({ id: rid, pos, amount: 1, ownerHouseId: hi });
-        const mesh = new THREE.Mesh(_resGeo, _resMat.clone());
+        const mesh = _buildWheatMesh();
         mesh.position.set(pos.x, 0.25, pos.y);
+        mesh.rotation.y = Math.random() * Math.PI * 2;
         this._scene.add(mesh);
         this._resMeshes.set(rid, mesh);
       }

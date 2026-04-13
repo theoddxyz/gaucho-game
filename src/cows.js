@@ -149,16 +149,28 @@ function tickFlyingParts(scene, detachedParts, dt) {
 // ─── Muerte con físicas ───────────────────────────────────────────────────────
 const DEATH_PHYSICS_LIFE = 90; // segundos antes de auto-eliminar
 
-function _startDeathPhysics(entity) {
+function _startDeathPhysics(entity, hitPoint) {
   entity.wounded      = false;
   entity.dyingPhysics = true;
+  // Dirección: desde el punto de impacto hacia fuera del animal
+  let dx = 0, dz = 0;
+  if (hitPoint && entity.mesh) {
+    dx = entity.mesh.position.x - hitPoint.x;
+    dz = entity.mesh.position.z - hitPoint.z;
+    const d = Math.sqrt(dx * dx + dz * dz) || 1;
+    dx /= d; dz /= d;
+  } else {
+    const a = Math.random() * Math.PI * 2;
+    dx = Math.cos(a); dz = Math.sin(a);
+  }
+  const speed = 5.0 + Math.random() * 3.5;
   entity._phy = {
-    vx: (Math.random() - 0.5) * 2.0,
-    vy: 0.9 + Math.random() * 0.7,
-    vz: (Math.random() - 0.5) * 2.0,
-    angX: (Math.random() - 0.5) * 4,
-    angY: (Math.random() - 0.5) * 1.5,
-    angZ: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3),
+    vx: dx * speed,
+    vy: 3.5 + Math.random() * 2.5,
+    vz: dz * speed,
+    angX: (Math.random() - 0.5) * 12,
+    angY: (Math.random() - 0.5) * 5,
+    angZ: (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 7),
     t: 0,
     settled: false,
   };
@@ -453,18 +465,16 @@ export class CowSystem {
     return null;  // el pickup real lo hace updateMeats
   }
 
-  /** Disparar vaca: pierde vida, vuela un miembro, eventual estado herida → muerte. */
+  /** Disparar vaca: al primer tiro vuela un miembro y cae con físicas inmediatamente. */
   hitCow(id, hitPoint, hitZone) {
     const cow = this._cows[id];
-    if (!cow || cow.removed || cow.wounded) return;
-    cow.hp = Math.max(0, cow.hp - 1);
+    if (!cow || cow.removed || cow.dyingPhysics) return;
 
     // Spawn flying part based on hit zone
-    const scale = 1.4;   // cow mesh scale
+    const scale = 1.4;
     const mx = cow.mesh.position.x, mz = cow.mesh.position.z;
 
     if (hitZone === 'head' && cow.mesh._headGroup && !cow._headDetached) {
-      // Hide the head group and spawn a flying chunk in its place
       cow._headDetached = true;
       cow.mesh._headGroup.visible = false;
       const headWorldPos = new THREE.Vector3(
@@ -494,27 +504,10 @@ export class CowSystem {
       }
     }
 
-    if (cow.hp <= 0) {
-      // Enter wounded state
-      cow.wounded  = true;
-      cow.woundedT = 0;
-      cow.vx = 0; cow.vz = 0;
-      // Deactivate hitbox
-      this._hitboxMap.delete(cow.hitbox);
-      cow.hitbox.visible = false;
-    } else {
-      // Panic flee after being hit
-      cow.bbState      = 'fleeing';
-      cow.panicTimer   = Math.max(cow.panicTimer, 5.0);
-      cow.waypointTimer = cow.panicTimer + 2;
-      const dx = hitPoint ? cow.mesh.position.x - hitPoint.x : (Math.random()-0.5);
-      const dz = hitPoint ? cow.mesh.position.z - hitPoint.z : (Math.random()-0.5);
-      const d  = Math.sqrt(dx * dx + dz * dz) || 1;
-      cow.waypoint = {
-        x: cow.mesh.position.x + (dx / d) * 50,
-        z: cow.mesh.position.z + (dz / d) * 50,
-      };
-    }
+    // Primer tiro → inmediatamente ragdoll con impulso direccional
+    this._hitboxMap.delete(cow.hitbox);
+    cow.hitbox.visible = false;
+    _startDeathPhysics(cow, hitPoint);
   }
 
   _spawnBloodSpot(x, z) {

@@ -97,16 +97,27 @@ function tickFlyingParts(scene, detachedParts, dt) {
 // ─── Muerte con físicas ───────────────────────────────────────────────────────
 const DEATH_PHYSICS_LIFE = 90;
 
-function _startDeathPhysics(entity) {
+function _startDeathPhysics(entity, hitPoint) {
   entity.wounded      = false;
   entity.dyingPhysics = true;
+  let dx = 0, dz = 0;
+  if (hitPoint && entity.mesh) {
+    dx = entity.mesh.position.x - hitPoint.x;
+    dz = entity.mesh.position.z - hitPoint.z;
+    const d = Math.sqrt(dx * dx + dz * dz) || 1;
+    dx /= d; dz /= d;
+  } else {
+    const a = Math.random() * Math.PI * 2;
+    dx = Math.cos(a); dz = Math.sin(a);
+  }
+  const speed = 4.0 + Math.random() * 3.0;
   entity._phy = {
-    vx: (Math.random() - 0.5) * 2.0,
-    vy: 0.9 + Math.random() * 0.7,
-    vz: (Math.random() - 0.5) * 2.0,
-    angX: (Math.random() - 0.5) * 4,
-    angY: (Math.random() - 0.5) * 1.5,
-    angZ: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3),
+    vx: dx * speed,
+    vy: 3.0 + Math.random() * 2.5,
+    vz: dz * speed,
+    angX: (Math.random() - 0.5) * 14,
+    angY: (Math.random() - 0.5) * 6,
+    angZ: (Math.random() > 0.5 ? 1 : -1) * (9 + Math.random() * 8),
     t: 0,
     settled: false,
   };
@@ -370,23 +381,10 @@ export class ChickenSystem {
       }
     }
 
-    if (c.hp <= 0) {
-      // Entra en estado herida (cae y muere)
-      c.wounded = true;
-      c.woundedT = 0;
-      c.vx = 0; c.vz = 0;
-      this._hitboxMap.delete(c.hitbox);
-      c.hitbox.visible = false;
-    } else {
-      // Sale corriendo
-      c.bbState     = 'fleeing';
-      c.panicTimer  = Math.max(c.panicTimer, 5.0);
-      c.waypointTimer = c.panicTimer + 2;
-      const dx = hitPoint ? c.mesh.position.x - hitPoint.x : (Math.random()-0.5);
-      const dz = hitPoint ? c.mesh.position.z - hitPoint.z : (Math.random()-0.5);
-      const d  = Math.sqrt(dx*dx+dz*dz) || 1;
-      c.waypoint = { x: c.mesh.position.x + (dx/d)*30, z: c.mesh.position.z + (dz/d)*30 };
-    }
+    // Primer tiro → ragdoll inmediato con impulso direccional
+    this._hitboxMap.delete(c.hitbox);
+    c.hitbox.visible = false;
+    _startDeathPhysics(c, hitPoint);
   }
 
   // ── Yell: onda expansiva (igual que vacas) ───────────────────────────────

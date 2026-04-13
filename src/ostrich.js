@@ -76,17 +76,28 @@ function tickFlyingParts(scene, detachedParts, dt) {
 // ─── Muerte con físicas ───────────────────────────────────────────────────────
 const DEATH_PHYSICS_LIFE = 90;
 
-function _startDeathPhysics(entity) {
+function _startDeathPhysics(entity, hitPoint) {
   entity.wounded      = false;
   entity.dying        = false;
   entity.dyingPhysics = true;
+  let dx = 0, dz = 0;
+  if (hitPoint && entity.mesh) {
+    dx = entity.mesh.position.x - hitPoint.x;
+    dz = entity.mesh.position.z - hitPoint.z;
+    const d = Math.sqrt(dx * dx + dz * dz) || 1;
+    dx /= d; dz /= d;
+  } else {
+    const a = Math.random() * Math.PI * 2;
+    dx = Math.cos(a); dz = Math.sin(a);
+  }
+  const speed = 5.0 + Math.random() * 3.5;
   entity._phy = {
-    vx: (Math.random() - 0.5) * 2.0,
-    vy: 0.9 + Math.random() * 0.7,
-    vz: (Math.random() - 0.5) * 2.0,
-    angX: (Math.random() - 0.5) * 4,
-    angY: (Math.random() - 0.5) * 1.5,
-    angZ: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3),
+    vx: dx * speed,
+    vy: 3.5 + Math.random() * 2.5,
+    vz: dz * speed,
+    angX: (Math.random() - 0.5) * 12,
+    angY: (Math.random() - 0.5) * 5,
+    angZ: (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 7),
     t: 0,
     settled: false,
   };
@@ -367,16 +378,9 @@ export class OstrichSystem {
       }
     }
 
-    if (e.hp <= 0) {
-      e.wounded  = true;
-      e.woundedT = 0;
-      e.vx = 0; e.vz = 0;
-      // Deactivate hitbox
-      if (e.mesh._hitbox) e.mesh._hitbox.visible = false;
-    } else {
-      // Keep wandering but faster (startled)
-      e.wanderTimer = 0;
-    }
+    // Primer tiro → ragdoll inmediato con impulso direccional
+    if (e.mesh._hitbox) e.mesh._hitbox.visible = false;
+    _startDeathPhysics(e, hitPoint);
   }
 
   update(dt, playerPos) {
