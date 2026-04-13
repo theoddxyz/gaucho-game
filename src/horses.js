@@ -181,7 +181,6 @@ export class HorseManager {
           : o.material?.name ?? '');
         if (SADDLE_PATTERN.test(o.name) || SADDLE_MAT_PATTERN.test(matName)) {
           saddleNodes.push(o);
-          if (isWild) o.visible = false;
         }
         if (isWild && variant) {
           o.material = o.material.clone();
@@ -434,8 +433,6 @@ export class HorseManager {
     if (!horse) return;
     horse.riderId  = playerId;
     this.myHorseId = horseId;
-    // Mostrar montura solo si el caballo la tiene — no forzar si fue quitada
-    horse.saddleNodes?.forEach(n => n.visible = horse.saddled === true);
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 

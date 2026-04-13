@@ -323,7 +323,7 @@ Network.onJoined((data) => {
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   horseManager.initMyHorse(myId);
-  _monturaCnt = 1;  // arranca con la montura de su caballo personal
+  _monturaCnt = 0;  // arranca sin montura en inventario (ya está en el caballo)
   _updateMonturaHUD();
 
   Network.onHorseUnsaddled(({ horseId }) => horseManager?.onRemoteUnsaddle(horseId));
