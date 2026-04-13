@@ -381,11 +381,7 @@ export class PlayerModel {
               obj.castShadow    = true;
               obj.frustumCulled = false;
               const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
-              const n2 = obj.name.toLowerCase().trim();
-              const isGun = n2 === 'gun' || n2 === 'gun.002' || n2.startsWith('gun');
-              obj.material = isGun
-                ? new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.35, metalness: 0.85 })
-                : new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
             const n = obj.name.toLowerCase().trim();
             if (n === 'muzzle') {

@@ -229,7 +229,7 @@ function buildCampesino(char) {
     root._caneGroup = g;
   }
 
-  root.scale.setScalar(char.scale ?? 1.0);
+  root.scale.setScalar((char.scale ?? 1.0) * 1.25);
 
   root._legs      = legs;
   root._armPivs   = armPivs;
