@@ -222,6 +222,7 @@ export class PlayerModel {
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
+    this._wasRiding       = false;  // para detectar transición mount/dismount
     this._isAimingAnim    = false;
     // Movimiento controlado externamente (solo jugador local)
     this._extMoving       = false;  // hay teclas presionadas
@@ -705,11 +706,29 @@ export class PlayerModel {
 
     if (this._mixer) {
       if (this._isRiding) {
-        // Caballo: sólo horseAction en mixer principal
-        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(0); }
-        if (this._horseAction) { this._horseAction.paused = false; this._horseAction.setEffectiveWeight(1); }
+        // Transición: acaba de montar → reiniciar horse action limpia
+        if (!this._wasRiding) {
+          if (this._horseAction) { this._horseAction.reset(); this._horseAction.play(); }
+          if (this._walkAction)  { this._walkAction.paused = true; }
+          this._walkSpd = 0;
+        }
+        this._wasRiding = true;
+        if (this._horseAction) {
+          // Horse action disponible: reproducirla con peso pleno
+          this._horseAction.paused = false;
+          this._horseAction.setEffectiveWeight(1);
+          if (this._walkAction) this._walkAction.setEffectiveWeight(0);
+        } else {
+          // Fallback: no hay horse action (GLB sin anim), usar walk action
+          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
+        }
         this._mixer.update(dt);
       } else if (!useShootModel) {
+        if (this._wasRiding) {
+          // Acaba de desmontar → dejar walk action lista para reanudar
+          if (this._horseAction) { this._horseAction.setEffectiveWeight(0); this._horseAction.paused = true; }
+        }
+        this._wasRiding = false;
         // Caminata normal (modelo principal visible)
         const target = isMoving ? 1.0 : 0;
         this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
@@ -723,6 +742,8 @@ export class PlayerModel {
         }
       }
     }
+    if (!this._isRiding) this._wasRiding = false;
+
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
       const target = isMoving ? 1.0 : 0;
