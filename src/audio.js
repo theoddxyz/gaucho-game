@@ -235,59 +235,71 @@ function _makeNoiseBuf(dur) {
   return buf;
 }
 
+// Curva de saturación hard-clip para WaveShaper
+function _satCurve(amount = 120) {
+  const n = 512, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
 export function shotgun() {
   const c = _ctx_(); if (!c) return; const t = _now();
 
-  // ── Capa 1: Sub-bass thump — el golpe físico del arma ─────────────────────
+  // ── Capa 1: Sub-bass thump — golpe físico, pitch-drop rápido ─────────────
   const o1 = c.createOscillator(); o1.type = 'sine';
-  o1.frequency.setValueAtTime(95, t);
-  o1.frequency.exponentialRampToValueAtTime(22, t + 0.26);
-  const lp1 = c.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.value = 240;
+  o1.frequency.setValueAtTime(110, t);
+  o1.frequency.exponentialRampToValueAtTime(24, t + 0.20);
+  const lp1 = c.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.value = 260;
   const g1  = c.createGain();
   g1.gain.setValueAtTime(0.0001, t);
-  g1.gain.linearRampToValueAtTime(0.72, t + 0.003);   // ataque instantáneo
-  g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
-  o1.connect(lp1); lp1.connect(g1); _toOut(g1, 0.45);
-  o1.start(t); o1.stop(t + 0.32);
+  g1.gain.linearRampToValueAtTime(0.85, t + 0.002);
+  g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  o1.connect(lp1); lp1.connect(g1); _toOut(g1, 0.40);
+  o1.start(t); o1.stop(t + 0.30);
 
-  // ── Capa 2: Cuerpo del disparo — ruido blanco lowpass, larga caída ─────────
-  const buf2  = _makeNoiseBuf(0.55); if (!buf2) return;
-  const src2  = c.createBufferSource(); src2.buffer = buf2;
-  const lp2   = c.createBiquadFilter(); lp2.type = 'lowpass';
-  lp2.frequency.value = 4200; lp2.Q.value = 0.5;
-  const g2    = c.createGain();
+  // ── Capa 2: Cuerpo saturado — ruido a través de WaveShaper ───────────────
+  const buf2 = _makeNoiseBuf(0.50); if (!buf2) return;
+  const src2 = c.createBufferSource(); src2.buffer = buf2;
+  const lp2  = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 3800;
+  const sat  = c.createWaveShaper(); sat.curve = _satCurve(140);
+  const lp2b = c.createBiquadFilter(); lp2b.type = 'lowpass'; lp2b.frequency.value = 5000;
+  const g2   = c.createGain();
   g2.gain.setValueAtTime(0.0001, t);
-  g2.gain.linearRampToValueAtTime(0.62, t + 0.005);
-  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.48);
-  src2.connect(lp2); lp2.connect(g2); _toOut(g2, 0.55);
-  src2.start(t);
+  g2.gain.linearRampToValueAtTime(0.75, t + 0.004);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.44);
+  src2.connect(lp2); lp2.connect(sat); sat.connect(lp2b); lp2b.connect(g2);
+  _toOut(g2, 0.58); src2.start(t);
 
-  // ── Capa 3: Crack agudo — la rotura sónica del proyectil ──────────────────
-  const buf3  = _makeNoiseBuf(0.07); if (buf3) {
-    const src3  = c.createBufferSource(); src3.buffer = buf3;
-    const hp3   = c.createBiquadFilter(); hp3.type = 'highpass'; hp3.frequency.value = 5500;
-    const g3    = c.createGain();
+  // ── Capa 3: Crack inicial muy corto — snap del disparo ───────────────────
+  const buf3 = _makeNoiseBuf(0.055); if (buf3) {
+    const src3 = c.createBufferSource(); src3.buffer = buf3;
+    const hp3  = c.createBiquadFilter(); hp3.type = 'highpass'; hp3.frequency.value = 6000;
+    const sat3 = c.createWaveShaper(); sat3.curve = _satCurve(200);
+    const g3   = c.createGain();
     g3.gain.setValueAtTime(0.0001, t);
-    g3.gain.linearRampToValueAtTime(0.40, t + 0.002);
-    g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.065);
-    src3.connect(hp3); hp3.connect(g3); _toOut(g3, 0.18);
+    g3.gain.linearRampToValueAtTime(0.55, t + 0.001);
+    g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    src3.connect(hp3); hp3.connect(sat3); sat3.connect(g3); _toOut(g3, 0.12);
     src3.start(t);
   }
 
-  // ── Capa 4: Resonancia de cañón — bandpass medio-grave ────────────────────
-  const buf4  = _makeNoiseBuf(0.38); if (buf4) {
-    const src4  = c.createBufferSource(); src4.buffer = buf4;
-    const bp4   = c.createBiquadFilter(); bp4.type = 'bandpass';
-    bp4.frequency.value = 620; bp4.Q.value = 1.4;
-    const g4    = c.createGain();
+  // ── Capa 4: Resonancia de cañón — bandpass con Q alta ────────────────────
+  const buf4 = _makeNoiseBuf(0.32); if (buf4) {
+    const src4 = c.createBufferSource(); src4.buffer = buf4;
+    const bp4  = c.createBiquadFilter(); bp4.type = 'bandpass';
+    bp4.frequency.value = 580; bp4.Q.value = 1.8;
+    const g4   = c.createGain();
     g4.gain.setValueAtTime(0.0001, t);
-    g4.gain.linearRampToValueAtTime(0.30, t + 0.008);
-    g4.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
-    src4.connect(bp4); bp4.connect(g4); _toOut(g4, 0.38);
+    g4.gain.linearRampToValueAtTime(0.35, t + 0.006);
+    g4.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+    src4.connect(bp4); bp4.connect(g4); _toOut(g4, 0.35);
     src4.start(t);
   }
 
-  // ── Casquillo — 85ms después ───────────────────────────────────────────────
+  // ── Casquillo — 90ms después ──────────────────────────────────────────────
   setTimeout(() => {
     _playFile('weapons/shell.mp3', { volume: 0.20, reverb: 0.05 }, () => {
       const c2 = _ctx_(); if (!c2) return; const t2 = _now();
@@ -297,7 +309,7 @@ export function shotgun() {
       g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.16);
       o.connect(g); _toOut(g, 0.04); o.start(t2); o.stop(t2 + 0.18);
     });
-  }, 80 + Math.random() * 45);
+  }, 88 + Math.random() * 40);
 }
 
 // ── BALA CERCA ────────────────────────────────────────────────────────────────

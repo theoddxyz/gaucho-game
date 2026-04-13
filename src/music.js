@@ -150,8 +150,14 @@ export class MusicPlayer {
       if (n.time > songPos + ahead) break;
       const noteStart = this._startTime + n.time;
       if (noteStart > now - 0.05) {
-        n.drum ? this._playDrum(n.drum, n.vel, noteStart)
-               : this._playNote(n, noteStart);
+        try {
+          if (n.type === 'drum') {
+            // Solo tocar percusión conocida — evita crash con syn=null
+            if (n.drum) this._playDrum(n.drum, n.vel, noteStart);
+          } else if (n.syn) {
+            this._playNote(n, noteStart);
+          }
+        } catch(e) { /* nota fallida individual — no matar el scheduler */ }
       }
       this._schedIdx++;
     }

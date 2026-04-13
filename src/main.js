@@ -288,9 +288,9 @@ function startGame(name) {
     if (ctx && out) {
       _musicPlayer = new MusicPlayer(ctx, out);
       setTimeout(() => {
+        Audio.stopAmbientDrone();   // apagar el drone antes de que arranque la música
         _musicPlayer.start();
         _musicPlayer.fadeIn(3.0);
-        Audio.setMasterVolume(0.55);  // bajar un poco el master para el drone
       }, 2000);
     }
   } catch(e) { console.warn('[MUSIC]', e); }
@@ -803,10 +803,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         Network.sendGameEvent('animal_killed', { detail: `Un pájaro cayó abatido del cielo.` });
       }
       else if (scanHit.target.type === 'cow') {
-        const cowZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
         const cowBefore = cowSystem?._cows[scanHit.target.id];
         const hpBefore = cowBefore?.hp ?? 2;
-        cowSystem?.hitCow(scanHit.target.id, scanHit.point, cowZone);
+        cowSystem?.hitCow(scanHit.target.id, scanHit.point, hitZone);
         const cowAfter = cowSystem?._cows[scanHit.target.id];
         if (cowAfter?.wounded && hpBefore > 1)
           Network.sendGameEvent('animal_wounded', { detail: `Una vaca quedó herida y se arrastra por la pampa.` });
@@ -815,10 +814,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       }
       else if (scanHit.target.type === 'ostrich') {
         const oIdx = scanHit.target.id;
-        const ostZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
         const eBefore = ostrichSystem._entities[oIdx];
         const hpBefore = eBefore?.hp ?? 2;
-        ostrichSystem.hit(oIdx, scanHit.point, ostZone);
+        ostrichSystem.hit(oIdx, scanHit.point, hitZone);
         const eAfter = ostrichSystem._entities[oIdx];
         if (eAfter?.wounded && hpBefore > 1)
           Network.sendGameEvent('animal_wounded', { detail: `Un avestruz herido corre en círculos por el campo.` });
@@ -827,8 +825,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         if (eAfter && (eAfter.wounded || eAfter.dying || eAfter.dead)) Network.sendOstrichKill(oIdx);
       }
       else if (scanHit.target.type === 'chicken') {
-        const chicZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
-        chickenSystem.hit(scanHit.target.id, scanHit.point, chicZone);
+        chickenSystem.hit(scanHit.target.id, scanHit.point, hitZone);
         Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
       }
     }, travelMs);
