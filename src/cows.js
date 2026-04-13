@@ -38,9 +38,17 @@ export const STABLE_X    = 1000;
 export const STABLE_Z    = 1000;
 const CORRAL_RADIUS      = 15;
 
-const SPAWN_X   = 3.8;
-const SPAWN_Z   = -69;
 const N_COWS    = 33;
+
+// Zonas de manada para vacas sueltas — lejos del pueblo (spawn ~3.8, -69)
+// 5 herds × 5 vacas = 25 vacas libres, cada manada en su zona de la pampa
+const FREE_HERD_ZONES = [
+  { x:  80, z:  30 },   // pampa este
+  { x: 100, z: -30 },  // pampa sureste
+  { x:  20, z:  80 },  // pampa norte
+  { x: -30, z:  20 },  // pampa oeste
+  { x:  60, z: 120 },  // pampa norte lejana
+];
 
 // ─── Corrales del nuevo mapa — 4+4 vacas distribuidas en los dos corrales ─────
 export const VILLAGE_CORRAL  = { x: -137, z:  12, hw: 16, hd: 12 };
@@ -309,10 +317,10 @@ export class CowSystem {
         x = VILLAGE_CORRAL2.x + (rng() * 2 - 1) * (VILLAGE_CORRAL2.hw - 2.5);
         z = VILLAGE_CORRAL2.z + (rng() * 2 - 1) * (VILLAGE_CORRAL2.hd - 2.5);
       } else {
-        const angle = rng() * Math.PI * 2;
-        const dist  = 8 + rng() * 50;
-        x = SPAWN_X + Math.cos(angle) * dist;
-        z = SPAWN_Z + Math.sin(angle) * dist;
+        // Distribuir en 5 manadas de ~5 vacas, cada una en su zona de la pampa
+        const zone = FREE_HERD_ZONES[Math.floor((i - N_CORRAL_COWS) / 5) % FREE_HERD_ZONES.length];
+        x = zone.x + (rng() * 2 - 1) * 18;
+        z = zone.z + (rng() * 2 - 1) * 18;
       }
       mesh.position.set(x, 0, z);
       mesh.rotation.y = rng() * Math.PI * 2;
