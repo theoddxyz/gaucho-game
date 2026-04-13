@@ -73,6 +73,47 @@ function tickFlyingParts(scene, detachedParts, dt) {
   }
 }
 
+// ─── Muerte con físicas ───────────────────────────────────────────────────────
+const DEATH_PHYSICS_LIFE = 90;
+
+function _startDeathPhysics(entity) {
+  entity.wounded      = false;
+  entity.dying        = false;
+  entity.dyingPhysics = true;
+  entity._phy = {
+    vx: (Math.random() - 0.5) * 2.0,
+    vy: 0.9 + Math.random() * 0.7,
+    vz: (Math.random() - 0.5) * 2.0,
+    angX: (Math.random() - 0.5) * 4,
+    angY: (Math.random() - 0.5) * 1.5,
+    angZ: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3),
+    t: 0,
+    settled: false,
+  };
+}
+
+function _tickDeathPhysics(mesh, phy, dt) {
+  phy.t += dt;
+  if (phy.settled) return;
+  phy.vy -= 9.8 * dt;
+  mesh.position.x += phy.vx * dt;
+  mesh.position.y += phy.vy * dt;
+  mesh.position.z += phy.vz * dt;
+  mesh.rotation.x += phy.angX * dt;
+  mesh.rotation.y += phy.angY * dt;
+  mesh.rotation.z += phy.angZ * dt;
+  if (mesh.position.y <= 0) {
+    mesh.position.y = 0;
+    const bounce = Math.abs(phy.vy) * 0.28;
+    phy.vy = bounce > 0.35 ? bounce : 0;
+    phy.vx *= 0.65; phy.vz *= 0.65;
+    phy.angX *= 0.45; phy.angY *= 0.45; phy.angZ *= 0.45;
+    if (phy.vy === 0) phy.settled = true;
+  }
+  phy.vx *= Math.max(0, 1 - 1.2 * dt);
+  phy.vz *= Math.max(0, 1 - 1.2 * dt);
+}
+
 const WANDER_RADIUS  = 28;
 const WALK_SPEED     = 1.6;
 const PICKUP_RADIUS  = 2.8;
@@ -197,6 +238,8 @@ function makeEntity(scene, spawnX, spawnZ) {
     wounded:       false,
     woundedT:      0,
     woundedMaxT:   6 + Math.random() * 3,
+    dyingPhysics:  false,
+    _phy:          null,
     detachedParts: [],
   };
 }
@@ -258,7 +301,7 @@ export class OstrichSystem {
     const r2 = radius * radius;
     let nearest = null, nearestD2 = r2;
     for (const e of this._entities) {
-      if ((!e.wounded && !e.dying) || e.dead || !e.mesh) continue;
+      if ((!e.wounded && !e.dyingPhysics) || e.dead || !e.mesh) continue;
       const dx = e.mesh.position.x - x, dz = e.mesh.position.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < nearestD2) { nearestD2 = d2; nearest = e; }
@@ -269,15 +312,16 @@ export class OstrichSystem {
   /** Deshuesar avestruz herido: lo elimina y devuelve { hunger, hp }. */
   lootWounded(e) {
     if (!e || e.dead) return null;
+    if (!e.wounded && !e.dyingPhysics) return null;
+    e.dyingPhysics = false;
+    e.wounded = false;
+    e.dead = true;
+    e.respawnTimer = RESPAWN_DELAY;
     if (e.mesh) {
       this._scene.remove(e.mesh);
-      e.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+      e.mesh.traverse(o => { if (o.isMesh) { o.geometry?.dispose(); } });
       e.mesh = null;
     }
-    e.dead  = true;
-    e.wounded = false;
-    e.dying   = false;
-    e.respawnTimer = RESPAWN_DELAY;
     return { hunger: 28, hp: 18 };
   }
 
@@ -304,18 +348,21 @@ export class OstrichSystem {
         0x151008,
         e.detachedParts, hitPoint
       );
-    } else {
-      // Leg hit
-      const side = Math.random() < 0.5 ? 0.16 : -0.16;
-      const lx = mx + Math.cos(ry) * side;
-      const lz = mz - Math.sin(ry) * side;
-      spawnFlyingPart(
-        this._scene,
-        new THREE.Vector3(lx, 0.6, lz),
-        new THREE.BoxGeometry(0.11, 0.52, 0.11),
-        0xd08040,
-        e.detachedParts, hitPoint
-      );
+    } else if (hitZone === 'leg' && e.mesh._legs?.length > 0) {
+      const legEntry = e.mesh._legs.shift();
+      if (legEntry?.pivot) {
+        legEntry.pivot.visible = false;
+        const legWorldPos = new THREE.Vector3();
+        legEntry.pivot.getWorldPosition(legWorldPos);
+        if (legWorldPos.y < 0.01) legWorldPos.y = 0.6;
+        spawnFlyingPart(
+          this._scene,
+          legWorldPos,
+          new THREE.BoxGeometry(0.11, 0.52, 0.11),
+          0xd08040,
+          e.detachedParts, hitPoint
+        );
+      }
     }
 
     if (e.hp <= 0) {
@@ -357,7 +404,7 @@ export class OstrichSystem {
       // ── Wounded state ──────────────────────────────────────────────────────────
       if (e.wounded) {
         e.woundedT += dt;
-        e.mesh.rotation.z = Math.min(Math.PI / 2, e.woundedT * 3.0);
+        e.mesh.rotation.z = Math.min(0.18, e.woundedT * 0.08);
         e.mesh.position.y = 0;
         // Slow crawl drag
         const crawlSpeed = Math.max(0, 0.55 - e.woundedT * 0.09);
@@ -371,29 +418,27 @@ export class OstrichSystem {
           this._spawnBloodSpot(e.mesh.position.x, e.mesh.position.z);
         }
         if (e.woundedT >= e.woundedMaxT) {
-          e.wounded  = false;
-          e.dying    = true;
-          e.dyingT   = 0;
+          _startDeathPhysics(e);
         }
         continue;
       }
 
-      // ── Dying animation ───────────────────────────────────────────────────
-      if (e.dying) {
-        e.dyingT += dt;
-        e.mesh.rotation.z = Math.min(Math.PI / 2, e.dyingT * 4.0);
-        e.mesh.position.y = 0;
-        if (e.dyingT >= 1.4) {
-          // Guardar posición antes de anular el mesh
-          e.lastX = e.mesh.position.x;
-          e.lastZ = e.mesh.position.z;
-          this._scene.remove(e.mesh);
-          e.mesh  = null;
-          e.dead  = true;
-          e.dying = false;
+      // ── Physics death (tumble + bounce) ──────────────────────────────────
+      if (e.dyingPhysics) {
+        _tickDeathPhysics(e.mesh, e._phy, dt);
+        if (e._phy.t >= DEATH_PHYSICS_LIFE) {
+          e.dyingPhysics = false;
+          e.dead = true;
           e.respawnTimer = RESPAWN_DELAY;
-          this._spawnChurrascos(e);
+          if (e.mesh) { this._scene.remove(e.mesh); e.mesh = null; }
         }
+        continue;
+      }
+
+      // ── Dying animation (legacy fallback — shouldn't normally trigger) ────
+      if (e.dying) {
+        e.dyingT = (e.dyingT ?? 0) + dt;
+        if (e.dyingT >= 0.1) _startDeathPhysics(e);
         continue;
       }
 

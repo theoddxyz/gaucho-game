@@ -146,6 +146,46 @@ function tickFlyingParts(scene, detachedParts, dt) {
   }
 }
 
+// ─── Muerte con físicas ───────────────────────────────────────────────────────
+const DEATH_PHYSICS_LIFE = 90; // segundos antes de auto-eliminar
+
+function _startDeathPhysics(entity) {
+  entity.wounded      = false;
+  entity.dyingPhysics = true;
+  entity._phy = {
+    vx: (Math.random() - 0.5) * 2.0,
+    vy: 0.9 + Math.random() * 0.7,
+    vz: (Math.random() - 0.5) * 2.0,
+    angX: (Math.random() - 0.5) * 4,
+    angY: (Math.random() - 0.5) * 1.5,
+    angZ: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3),
+    t: 0,
+    settled: false,
+  };
+}
+
+function _tickDeathPhysics(mesh, phy, dt) {
+  phy.t += dt;
+  if (phy.settled) return;
+  phy.vy -= 9.8 * dt;
+  mesh.position.x += phy.vx * dt;
+  mesh.position.y += phy.vy * dt;
+  mesh.position.z += phy.vz * dt;
+  mesh.rotation.x += phy.angX * dt;
+  mesh.rotation.y += phy.angY * dt;
+  mesh.rotation.z += phy.angZ * dt;
+  if (mesh.position.y <= 0) {
+    mesh.position.y = 0;
+    const bounce = Math.abs(phy.vy) * 0.28;
+    phy.vy = bounce > 0.35 ? bounce : 0;
+    phy.vx *= 0.65; phy.vz *= 0.65;
+    phy.angX *= 0.45; phy.angY *= 0.45; phy.angZ *= 0.45;
+    if (phy.vy === 0) phy.settled = true;
+  }
+  phy.vx *= Math.max(0, 1 - 1.2 * dt);
+  phy.vz *= Math.max(0, 1 - 1.2 * dt);
+}
+
 // ─── Build a single cow mesh (body group + separate head group) ───────────────
 function buildCow(rng) {
   const palIdx = Math.floor(rng() * PALETTES.length);
@@ -302,6 +342,8 @@ export class CowSystem {
         wounded:       false,
         woundedT:      0,
         woundedMaxT:   5 + rng() * 3,
+        dyingPhysics:  false,
+        _phy:          null,
         detachedParts: [],
 
         // ── dBBMM state ──────────────────────────────────────────────────────
@@ -363,7 +405,12 @@ export class CowSystem {
 
   /** Public wrapper: matar vaca por id (usable externamente, p.ej. disparo instantáneo). */
   killCow(id) {
-    this._killCowInternal(this._cows[id]);
+    const cow = this._cows[id];
+    if (!cow || cow.removed || cow.dyingPhysics) return;
+    this._hitboxMap.delete(cow.hitbox);
+    cow.hitbox.visible = false;
+    cow.wounded = false;
+    _startDeathPhysics(cow);
   }
 
   /** Devuelve la vaca herida más cercana dentro de radius, o null. */
@@ -371,7 +418,7 @@ export class CowSystem {
     const r2 = radius * radius;
     let nearest = null, nearestD2 = r2;
     for (const cow of this._cows) {
-      if (!cow.wounded || cow.removed || !cow.mesh) continue;
+      if ((!cow.wounded && !cow.dyingPhysics) || cow.removed || !cow.mesh) continue;
       const dx = cow.mesh.position.x - x, dz = cow.mesh.position.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < nearestD2) { nearestD2 = d2; nearest = cow; }
@@ -381,12 +428,14 @@ export class CowSystem {
 
   /** Deshuesar vaca herida: la elimina y devuelve { hunger, hp }. */
   lootWounded(cow) {
-    if (!cow || !cow.wounded || cow.removed) return null;
+    if (!cow || cow.removed) return null;
+    if (!cow.wounded && !cow.dyingPhysics) return null;
     cow.removed = true;
+    cow.dyingPhysics = false;
     this._hitboxMap?.delete(cow.hitbox);
     if (cow.mesh) {
       this._scene.remove(cow.mesh);
-      cow.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+      cow.mesh.traverse(o => { if (o.isMesh) { o.geometry?.dispose(); } });
     }
     return { hunger: 40, hp: 25 };
   }
@@ -416,21 +465,20 @@ export class CowSystem {
         cow.mesh._headColor ?? 0x5c2e0a,
         cow.detachedParts, hitPoint
       );
-    } else {
-      // Leg/body hit: spawn chunk at a random leg position
-      const side  = Math.random() < 0.5 ? 0.27 : -0.27;
-      const front = Math.random() < 0.5 ? 0.48 : -0.48;
-      const legWorldPos = new THREE.Vector3(
-        mx + Math.cos(cow.mesh.rotation.y) * front * scale - Math.sin(cow.mesh.rotation.y) * side * scale,
-        0.35 * scale,
-        mz - Math.sin(cow.mesh.rotation.y) * front * scale - Math.cos(cow.mesh.rotation.y) * side * scale
-      );
-      spawnFlyingPart(
-        this._scene, legWorldPos,
-        new THREE.BoxGeometry(0.16 * scale, 0.70 * scale, 0.14 * scale),
-        cow.mesh._headColor ?? 0x5c2e0a,
-        cow.detachedParts, hitPoint
-      );
+    } else if (hitZone === 'leg' && cow.mesh._legs?.length > 0) {
+      const legEntry = cow.mesh._legs.shift();
+      if (legEntry?.pivot) {
+        legEntry.pivot.visible = false;
+        const legWorldPos = new THREE.Vector3();
+        legEntry.pivot.getWorldPosition(legWorldPos);
+        if (legWorldPos.y < 0.01) legWorldPos.y = 0.35 * scale;
+        spawnFlyingPart(
+          this._scene, legWorldPos,
+          new THREE.BoxGeometry(0.16 * scale, 0.70 * scale, 0.14 * scale),
+          cow.mesh._headColor ?? 0x5c2e0a,
+          cow.detachedParts, hitPoint
+        );
+      }
     }
 
     if (cow.hp <= 0) {
@@ -634,11 +682,22 @@ export class CowSystem {
     for (const cow of this._cows) {
       if (cow.removed) continue;
 
+      // ── Physics death (tumble + bounce) ──────────────────────────────────
+      if (cow.dyingPhysics) {
+        _tickDeathPhysics(cow.mesh, cow._phy, dt);
+        if (cow._phy.t >= DEATH_PHYSICS_LIFE) {
+          cow.removed = true;
+          cow.dyingPhysics = false;
+          this._scene.remove(cow.mesh);
+        }
+        continue;
+      }
+
       // ── Wounded state: cow lies on ground then dies ───────────────────────
       if (cow.wounded) {
         cow.woundedT += dt;
         // Fall on side
-        cow.mesh.rotation.z = Math.min(Math.PI / 2, cow.woundedT * 2.5);
+        cow.mesh.rotation.z = Math.min(0.18, cow.woundedT * 0.08);
         // Struggle twitch
         if (Math.floor(cow.woundedT * 3) % 7 === 0) {
           cow.mesh.rotation.z += Math.sin(cow.woundedT * 15) * 0.04;
@@ -656,7 +715,7 @@ export class CowSystem {
           this._spawnBloodSpot(cow.mesh.position.x, cow.mesh.position.z);
         }
         if (cow.woundedT >= cow.woundedMaxT) {
-          this._killCowInternal(cow);
+          _startDeathPhysics(cow);
         }
         continue;
       }

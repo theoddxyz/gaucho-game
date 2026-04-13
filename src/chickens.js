@@ -94,6 +94,46 @@ function tickFlyingParts(scene, detachedParts, dt) {
   }
 }
 
+// ─── Muerte con físicas ───────────────────────────────────────────────────────
+const DEATH_PHYSICS_LIFE = 90;
+
+function _startDeathPhysics(entity) {
+  entity.wounded      = false;
+  entity.dyingPhysics = true;
+  entity._phy = {
+    vx: (Math.random() - 0.5) * 2.0,
+    vy: 0.9 + Math.random() * 0.7,
+    vz: (Math.random() - 0.5) * 2.0,
+    angX: (Math.random() - 0.5) * 4,
+    angY: (Math.random() - 0.5) * 1.5,
+    angZ: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3),
+    t: 0,
+    settled: false,
+  };
+}
+
+function _tickDeathPhysics(mesh, phy, dt) {
+  phy.t += dt;
+  if (phy.settled) return;
+  phy.vy -= 9.8 * dt;
+  mesh.position.x += phy.vx * dt;
+  mesh.position.y += phy.vy * dt;
+  mesh.position.z += phy.vz * dt;
+  mesh.rotation.x += phy.angX * dt;
+  mesh.rotation.y += phy.angY * dt;
+  mesh.rotation.z += phy.angZ * dt;
+  if (mesh.position.y <= 0) {
+    mesh.position.y = 0;
+    const bounce = Math.abs(phy.vy) * 0.28;
+    phy.vy = bounce > 0.35 ? bounce : 0;
+    phy.vx *= 0.65; phy.vz *= 0.65;
+    phy.angX *= 0.45; phy.angY *= 0.45; phy.angZ *= 0.45;
+    if (phy.vy === 0) phy.settled = true;
+  }
+  phy.vx *= Math.max(0, 1 - 1.2 * dt);
+  phy.vz *= Math.max(0, 1 - 1.2 * dt);
+}
+
 // ─── Paletas de color ─────────────────────────────────────────────────────────
 const PALETTES = [
   { body: 0xE8D8B0, beak: 0xD4940A, comb: 0xCC1A00 },  // blanca / marrón claro
@@ -233,6 +273,8 @@ export class ChickenSystem {
           wounded:       false,
           woundedT:      0,
           woundedMaxT:   2.5 + rng() * 1.5,
+          dyingPhysics:  false,
+          _phy:          null,
           detachedParts: [],
           spawnX:        jx,
           spawnZ:        jz,
@@ -267,7 +309,7 @@ export class ChickenSystem {
     const r2 = radius * radius;
     let nearest = null, nearestD2 = r2;
     for (const c of this._chickens) {
-      if (!c.wounded || c.removed || !c.mesh) continue;
+      if ((!c.wounded && !c.dyingPhysics) || c.removed || !c.mesh) continue;
       const dx = c.mesh.position.x - x, dz = c.mesh.position.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < nearestD2) { nearestD2 = d2; nearest = c; }
@@ -277,12 +319,13 @@ export class ChickenSystem {
 
   /** Deshuesar pollo herido: lo elimina y devuelve { hunger, hp }. */
   lootWounded(c) {
-    if (!c || !c.wounded || c.removed) return null;
+    if (!c || !c.wounded && !c.dyingPhysics || c.removed) return null;
     c.removed = true;
+    c.dyingPhysics = false;
     this._hitboxMap?.delete(c.hitbox);
     if (c.mesh) {
       this._scene.remove(c.mesh);
-      c.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+      c.mesh.traverse(o => { if (o.isMesh) { o.geometry?.dispose(); } });
     }
     return { hunger: 15, hp: 8 };
   }
@@ -310,18 +353,21 @@ export class ChickenSystem {
         c.mesh._headColor ?? 0xE8D8B0,
         c.detachedParts, hitPoint
       );
-    } else {
-      // Pata/ala vuela
-      const side = Math.random() < 0.5 ? 0.08 : -0.08;
-      const lx   = mx + Math.cos(ry) * 0.06 - Math.sin(ry) * side;
-      const lz   = mz - Math.sin(ry) * 0.06 - Math.cos(ry) * side;
-      spawnFlyingPart(
-        this._scene,
-        new THREE.Vector3(lx, 0.10 * scale, lz),
-        new THREE.BoxGeometry(0.05, 0.14, 0.05),
-        0xD4940A,
-        c.detachedParts, hitPoint
-      );
+    } else if (hitZone === 'leg' && c.mesh._legMeshes?.length > 0) {
+      const legMesh = c.mesh._legMeshes.shift();
+      if (legMesh) {
+        legMesh.visible = false;
+        const legWorldPos = new THREE.Vector3();
+        legMesh.getWorldPosition(legWorldPos);
+        if (legWorldPos.y < 0.01) legWorldPos.y = 0.10 * scale;
+        spawnFlyingPart(
+          this._scene,
+          legWorldPos,
+          new THREE.BoxGeometry(0.05, 0.14, 0.05),
+          0xD4940A,
+          c.detachedParts, hitPoint
+        );
+      }
     }
 
     if (c.hp <= 0) {
@@ -403,25 +449,23 @@ export class ChickenSystem {
     for (const c of this._chickens) {
       if (c.removed) continue;
 
+      // ── Physics death (tumble + bounce) ──────────────────────────────────
+      if (c.dyingPhysics) {
+        _tickDeathPhysics(c.mesh, c._phy, dt);
+        if (c._phy.t >= DEATH_PHYSICS_LIFE) {
+          c.removed = true;
+          c.dyingPhysics = false;
+          this._scene.remove(c.mesh);
+        }
+        continue;
+      }
+
       // ── Estado herida ──────────────────────────────────────────────────────
       if (c.wounded) {
         c.woundedT += dt;
-        c.mesh.rotation.z = Math.min(Math.PI / 2, c.woundedT * 4.0);
+        c.mesh.rotation.z = Math.min(0.18, c.woundedT * 0.10);
         if (c.woundedT >= c.woundedMaxT) {
-          // Muere: deja plumas
-          c.removed = true;
-          const wx = c.mesh.position.x, wz = c.mesh.position.z;
-          this._scene.remove(c.mesh);
-          const count = 2 + Math.floor(Math.random() * 3);
-          for (let i = 0; i < count; i++) {
-            const ang = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-            const r   = 0.3 + Math.random() * 0.8;
-            const f   = buildFeather();
-            f.position.set(wx + Math.cos(ang) * r, 0.08, wz + Math.sin(ang) * r);
-            f.rotation.y = Math.random() * Math.PI * 2;
-            this._scene.add(f);
-            this._feathers.push({ mesh: f, t: 0, bobPhase: Math.random() * Math.PI * 2 });
-          }
+          _startDeathPhysics(c);
         }
         continue;
       }
