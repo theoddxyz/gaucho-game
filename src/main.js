@@ -76,35 +76,27 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Tecla Q: abrir/cerrar puerta del corral más cercano
+// Q — sacar montura del caballo más cercano (sin importar si es propio o ajeno)
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyQ' || !myId || isDead) return;
   const pos = controls?.getPosition();
-  if (!pos) return;
+  if (!pos || !horseManager) return;
 
-  // Q cerca del caballo propio → quitar montura permanentemente
-  if (horseManager && horseManager._myOwnedId !== null) {
-    const ownHorse = horseManager.horses?.get(horseManager._myOwnedId);
-    if (ownHorse && ownHorse.riderId === null) {
-      const dx = ownHorse.x - pos.x, dz = ownHorse.z - pos.z;
-      if (Math.sqrt(dx*dx + dz*dz) < 3.5) {
-        horseManager.unsaddleHorse(horseManager._myOwnedId);
-        Audio.horseNeigh();
-        return;
-      }
+  // Buscar caballo con montura más cercano (radio 3.5, sin rider)
+  let nearestId = null, nearestD = 3.5;
+  for (const [id, horse] of horseManager.horses) {
+    if (!horse.saddled || horse.riderId !== null) continue;
+    const dx = horse.x - pos.x, dz = horse.z - pos.z;
+    const d  = Math.sqrt(dx*dx + dz*dz);
+    if (d < nearestD) { nearestD = d; nearestId = id; }
+  }
+  if (nearestId !== null) {
+    const removed = horseManager.unsaddleHorse(nearestId);
+    if (removed) {
+      _monturaCnt++;
+      _updateMonturaHUD();
+      Audio.horseNeigh();
     }
-  }
-
-  // Q cerca de portón → abrir/cerrar
-  let nearest = null, nearestD = 8;
-  for (const gate of villageGates) {
-    const dx = pos.x - gate.gateX, dz = pos.z - gate.gateZ;
-    const d = Math.sqrt(dx * dx + dz * dz);
-    if (d < nearestD) { nearestD = d; nearest = gate; }
-  }
-  if (nearest) {
-    nearest.isOpen       = !nearest.isOpen;
-    nearest.animTarget   = nearest.isOpen ? 1 : 0;
-    nearest.collider.active = !nearest.isOpen;
   }
 });
 
@@ -147,6 +139,7 @@ document.addEventListener('keyup', (e) => {
     if (selected !== currentWeapon) {
       currentWeapon = selected;
       radialMenu.setHUD(currentWeapon);
+      _updateMonturaHUD();
       if (currentWeapon !== 'lasso') lassoSystem.release();
     }
   }
@@ -257,6 +250,7 @@ const remotePlayers   = new Map();
 let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
+let _monturaCnt = 0;  // monturas en inventario del jugador
 const hoofprints = new HoofprintSystem(scene);
 
 // Smoothed local player facing angle (shortest-path lerp, snaps when aiming)
@@ -331,6 +325,7 @@ Network.onJoined((data) => {
   horseManager.initMyHorse(myId);
 
   Network.onHorseUnsaddled(({ horseId }) => horseManager?.onRemoteUnsaddle(horseId));
+  Network.onHorseSaddled(({ horseId })   => horseManager?.onRemoteSaddle(horseId));
 
   controls.onEPress = () => {
     const pos = controls.getPosition();
@@ -372,12 +367,35 @@ Network.onJoined((data) => {
     const nearHorse = horseManager?._nearestHorseId !== null;
     const mounted   = horseManager?.isMounted();
     if (nearHorse || mounted) {
+      // Si montura seleccionada y caballo cerca sin montura → ponerla
+      if (!mounted && currentWeapon === 'montura' && _monturaCnt > 0 && nearHorse) {
+        const nh = horseManager.horses.get(horseManager._nearestHorseId);
+        if (nh && !nh.saddled) {
+          const placed = horseManager.saddleHorse(horseManager._nearestHorseId);
+          if (placed) { _monturaCnt--; _updateMonturaHUD(); Audio.horseNeigh(); }
+          return;
+        }
+      }
       const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
       if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
       return;
     }
 
-    // ── 3. Sin caballo cerca → tirar comida si corresponde ───────────────────
+    // ── 3. Portón del corral cercano ──────────────────────────────────────────
+    let nearGate = null, nearGateD = 8;
+    for (const gate of villageGates) {
+      const dx = pos.x - gate.gateX, dz = pos.z - gate.gateZ;
+      const d = Math.sqrt(dx*dx + dz*dz);
+      if (d < nearGateD) { nearGateD = d; nearGate = gate; }
+    }
+    if (nearGate) {
+      nearGate.isOpen       = !nearGate.isOpen;
+      nearGate.animTarget   = nearGate.isOpen ? 1 : 0;
+      nearGate.collider.active = !nearGate.isOpen;
+      return;
+    }
+
+    // ── 4. Tirar comida si corresponde ────────────────────────────────────────
     if (currentWeapon === 'food' && Inventory.hasAny()) {
       _throwFood(pos);
     }
@@ -960,6 +978,26 @@ function _updateInventoryHUD() {
       cursor:default; white-space:nowrap;
     ">${def.icon} <b>${n}</b></div>`;
   }).join('');
+}
+
+// ── HUD de monturas en inventario ─────────────────────────────────────────────
+const _monturaHud = document.createElement('div');
+_monturaHud.style.cssText = [
+  'position:fixed', 'bottom:56px', 'right:16px', 'z-index:200',
+  'display:none', 'font-family:"Share Tech Mono",monospace',
+  'font-size:13px', 'color:#fff',
+].join(';');
+document.body.appendChild(_monturaHud);
+
+function _updateMonturaHUD() {
+  if (_monturaCnt <= 0) { _monturaHud.style.display = 'none'; return; }
+  const active = currentWeapon === 'montura';
+  _monturaHud.style.display = 'block';
+  _monturaHud.innerHTML = `<div style="
+    background:${active ? 'rgba(200,160,50,0.80)' : 'rgba(0,0,0,0.55)'};
+    border:1px solid ${active ? '#f0c040' : 'rgba(255,255,255,0.15)'};
+    border-radius:5px; padding:3px 8px; white-space:nowrap;
+  ">🏇 <b>${_monturaCnt}</b></div>`;
 }
 
 // ── Comida tirada al suelo ─────────────────────────────────────────────────────

@@ -225,13 +225,14 @@ export class HorseManager {
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
         mesh, legs, riderId: null, saddleNodes, isWild,
+        saddled: !isWild,  // domésticos arrancan con montura, salvajes sin
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z, _vx: 0, _vz: 0,
         _sprinting: false,
         _targetRY: mesh.rotation.y,
         _displayRY: mesh.rotation.y,
-        _baseY: 0,    // base Y (jumpY from rider, 0 otherwise)
-        _bobY:  0,    // vertical bob offset applied on top of _baseY
+        _baseY: 0,
+        _bobY:  0,
         headNode, neckNode,
       });
     }
@@ -324,9 +325,12 @@ export class HorseManager {
     this._nearestHorseId = nearest;
 
     if (nearest !== null) {
-      this._mountPrompt.textContent = nearest === this._myOwnedId
-        ? '[E] Montar  [Q] Quitar montura'
-        : '[E] Montar';
+      const nh = this.horses.get(nearest);
+      if (nh?.saddled) {
+        this._mountPrompt.textContent = '[E] Montar  [Q] Quitar montura';
+      } else {
+        this._mountPrompt.textContent = '[E] Montar';
+      }
     }
   }
 
@@ -603,17 +607,35 @@ export class HorseManager {
     this._myOwnedId = HORSE_SPAWNS[idx].id;
   }
 
-  /** Quita la montura del caballo propio (permanente) y lo brodcastea. */
+  /** Quita la montura del caballo más cercano (si tiene). Devuelve true si lo hizo. */
   unsaddleHorse(horseId) {
     const horse = this.horses.get(horseId);
-    if (!horse) return;
+    if (!horse || !horse.saddled) return false;
+    horse.saddled = false;
     horse.saddleNodes?.forEach(n => n.visible = false);
     this.network?.sendUnsaddle(horseId);
+    return true;
+  }
+
+  /** Pone la montura en un caballo que no tiene. Devuelve true si lo hizo. */
+  saddleHorse(horseId) {
+    const horse = this.horses.get(horseId);
+    if (!horse || horse.saddled) return false;
+    horse.saddled = true;
+    horse.saddleNodes?.forEach(n => n.visible = true);
+    this.network?.sendSaddle(horseId);
+    return true;
   }
 
   /** Recibido de otro cliente: quitar montura de ese caballo. */
   onRemoteUnsaddle(horseId) {
     const horse = this.horses.get(horseId);
-    if (horse) horse.saddleNodes?.forEach(n => n.visible = false);
+    if (horse) { horse.saddled = false; horse.saddleNodes?.forEach(n => n.visible = false); }
+  }
+
+  /** Recibido de otro cliente: poner montura en ese caballo. */
+  onRemoteSaddle(horseId) {
+    const horse = this.horses.get(horseId);
+    if (horse) { horse.saddled = true; horse.saddleNodes?.forEach(n => n.visible = true); }
   }
 }

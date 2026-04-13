@@ -4,9 +4,10 @@ export class RadialMenu {
     this._visible  = false;
     this._selected = 0;
     this._weapons  = [
-      { id: 'shotgun', label: 'ESCOPETA', icon: '🔫' },
-      { id: 'lasso',   label: 'LAZO',     icon: '🪢' },
-      { id: 'food',    label: 'COMIDA',   icon: '🥩' },
+      { id: 'shotgun',  label: 'ESCOPETA', icon: '🔫' },
+      { id: 'lasso',    label: 'LAZO',     icon: '🪢' },
+      { id: 'food',     label: 'COMIDA',   icon: '🥩' },
+      { id: 'montura',  label: 'MONTURA',  icon: '🏇' },
     ];
     this._mouseX = 0;
     this._mouseY = 0;

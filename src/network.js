@@ -39,6 +39,8 @@ export function onHorsePositionUpdate(cb)  { socket.on('horsePositionUpdate', cb
 
 export function sendUnsaddle(horseId)    { socket.emit('unsaddleHorse', { horseId }); }
 export function onHorseUnsaddled(cb)     { socket.on('horseUnsaddled', cb); }
+export function sendSaddle(horseId)      { socket.emit('saddleHorse', { horseId }); }
+export function onHorseSaddled(cb)       { socket.on('horseSaddled', cb); }
 
 export function sendNpcChoice(choice) { socket.emit('npcChoice', { choice }); }
 export function onNpcResponse(cb)     { socket.on('npcResponse', cb); }

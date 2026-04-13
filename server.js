@@ -645,6 +645,11 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('horseUnsaddled', { horseId });
   });
 
+  socket.on('saddleHorse', ({ horseId }) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('horseSaddled', { horseId });
+  });
+
   socket.on('bottleHit', (data) => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('bottleHit', data);
