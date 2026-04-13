@@ -216,6 +216,9 @@ export class PlayerModel {
     this._walkAction      = null;
     this._horseAction     = null;
     this._shootWalkAction = null;
+    this._horseRideModel  = null;
+    this._horseRideMixer  = null;
+    this._horseRideAction = null;
     this._shootMuzzle     = null;  // Empty "muzzle" del modelo de disparo
     this._smokePoint      = null;  // Empty "smoke_point" del modelo principal
     this._shootSmokePoint = null;  // Empty "smoke_point" del modelo de disparo
@@ -423,6 +426,36 @@ export class PlayerModel {
           this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
           this._shootWalkAction.play();
           this._shootWalkAction.paused = true;
+        });
+
+        // ── Modelo de caballo: mismo approach que shoot-walk ──────────────────
+        loadHorseRideTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const horseScene = gltf.scene;
+          horseScene.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+          horseScene.updateWorldMatrix(true, true);
+          const hbbox = new THREE.Box3().setFromObject(horseScene);
+          const hh = hbbox.max.y - hbbox.min.y;
+          if (hh > 0.01) {
+            horseScene.scale.setScalar(2.8 / hh);
+            horseScene.updateWorldMatrix(true, true);
+            const hb2 = new THREE.Box3().setFromObject(horseScene);
+            horseScene.position.y -= hb2.min.y;
+          }
+          horseScene.visible = false;
+          this.group.add(horseScene);
+          this._horseRideModel  = horseScene;
+          this._horseRideMixer  = new THREE.AnimationMixer(horseScene);
+          this._horseRideAction = this._horseRideMixer.clipAction(gltf.animations[0]);
+          this._horseRideAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._horseRideAction.play();
         });
       });
       return;
@@ -699,38 +732,27 @@ export class PlayerModel {
     const animSpeedMult = isSprinting ? 1.65 : 1.0;
     const animDt = isBackward ? -dt * animSpeedMult : dt * animSpeedMult;
 
-    // ── Model swap: modelo de disparo (con arma) ↔ modelo normal ────────────────
+    // ── Model swap ────────────────────────────────────────────────────────────
     const useShootModel = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
-    if (this._mainModel)      this._mainModel.visible      = !useShootModel;
+    const useHorseModel = this._isRiding && !!this._horseRideModel;
+    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel;
     if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
+    if (this._horseRideModel) this._horseRideModel.visible =  useHorseModel;
 
-    if (this._mixer) {
-      if (this._isRiding) {
-        // Al montar por primera vez: reiniciar horse action desde frame 0
-        if (!this._wasRiding && this._horseAction) {
-          this._horseAction.reset();
-          this._horseAction.play();
-        }
-        this._wasRiding = true;
-        if (this._horseAction) {
-          this._horseAction.paused = false;
-          this._horseAction.setEffectiveWeight(1);
-          if (this._walkAction) this._walkAction.setEffectiveWeight(0);
-        } else {
-          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
-        }
-        this._mixer.update(dt);
-      } else {
-        this._wasRiding = false;
-        if (!useShootModel) {
-          const target = isMoving ? 1.0 : 0;
-          this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
-          if (this._walkSpd < 0.04) this._walkSpd = 0;
-          if (this._horseAction) this._horseAction.setEffectiveWeight(0);
-          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
-          this._mixer.update(this._walkSpd > 0 ? animDt * this._walkSpd : 0);
-        }
+    // ── Mixer principal (walk / idle) ─────────────────────────────────────────
+    if (this._mixer && !useHorseModel) {
+      if (!useShootModel) {
+        const target = isMoving ? 1.0 : 0;
+        this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
+        if (this._walkSpd < 0.04) this._walkSpd = 0;
+        if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
+        this._mixer.update(this._walkSpd > 0 ? animDt * this._walkSpd : 0);
       }
+    }
+
+    // ── Mixer caballo (modelo propio, sin retargeting) ────────────────────────
+    if (this._horseRideMixer && useHorseModel) {
+      this._horseRideMixer.update(dt);
     }
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
