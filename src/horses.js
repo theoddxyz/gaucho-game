@@ -225,7 +225,7 @@ export class HorseManager {
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
         mesh, legs, riderId: null, saddleNodes, isWild,
-        saddled: !isWild,  // domésticos arrancan con montura, salvajes sin
+        saddled: true,  // todos los caballos arrancan con montura (isWild es solo color)
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z, _vx: 0, _vz: 0,
         _sprinting: false,
