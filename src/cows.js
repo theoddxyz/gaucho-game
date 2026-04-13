@@ -1,6 +1,10 @@
 // --- Cow Herding System ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createRagdollBody, removeRagdollBody, syncMeshFromBody, bodyIsAsleep } from './physics.js';
+
+// Vaca con scale 1.4: world half-extents del bounding box
+const COW_HX = 1.10, COW_HY = 0.80, COW_HZ = 0.50, COW_MASS = 80;
 
 // ─── GLB swap — si existe /models/cow.glb lo usa en lugar del procedural ──────
 let _cowTpl     = null;
@@ -152,50 +156,49 @@ const DEATH_PHYSICS_LIFE = 90; // segundos antes de auto-eliminar
 function _startDeathPhysics(entity, hitPoint) {
   entity.wounded      = false;
   entity.dyingPhysics = true;
-  // Dirección: desde el punto de impacto hacia fuera del animal
+
+  const pos = entity.mesh.position;
+  // Centro de masa: mitad de la altura del animal sobre el suelo
+  const cy = pos.y + COW_HY + 0.05;
+  const body = createRagdollBody(pos.x, cy, pos.z, COW_HX, COW_HY, COW_HZ, COW_MASS);
+
+  // Heredar orientación actual del mesh
+  body.quaternion.set(
+    entity.mesh.quaternion.x, entity.mesh.quaternion.y,
+    entity.mesh.quaternion.z, entity.mesh.quaternion.w
+  );
+
+  // Dirección del impulso: alejarse del punto de impacto
   let dx = 0, dz = 0;
-  if (hitPoint && entity.mesh) {
-    dx = entity.mesh.position.x - hitPoint.x;
-    dz = entity.mesh.position.z - hitPoint.z;
+  if (hitPoint) {
+    dx = pos.x - hitPoint.x; dz = pos.z - hitPoint.z;
     const d = Math.sqrt(dx * dx + dz * dz) || 1;
     dx /= d; dz /= d;
   } else {
     const a = Math.random() * Math.PI * 2;
     dx = Math.cos(a); dz = Math.sin(a);
   }
-  const speed = 5.0 + Math.random() * 3.5;
-  entity._phy = {
-    vx: dx * speed,
-    vy: 3.5 + Math.random() * 2.5,
-    vz: dz * speed,
-    angX: (Math.random() - 0.5) * 12,
-    angY: (Math.random() - 0.5) * 5,
-    angZ: (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 7),
-    t: 0,
-    settled: false,
-  };
+  const spd = 6.5 + Math.random() * 4;
+  body.velocity.set(dx * spd, 4.0 + Math.random() * 2.5, dz * spd);
+  body.angularVelocity.set(
+    (Math.random() - 0.5) * 14,
+    (Math.random() - 0.5) * 6,
+    (Math.random() > 0.5 ? 1 : -1) * (9 + Math.random() * 7)
+  );
+
+  entity._physBody = body;
+  entity._phyHY   = COW_HY;
+  entity._phy      = { t: 0, settled: false };
 }
 
-function _tickDeathPhysics(mesh, phy, dt) {
+function _tickDeathPhysics(entity, dt) {
+  const phy = entity._phy;
+  if (!phy) return;
   phy.t += dt;
-  if (phy.settled) return;
-  phy.vy -= 9.8 * dt;
-  mesh.position.x += phy.vx * dt;
-  mesh.position.y += phy.vy * dt;
-  mesh.position.z += phy.vz * dt;
-  mesh.rotation.x += phy.angX * dt;
-  mesh.rotation.y += phy.angY * dt;
-  mesh.rotation.z += phy.angZ * dt;
-  if (mesh.position.y <= 0) {
-    mesh.position.y = 0;
-    const bounce = Math.abs(phy.vy) * 0.28;
-    phy.vy = bounce > 0.35 ? bounce : 0;
-    phy.vx *= 0.65; phy.vz *= 0.65;
-    phy.angX *= 0.45; phy.angY *= 0.45; phy.angZ *= 0.45;
-    if (phy.vy === 0) phy.settled = true;
-  }
-  phy.vx *= Math.max(0, 1 - 1.2 * dt);
-  phy.vz *= Math.max(0, 1 - 1.2 * dt);
+  const body = entity._physBody;
+  if (!body) return;
+  if (bodyIsAsleep(body)) { phy.settled = true; return; }
+  syncMeshFromBody(entity.mesh, body, entity._phyHY);
 }
 
 // ─── Build a single cow mesh (body group + separate head group) ───────────────
@@ -398,8 +401,8 @@ export class CowSystem {
     if (!cow || cow.removed) return;
     const wx = cow.mesh.position.x;
     const wz = cow.mesh.position.z;
-    // Quitar de la escena
     cow.removed = true;
+    removeRagdollBody(cow._physBody); cow._physBody = null;
     this._hitboxMap.delete(cow.hitbox);
     this._scene.remove(cow.mesh);
     cow.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
@@ -441,11 +444,12 @@ export class CowSystem {
   /** Deshuesar vaca herida: spawna carne y la elimina. El pickup es por proximidad. */
   lootWounded(cow) {
     if (!cow || cow.removed) return null;
-    if (!cow.wounded && !cow.dyingPhysics) return null;
-    const wx = cow.mesh?.position.x ?? 0;
-    const wz = cow.mesh?.position.z ?? 0;
+    if (!cow.dyingPhysics) return null;
+    const wx = cow._physBody ? cow._physBody.position.x : (cow.mesh?.position.x ?? 0);
+    const wz = cow._physBody ? cow._physBody.position.z : (cow.mesh?.position.z ?? 0);
     cow.removed      = true;
     cow.dyingPhysics = false;
+    removeRagdollBody(cow._physBody); cow._physBody = null;
     this._hitboxMap?.delete(cow.hitbox);
     if (cow.mesh) {
       this._scene.remove(cow.mesh);
@@ -688,40 +692,15 @@ export class CowSystem {
     for (const cow of this._cows) {
       if (cow.removed) continue;
 
-      // ── Physics death (tumble + bounce) ──────────────────────────────────
+      // ── Physics death (cannon ragdoll) ───────────────────────────────────
       if (cow.dyingPhysics) {
-        _tickDeathPhysics(cow.mesh, cow._phy, dt);
+        _tickDeathPhysics(cow, dt);
         if (cow._phy.t >= DEATH_PHYSICS_LIFE) {
           cow.removed = true;
           cow.dyingPhysics = false;
+          removeRagdollBody(cow._physBody);
+          cow._physBody = null;
           this._scene.remove(cow.mesh);
-        }
-        continue;
-      }
-
-      // ── Wounded state: cow lies on ground then dies ───────────────────────
-      if (cow.wounded) {
-        cow.woundedT += dt;
-        // Fall on side
-        cow.mesh.rotation.z = Math.min(0.18, cow.woundedT * 0.08);
-        // Struggle twitch
-        if (Math.floor(cow.woundedT * 3) % 7 === 0) {
-          cow.mesh.rotation.z += Math.sin(cow.woundedT * 15) * 0.04;
-        }
-        // Slow crawl (drag forward while dying)
-        const crawlSpeed = Math.max(0, 0.45 - cow.woundedT * 0.08);
-        const crawlDir   = cow.mesh.rotation.y;
-        cow.mesh.position.x += Math.cos(crawlDir) * crawlSpeed * dt;
-        cow.mesh.position.z -= Math.sin(crawlDir) * crawlSpeed * dt;
-        cow.mesh.position.y = 0;
-        // Blood trail every 0.35 s
-        cow._bloodTimer = (cow._bloodTimer ?? 0) + dt;
-        if (cow._bloodTimer >= 0.35) {
-          cow._bloodTimer = 0;
-          this._spawnBloodSpot(cow.mesh.position.x, cow.mesh.position.z);
-        }
-        if (cow.woundedT >= cow.woundedMaxT) {
-          _startDeathPhysics(cow);
         }
         continue;
       }

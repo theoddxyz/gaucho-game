@@ -1,6 +1,10 @@
 // --- Chicken System: grupos de gallinas con dBBMM + reacción a yell ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createRagdollBody, removeRagdollBody, syncMeshFromBody, bodyIsAsleep } from './physics.js';
+
+// Gallina: pequeña
+const CHK_HX = 0.14, CHK_HY = 0.16, CHK_HZ = 0.12, CHK_MASS = 2;
 
 // ─── GLB swap — si existe /models/chicken.glb lo usa en lugar del procedural ──
 let _chickenTpl  = null;
@@ -100,49 +104,50 @@ const DEATH_PHYSICS_LIFE = 90;
 function _startDeathPhysics(entity, hitPoint) {
   entity.wounded      = false;
   entity.dyingPhysics = true;
+
+  const pos  = entity.mesh.position;
+  const scl  = entity.mesh.scale?.x ?? 1;
+  const hy   = CHK_HY * scl;
+  const body = createRagdollBody(
+    pos.x, pos.y + hy + 0.02, pos.z,
+    CHK_HX * scl, hy, CHK_HZ * scl, CHK_MASS
+  );
+
+  body.quaternion.set(
+    entity.mesh.quaternion.x, entity.mesh.quaternion.y,
+    entity.mesh.quaternion.z, entity.mesh.quaternion.w
+  );
+
   let dx = 0, dz = 0;
-  if (hitPoint && entity.mesh) {
-    dx = entity.mesh.position.x - hitPoint.x;
-    dz = entity.mesh.position.z - hitPoint.z;
+  if (hitPoint) {
+    dx = pos.x - hitPoint.x; dz = pos.z - hitPoint.z;
     const d = Math.sqrt(dx * dx + dz * dz) || 1;
     dx /= d; dz /= d;
   } else {
     const a = Math.random() * Math.PI * 2;
     dx = Math.cos(a); dz = Math.sin(a);
   }
-  const speed = 4.0 + Math.random() * 3.0;
-  entity._phy = {
-    vx: dx * speed,
-    vy: 3.0 + Math.random() * 2.5,
-    vz: dz * speed,
-    angX: (Math.random() - 0.5) * 14,
-    angY: (Math.random() - 0.5) * 6,
-    angZ: (Math.random() > 0.5 ? 1 : -1) * (9 + Math.random() * 8),
-    t: 0,
-    settled: false,
-  };
+  const spd = 5.5 + Math.random() * 4;
+  body.velocity.set(dx * spd, 4.0 + Math.random() * 3, dz * spd);
+  body.angularVelocity.set(
+    (Math.random() - 0.5) * 20,
+    (Math.random() - 0.5) * 9,
+    (Math.random() > 0.5 ? 1 : -1) * (12 + Math.random() * 10)
+  );
+
+  entity._physBody = body;
+  entity._phyHY   = hy;
+  entity._phy      = { t: 0, settled: false };
 }
 
-function _tickDeathPhysics(mesh, phy, dt) {
+function _tickDeathPhysics(entity, dt) {
+  const phy = entity._phy;
+  if (!phy) return;
   phy.t += dt;
-  if (phy.settled) return;
-  phy.vy -= 9.8 * dt;
-  mesh.position.x += phy.vx * dt;
-  mesh.position.y += phy.vy * dt;
-  mesh.position.z += phy.vz * dt;
-  mesh.rotation.x += phy.angX * dt;
-  mesh.rotation.y += phy.angY * dt;
-  mesh.rotation.z += phy.angZ * dt;
-  if (mesh.position.y <= 0) {
-    mesh.position.y = 0;
-    const bounce = Math.abs(phy.vy) * 0.28;
-    phy.vy = bounce > 0.35 ? bounce : 0;
-    phy.vx *= 0.65; phy.vz *= 0.65;
-    phy.angX *= 0.45; phy.angY *= 0.45; phy.angZ *= 0.45;
-    if (phy.vy === 0) phy.settled = true;
-  }
-  phy.vx *= Math.max(0, 1 - 1.2 * dt);
-  phy.vz *= Math.max(0, 1 - 1.2 * dt);
+  const body = entity._physBody;
+  if (!body) return;
+  if (bodyIsAsleep(body)) { phy.settled = true; return; }
+  syncMeshFromBody(entity.mesh, body, entity._phyHY);
 }
 
 // ─── Paletas de color ─────────────────────────────────────────────────────────
@@ -328,11 +333,12 @@ export class ChickenSystem {
     return nearest;
   }
 
-  /** Deshuesar pollo herido: lo elimina y devuelve { hunger, hp }. */
+  /** Deshuesar pollo: lo elimina y devuelve { hunger, hp }. */
   lootWounded(c) {
-    if (!c || !c.wounded && !c.dyingPhysics || c.removed) return null;
+    if (!c || !c.dyingPhysics || c.removed) return null;
     c.removed = true;
     c.dyingPhysics = false;
+    removeRagdollBody(c._physBody); c._physBody = null;
     this._hitboxMap?.delete(c.hitbox);
     if (c.mesh) {
       this._scene.remove(c.mesh);
@@ -447,23 +453,14 @@ export class ChickenSystem {
     for (const c of this._chickens) {
       if (c.removed) continue;
 
-      // ── Physics death (tumble + bounce) ──────────────────────────────────
+      // ── Physics death (cannon ragdoll) ───────────────────────────────────
       if (c.dyingPhysics) {
-        _tickDeathPhysics(c.mesh, c._phy, dt);
+        _tickDeathPhysics(c, dt);
         if (c._phy.t >= DEATH_PHYSICS_LIFE) {
           c.removed = true;
           c.dyingPhysics = false;
+          removeRagdollBody(c._physBody); c._physBody = null;
           this._scene.remove(c.mesh);
-        }
-        continue;
-      }
-
-      // ── Estado herida ──────────────────────────────────────────────────────
-      if (c.wounded) {
-        c.woundedT += dt;
-        c.mesh.rotation.z = Math.min(0.18, c.woundedT * 0.10);
-        if (c.woundedT >= c.woundedMaxT) {
-          _startDeathPhysics(c);
         }
         continue;
       }

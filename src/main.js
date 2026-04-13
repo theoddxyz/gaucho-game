@@ -26,6 +26,7 @@ import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
 import { BirdSystem } from './birds.js';
 import { MusicPlayer } from './music.js';
+import { stepPhysics } from './physics.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import { getAudioCtx, getMasterGain } from './audio.js';
@@ -1261,6 +1262,7 @@ function gameLoop() {
   }
 
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
+  stepPhysics(dt);
   updateDayNight(dt * _daySpeedMult, scene, sun, ambient, moon);
   if (myId && !isDead) {
     updateSurvival(dt, controls.isSprinting(), horseManager?.isMounted() ?? false);

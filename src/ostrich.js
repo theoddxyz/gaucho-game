@@ -1,6 +1,10 @@
 // --- Avestruz + sistema de churrascos (multi-instancia) ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createRagdollBody, removeRagdollBody, syncMeshFromBody, bodyIsAsleep } from './physics.js';
+
+// Avestruz: alta y delgada, sin scale explícita
+const OST_HX = 0.22, OST_HY = 0.72, OST_HZ = 0.22, OST_MASS = 30;
 
 // ─── GLB swap — si existe /models/ostrich.glb lo usa en lugar del procedural ──
 let _ostrichTpl     = null;
@@ -80,49 +84,46 @@ function _startDeathPhysics(entity, hitPoint) {
   entity.wounded      = false;
   entity.dying        = false;
   entity.dyingPhysics = true;
+
+  const pos = entity.mesh.position;
+  const cy  = pos.y + OST_HY + 0.05;
+  const body = createRagdollBody(pos.x, cy, pos.z, OST_HX, OST_HY, OST_HZ, OST_MASS);
+
+  body.quaternion.set(
+    entity.mesh.quaternion.x, entity.mesh.quaternion.y,
+    entity.mesh.quaternion.z, entity.mesh.quaternion.w
+  );
+
   let dx = 0, dz = 0;
-  if (hitPoint && entity.mesh) {
-    dx = entity.mesh.position.x - hitPoint.x;
-    dz = entity.mesh.position.z - hitPoint.z;
+  if (hitPoint) {
+    dx = pos.x - hitPoint.x; dz = pos.z - hitPoint.z;
     const d = Math.sqrt(dx * dx + dz * dz) || 1;
     dx /= d; dz /= d;
   } else {
     const a = Math.random() * Math.PI * 2;
     dx = Math.cos(a); dz = Math.sin(a);
   }
-  const speed = 5.0 + Math.random() * 3.5;
-  entity._phy = {
-    vx: dx * speed,
-    vy: 3.5 + Math.random() * 2.5,
-    vz: dz * speed,
-    angX: (Math.random() - 0.5) * 12,
-    angY: (Math.random() - 0.5) * 5,
-    angZ: (Math.random() > 0.5 ? 1 : -1) * (8 + Math.random() * 7),
-    t: 0,
-    settled: false,
-  };
+  const spd = 6.5 + Math.random() * 4;
+  body.velocity.set(dx * spd, 4.5 + Math.random() * 3, dz * spd);
+  body.angularVelocity.set(
+    (Math.random() - 0.5) * 16,
+    (Math.random() - 0.5) * 7,
+    (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 8)
+  );
+
+  entity._physBody = body;
+  entity._phyHY   = OST_HY;
+  entity._phy      = { t: 0, settled: false };
 }
 
-function _tickDeathPhysics(mesh, phy, dt) {
+function _tickDeathPhysics(entity, dt) {
+  const phy = entity._phy;
+  if (!phy) return;
   phy.t += dt;
-  if (phy.settled) return;
-  phy.vy -= 9.8 * dt;
-  mesh.position.x += phy.vx * dt;
-  mesh.position.y += phy.vy * dt;
-  mesh.position.z += phy.vz * dt;
-  mesh.rotation.x += phy.angX * dt;
-  mesh.rotation.y += phy.angY * dt;
-  mesh.rotation.z += phy.angZ * dt;
-  if (mesh.position.y <= 0) {
-    mesh.position.y = 0;
-    const bounce = Math.abs(phy.vy) * 0.28;
-    phy.vy = bounce > 0.35 ? bounce : 0;
-    phy.vx *= 0.65; phy.vz *= 0.65;
-    phy.angX *= 0.45; phy.angY *= 0.45; phy.angZ *= 0.45;
-    if (phy.vy === 0) phy.settled = true;
-  }
-  phy.vx *= Math.max(0, 1 - 1.2 * dt);
-  phy.vz *= Math.max(0, 1 - 1.2 * dt);
+  const body = entity._physBody;
+  if (!body) return;
+  if (bodyIsAsleep(body)) { phy.settled = true; return; }
+  syncMeshFromBody(entity.mesh, body, entity._phyHY);
 }
 
 const WANDER_RADIUS  = 28;
@@ -320,22 +321,21 @@ export class OstrichSystem {
     return nearest;
   }
 
-  /** Deshuesar avestruz herido: spawna churrascos y lo elimina. Pickup por proximidad. */
+  /** Deshuesar avestruz: spawna churrascos y lo elimina. Pickup por proximidad. */
   lootWounded(e) {
-    if (!e || e.dead) return null;
-    if (!e.wounded && !e.dyingPhysics) return null;
-    // Spawnar churrascos antes de eliminar el mesh
+    if (!e || e.dead || !e.dyingPhysics) return null;
     this._spawnChurrascos(e);
     e.dyingPhysics = false;
     e.wounded      = false;
     e.dead         = true;
     e.respawnTimer = RESPAWN_DELAY;
+    removeRagdollBody(e._physBody); e._physBody = null;
     if (e.mesh) {
       this._scene.remove(e.mesh);
       e.mesh.traverse(o => { if (o.isMesh) { o.geometry?.dispose(); } });
       e.mesh = null;
     }
-    return null;  // pickup real lo hace _tickChurrascos / update()
+    return null;
   }
 
   /** Hit ostrich: 2 hits to kill. First hit → limb flies. Second → wounded → die. */
@@ -407,44 +407,16 @@ export class OstrichSystem {
         continue;
       }
 
-      // ── Wounded state ──────────────────────────────────────────────────────────
-      if (e.wounded) {
-        e.woundedT += dt;
-        e.mesh.rotation.z = Math.min(0.18, e.woundedT * 0.08);
-        e.mesh.position.y = 0;
-        // Slow crawl drag
-        const crawlSpeed = Math.max(0, 0.55 - e.woundedT * 0.09);
-        const crawlDir   = e.mesh.rotation.y;
-        e.mesh.position.x += Math.sin(crawlDir) * crawlSpeed * dt;
-        e.mesh.position.z += Math.cos(crawlDir) * crawlSpeed * dt;
-        // Blood trail
-        e._bloodTimer = (e._bloodTimer ?? 0) + dt;
-        if (e._bloodTimer >= 0.35) {
-          e._bloodTimer = 0;
-          this._spawnBloodSpot(e.mesh.position.x, e.mesh.position.z);
-        }
-        if (e.woundedT >= e.woundedMaxT) {
-          _startDeathPhysics(e);
-        }
-        continue;
-      }
-
-      // ── Physics death (tumble + bounce) ──────────────────────────────────
+      // ── Physics death (cannon ragdoll) ───────────────────────────────────
       if (e.dyingPhysics) {
-        _tickDeathPhysics(e.mesh, e._phy, dt);
+        _tickDeathPhysics(e, dt);
         if (e._phy.t >= DEATH_PHYSICS_LIFE) {
           e.dyingPhysics = false;
           e.dead = true;
           e.respawnTimer = RESPAWN_DELAY;
+          removeRagdollBody(e._physBody); e._physBody = null;
           if (e.mesh) { this._scene.remove(e.mesh); e.mesh = null; }
         }
-        continue;
-      }
-
-      // ── Dying animation (legacy fallback — shouldn't normally trigger) ────
-      if (e.dying) {
-        e.dyingT = (e.dyingT ?? 0) + dt;
-        if (e.dyingT >= 0.1) _startDeathPhysics(e);
         continue;
       }
 

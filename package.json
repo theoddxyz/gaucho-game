@@ -11,6 +11,7 @@
     "@gltf-transform/core": "^4.3.0",
     "@google/generative-ai": "^0.24.1",
     "@tonejs/midi": "^2.0.28",
+    "cannon-es": "^0.20.0",
     "express": "^4.21.0",
     "fflate": "^0.8.2",
     "localtunnel": "^2.0.2",
