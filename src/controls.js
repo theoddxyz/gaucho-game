@@ -15,6 +15,8 @@ export class IsoControls {
     this.mouseWorld = new THREE.Vector3();
     this.keys = { w: false, a: false, s: false, d: false };
     this.onEPress = null;
+    this._eHeld   = false;
+    this._eDownAt = 0;
     this._lastMoveAngle = 0;
     this._isAiming   = false;
     this._camZoom    = 1.0;
@@ -78,13 +80,18 @@ export class IsoControls {
       }
       if (k === ' ') { e.preventDefault(); this._jumpTrigger = true; }
       if (k === 'shift') this._sprinting = true;
-      if (k === 'e' && this.onEPress) this.onEPress();
+      if (k === 'e' && !e.repeat) {
+        this._eHeld = true;
+        this._eDownAt = performance.now();
+        if (this.onEPress) this.onEPress();
+      }
       if (e.key === 'Control') { e.preventDefault(); this._aimCtrl = true; this._isAiming = true; }
     });
     document.addEventListener('keyup', (e) => {
       const k = e.key.toLowerCase();
       if (k in this.keys) this.keys[k] = false;
       if (k === 'shift') this._sprinting = false;
+      if (k === 'e') { this._eHeld = false; this._eDownAt = 0; }
       if (e.key === 'Control') { this._aimCtrl = false; this._isAiming = this._aimRMB; }
     });
     document.addEventListener('mousemove', (e) => {

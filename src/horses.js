@@ -322,6 +322,13 @@ export class HorseManager {
     }
     this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
     this._nearestHorseId = nearest;
+
+    // Prompt contextual según si es el caballo propio o ajeno
+    if (nearest !== null) {
+      this._mountPrompt.textContent = nearest === this._myOwnedId
+        ? '[E] Montar  [mantener E] Quitar montura'
+        : '[E] Montar';
+    }
   }
 
   _animateLegs(horse, moving, isLocal = false, speed = 0) {
@@ -589,13 +596,25 @@ export class HorseManager {
 
   // ── Caballo personal ─────────────────────────────────────────────────────────
 
-  /** Asigna determinísticamente un caballo al jugador según su ID.
-   *  Guarda el id en this._myOwnedId para uso futuro (unsaddle, call, etc.). */
+  /** Asigna determinísticamente un caballo al jugador según su ID. */
   initMyHorse(playerId) {
-    // Hash simple: suma de char codes módulo cantidad de caballos
     let h = 0;
     for (let i = 0; i < playerId.length; i++) h = (Math.imul(h, 31) + playerId.charCodeAt(i)) | 0;
     const idx = Math.abs(h) % HORSE_SPAWNS.length;
     this._myOwnedId = HORSE_SPAWNS[idx].id;
+  }
+
+  /** Quita la montura del caballo propio (permanente) y lo brodcastea. */
+  unsaddleHorse(horseId) {
+    const horse = this.horses.get(horseId);
+    if (!horse) return;
+    horse.saddleNodes?.forEach(n => n.visible = false);
+    this.network?.sendUnsaddle(horseId);
+  }
+
+  /** Recibido de otro cliente: quitar montura de ese caballo. */
+  onRemoteUnsaddle(horseId) {
+    const horse = this.horses.get(horseId);
+    if (horse) horse.saddleNodes?.forEach(n => n.visible = false);
   }
 }

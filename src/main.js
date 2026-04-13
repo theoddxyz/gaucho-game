@@ -236,12 +236,15 @@ controls.onEmergencyBrake = () => {
 UI.initCoords();
 
 // --- State ---
-let localPlayerModel = null;
-let horseManager     = null;
-const remotePlayers  = new Map();
+let localPlayerModel  = null;
+let horseManager      = null;
+const remotePlayers   = new Map();
 let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
+// Hold-E unsaddle: cuando E se presiona cerca del caballo propio,
+// esperamos al keyup para decidir si fue tap (→ montar) o hold (→ quitar montura).
+let _pendingOwnMount = false;
 const hoofprints = new HoofprintSystem(scene);
 
 // Smoothed local player facing angle (shortest-path lerp, snaps when aiming)
@@ -314,6 +317,22 @@ Network.onJoined((data) => {
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   horseManager.initMyHorse(myId);
+
+  Network.onHorseUnsaddled(({ horseId }) => horseManager?.onRemoteUnsaddle(horseId));
+
+  // Keyup E: si estaba pendiente montar el caballo propio (tap corto → monta)
+  document.addEventListener('keyup', (e) => {
+    if (e.key.toLowerCase() !== 'e' || !_pendingOwnMount) return;
+    _pendingOwnMount = false;
+    if (isDead || !myId) return;
+    // Solo monta si la tecla se soltó antes de 500ms (tap)
+    if (performance.now() - controls._eDownAt < 500) {
+      const pos  = controls.getPosition();
+      const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
+      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
+    }
+  });
+
   controls.onEPress = () => {
     const pos = controls.getPosition();
 
@@ -350,13 +369,29 @@ Network.onJoined((data) => {
       return;
     }
 
-    // ── 2. Montar/desmontar caballo ───────────────────────────────────────────
-    const nearHorse = horseManager?._nearestHorseId !== null;
-    const mounted   = horseManager?.isMounted();
-    if (nearHorse || mounted) {
-      const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
+    // ── 2. Desmontar (si ya está montado) ────────────────────────────────────
+    if (horseManager?.isMounted()) {
+      const land = horseManager.tryMount(myId, 0, pos.x, pos.z);
       if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
-    } else if (currentWeapon === 'food' && Inventory.hasAny()) {
+      return;
+    }
+
+    // ── 3. Caballo propio cerca → esperar keyup (tap = monta, hold = quita montura)
+    if (horseManager?._nearestHorseId === horseManager?._myOwnedId &&
+        horseManager?._nearestHorseId !== null) {
+      _pendingOwnMount = true;
+      return;
+    }
+
+    // ── 4. Caballo ajeno cerca → monta de inmediato ───────────────────────────
+    if (horseManager?._nearestHorseId !== null) {
+      const land = horseManager.tryMount(myId, 0, pos.x, pos.z);
+      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
+      return;
+    }
+
+    // ── 5. Sin caballo cerca → tirar comida si corresponde ───────────────────
+    if (currentWeapon === 'food' && Inventory.hasAny()) {
       _throwFood(pos);
     }
   };
@@ -473,6 +508,7 @@ Network.onPlayerKilled((data) => {
   }
   if (data.victimId === myId) {
     isDead = true;
+    _pendingOwnMount = false;
     myData.deaths = data.victimDeaths;
     UI.updateScore(myData.kills, myData.deaths);
     UI.showDeathScreen();
@@ -1030,6 +1066,15 @@ function gameLoop() {
         const jumpY   = pos.y;  // save height before landOnHorse resets it
         const mounted = horseManager.tryAutoMount(pos, myId, jumpY);
         if (mounted) controls.landOnHorse();
+      }
+
+      // Hold-E unsaddle: si E lleva >1.5s presionada esperando en el caballo propio
+      if (_pendingOwnMount && controls._eHeld) {
+        if (performance.now() - controls._eDownAt > 1500) {
+          _pendingOwnMount = false;
+          horseManager.unsaddleHorse(horseManager._myOwnedId);
+          Audio.horseNeigh();
+        }
       }
     }
 
