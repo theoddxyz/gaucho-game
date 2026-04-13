@@ -640,11 +640,6 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).volatile.emit('horsePositionUpdate', { ...data, riderId: socket.id });
   });
 
-  socket.on('unsaddleHorse', ({ horseId }) => {
-    if (!currentRoom) return;
-    socket.to(currentRoom).emit('horseUnsaddled', { horseId });
-  });
-
   socket.on('bottleHit', (data) => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('bottleHit', data);

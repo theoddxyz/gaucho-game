@@ -37,9 +37,6 @@ export function onPlayerMountedHorse(cb)   { socket.on('playerMountedHorse', cb)
 export function onPlayerDismountedHorse(cb){ socket.on('playerDismountedHorse', cb); }
 export function onHorsePositionUpdate(cb)  { socket.on('horsePositionUpdate', cb); }
 
-export function sendUnsaddle(horseId) { socket.emit('unsaddleHorse', { horseId }); }
-export function onHorseUnsaddled(cb)  { socket.on('horseUnsaddled', cb); }
-
 export function sendNpcChoice(choice) { socket.emit('npcChoice', { choice }); }
 export function onNpcResponse(cb)     { socket.on('npcResponse', cb); }
 

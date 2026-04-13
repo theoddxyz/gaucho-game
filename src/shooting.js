@@ -130,64 +130,11 @@ export function updateBullets(scene, dt) {
   }
 }
 
-export function muzzleFlash(scene, origin, dir = null) {
-  const COLORS = [0xff6600, 0xff4400, 0xffcc00, 0xffaa00, 0xff8800, 0xff2200];
-  const N      = 11;
-  const LIFE   = 0.11; // segundos
-
-  // Dirección base: si se pasa un dir lo usamos, si no spreadeamos en todas las direcciones
-  const fwd = dir
-    ? new THREE.Vector3(dir.x, 0, dir.z).normalize()
-    : new THREE.Vector3(1, 0, 0);
-
-  const particles = [];
-  for (let i = 0; i < N; i++) {
-    const size = 0.04 + Math.random() * 0.10;
-    const geo  = new THREE.SphereGeometry(size, 4, 3);
-    const col  = COLORS[Math.floor(Math.random() * COLORS.length)];
-    const mat  = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthWrite: false });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = 999;
-    mesh.position.set(origin.x, origin.y, origin.z);
-    scene.add(mesh);
-
-    // Velocidad: hacia adelante con spread cónico
-    const spread = 0.55;
-    const spd    = 6 + Math.random() * 8;
-    const vx = (fwd.x + (Math.random() - 0.5) * spread) * spd;
-    const vy = (0.3  + Math.random() * 0.9)             * spd * 0.35;
-    const vz = (fwd.z + (Math.random() - 0.5) * spread) * spd;
-    particles.push({ mesh, mat, vx, vy, vz });
-  }
-
-  // Luz puntual breve
-  const light = new THREE.PointLight(0xff8800, 5, 4.5);
-  light.position.set(origin.x, origin.y, origin.z);
-  scene.add(light);
-
-  let elapsed = 0;
-  const TICK  = 1 / 60;
-  const id    = setInterval(() => {
-    elapsed += TICK;
-    const frac = Math.min(1, elapsed / LIFE);
-    for (const p of particles) {
-      p.mesh.position.x += p.vx * TICK;
-      p.mesh.position.y += p.vy * TICK;
-      p.mesh.position.z += p.vz * TICK;
-      p.vy -= 18 * TICK; // gravedad leve
-      p.mat.opacity = 0.95 * (1 - frac);
-      const s = 1 + frac * 2.5; // expande
-      p.mesh.scale.setScalar(s);
-    }
-    light.intensity = 5 * (1 - frac * 1.8);
-    if (elapsed >= LIFE) {
-      clearInterval(id);
-      for (const p of particles) {
-        scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
-        p.mat.dispose();
-      }
-      scene.remove(light);
-    }
-  }, TICK * 1000);
+export function muzzleFlash(scene, origin) {
+  const geo   = new THREE.SphereGeometry(0.25, 6, 6);
+  const mat   = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+  const flash = new THREE.Mesh(geo, mat);
+  flash.position.set(origin.x, origin.y, origin.z);
+  scene.add(flash);
+  setTimeout(() => { scene.remove(flash); geo.dispose(); mat.dispose(); }, 65);
 }

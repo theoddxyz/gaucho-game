@@ -34,7 +34,7 @@ export function createWorld(scene) {
   sun.shadow.camera.right  =  80;
   sun.shadow.camera.top    =  80;
   sun.shadow.camera.bottom = -80;
-  sun.shadow.bias          = -0.0006;  // evita shadow acne en suelo plano
+  sun.shadow.bias          = -0.0003;  // evita shadow acne en suelo plano
   scene.add(sun);
   scene.add(sun.target); // target must be in scene for updates to work
 
