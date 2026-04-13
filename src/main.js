@@ -20,7 +20,6 @@ import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
 import { SoulSystem } from './souls.js';
-import { ConversationUI } from './conversation-ui.js';
 import { SoulMap } from './soulmap.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
@@ -44,40 +43,12 @@ document.addEventListener('mousemove', (e) => UI.moveCrosshair(e.clientX, e.clie
 // --- F key: yell to stampede nearby cows ---
 let _yellCooldown = 0;
 document.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyF' || e.repeat) return;
-
-  // Cerrar conversación si está abierta
-  if (conversationUI.isOpen()) { conversationUI.close(); return; }
-
-  if (!myId || isDead) return;
+  if (e.code !== 'KeyF' || !myId || isDead) return;
+  const now = performance.now() / 1000;
+  if (now - _yellCooldown < 2.5) return;   // 2.5 s cooldown between yells
+  _yellCooldown = now;
   const pos = controls?.getPosition();
   if (!pos) return;
-
-  // Si hay aldeano cerca → abrir conversación
-  const nearby = campesinoSystem.getNearbyWithId(pos.x, pos.z, 4.5);
-  if (nearby) {
-    const units = soulSystem.getContextForChat();
-    const unit  = units.find(u => u.name === nearby.name);
-    if (unit) {
-      campesinoSystem.startTalk(nearby.name);
-      conversationUI.open({
-        name:        nearby.name,
-        intention:   unit.intention,
-        cuadrante:   unit.cuadrante,
-        trayectoria: unit.trayectoria,
-        energia:     unit.energia,
-        recursos:    unit.recursos,
-        vecinos:     units.filter(u => u.name !== nearby.name)
-                       .map(u => `${u.name} (${u.cuadrante})`).join(', '),
-      });
-      return;
-    }
-  }
-
-  // Si no → gritar para asustar animales
-  const now = performance.now() / 1000;
-  if (now - _yellCooldown < 2.5) return;
-  _yellCooldown = now;
   cowSystem?.yell(pos.x, pos.z);
   chickenSystem?.yell(pos.x, pos.z);
   Network.sendYell(pos.x, pos.z);
@@ -295,21 +266,6 @@ const chickenSystem = new ChickenSystem(scene);
 const soulSystem      = new SoulSystem(scene);
 const soulMap         = new SoulMap(soulSystem);
 const campesinoSystem = new CampesinoSystem(scene);
-const conversationUI  = new ConversationUI();
-conversationUI.onClose = (name) => { if (name) campesinoSystem.endTalk(name); };
-
-// Prompt de conversación
-const _convPrompt = document.createElement('div');
-_convPrompt.style.cssText = `
-  position:fixed; bottom:100px; left:50%; transform:translateX(-50%);
-  z-index:200; background:rgba(0,0,0,0.6); color:#f0c060;
-  padding:6px 18px; border-radius:8px; font-size:13px;
-  display:none; pointer-events:none; border:1px solid rgba(240,192,96,0.3);
-  font-family:'Georgia',serif;
-`;
-document.body.appendChild(_convPrompt);
-
-let _lastQADay = -1;  // para detectar cambio de día de juego
 
 // Armas
 let currentWeapon = 'shotgun';
@@ -372,10 +328,6 @@ Network.onJoined((data) => {
 
   Network.onHorseUnsaddled(({ horseId }) => horseManager?.onRemoteUnsaddle(horseId));
   Network.onHorseSaddled(({ horseId })   => horseManager?.onRemoteSaddle(horseId));
-
-  // Q&A inicial para los aldeanos
-  const _initHour = Math.floor(getDayProgress() * 24);
-  conversationUI.requestQA(soulSystem.getContextForChat(), _initHour);
 
   controls.onEPress = () => {
     const pos = controls.getPosition();
@@ -1285,29 +1237,6 @@ function gameLoop() {
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
-
-  // ── Conversación: sync día de juego + Q&A diaria + prompt de proximidad ──
-  if (myId) {
-    const _gameDay = soulSystem.time.day;
-    conversationUI.setGameDay(_gameDay);
-    if (_gameDay !== _lastQADay) {
-      _lastQADay = _gameDay;
-      conversationUI.requestQA(soulSystem.getContextForChat(), _hour);
-    }
-
-    // Prompt [F] Hablar cuando hay aldeano cerca (si la conversación está cerrada)
-    if (!conversationUI.isOpen() && pos) {
-      const nb = campesinoSystem.getNearbyWithId(pos.x, pos.z, 4.5);
-      if (nb) {
-        _convPrompt.textContent = `[F] Hablar con ${nb.name}`;
-        _convPrompt.style.display = 'block';
-      } else {
-        _convPrompt.style.display = 'none';
-      }
-    } else {
-      _convPrompt.style.display = 'none';
-    }
-  }
 
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);

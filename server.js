@@ -727,58 +727,6 @@ io.on('connection', (socket) => {
     addEvent(currentRoom, desc);
   });
 
-  // ── Conversación con aldeanos ────────────────────────────────────────────────
-  // Genera Q&A diaria para todos los aldeanos (llamado 1x por día de juego)
-  socket.on('generateAldeanoQA', async ({ units }) => {
-    if (!_gmModel || !Array.isArray(units)) return;
-    const results = {};
-    for (const u of units) {
-      const prompt =
-`Generá 3 pares pregunta-respuesta para ${u.name}, aldeano de la pampa argentina.
-Estado espiritual: ${u.cuadrante}, ${u.trayectoria}.
-Energía: ${u.energia}%. Recursos: ${u.recursos}/5. Hora: ${u.hora}:00hs.
-Vecinos hoy: ${u.vecinos}.
-
-Respondé SOLO con JSON válido, sin texto extra: [{"q":"...","a":"..."}]
-Preguntas: lo que preguntaría un gaucho de paso (máx 7 palabras).
-Respuestas: 1 oración, español rioplatense, personalidad filtrada por estado espiritual.
-Al menos una pregunta debe ser sobre un vecino específico.`;
-      try {
-        const r   = await _gmModel.generateContent(prompt);
-        let raw   = r.response.text().trim().replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
-        results[u.id] = JSON.parse(raw);
-      } catch(e) {
-        results[u.id] = [
-          { q: '¿Cómo andás?',         a: 'Tirando, nomás.' },
-          { q: '¿Qué hay de nuevo?',    a: 'Nada que no hayas visto.' },
-          { q: '¿Cómo está el campo?',  a: 'Como siempre, duro.' },
-        ];
-      }
-    }
-    socket.emit('aldeanoQAReady', results);
-  });
-
-  // Mensaje personalizado del jugador a un aldeano (1x por día de juego por aldeano)
-  socket.on('aldeanoChat', async ({ name, message, cuadrante, trayectoria, energia, recursos, vecinos, historial }) => {
-    if (!_gmModel || typeof message !== 'string' || !message.trim()) return;
-    const histStr = Array.isArray(historial) && historial.length
-      ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? 'Gaucho' : name}: "${h.text}"`).join('\n') + '\n'
-      : '';
-    const prompt =
-`Sos ${name}, aldeano de la pampa argentina.
-Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
-Vecinos: ${vecinos}.${histStr}
-El gaucho te dice: "${message.trim()}"
-
-Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra cómo hablás. Podés mencionar vecinos si es natural.`;
-    try {
-      const r = await _gmModel.generateContent(prompt);
-      socket.emit('aldeanoChatResponse', { response: r.response.text().trim() });
-    } catch(e) {
-      socket.emit('aldeanoChatResponse', { response: '...' });
-    }
-  });
-
   socket.on('disconnect', () => {
     if (currentRoom) {
       const room = getRoom(currentRoom);

@@ -67,12 +67,6 @@ export function onNpcDialogue(cb) { socket.on('npcDialogue', cb); }
 export function onNpcRemoved(cb)  { socket.on('npcRemoved', cb); }
 export function sendGameEvent(type, data = {}, hour) { socket.emit('gameEvent', { type, hour, ...data }); }
 
-// ── Conversación con aldeanos ────────────────────────────────────────────────
-export function sendGenerateAldeanoQA(units)      { socket.emit('generateAldeanoQA', { units }); }
-export function onAldeanoQAReady(cb)              { socket.on('aldeanoQAReady', cb); }
-export function sendAldeanoChat(payload)          { socket.emit('aldeanoChat', payload); }
-export function onAldeanoChatResponse(cb)         { socket.on('aldeanoChatResponse', cb); }
-
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

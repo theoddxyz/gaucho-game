@@ -310,7 +310,6 @@ export class CampesinoSystem {
         name: char.name,
         idleLookTimer:  Math.random() * 3,
         idleLookTarget: 0,
-        isTalking: false,
       });
     });
   }
@@ -323,7 +322,7 @@ export class CampesinoSystem {
       const { root, label } = npc;
 
       // ── Posición desde souls.js ───────────────────────────────────────────
-      if (unit && !npc.isTalking) {
+      if (unit) {
         root.position.x = unit.terraPos.x;
         root.position.z = unit.terraPos.y;   // terraPos.y → 3D z
         root.position.y = 0;
@@ -425,26 +424,5 @@ export class CampesinoSystem {
       if (dx * dx + dz * dz < radius * radius) return npc.name;
     }
     return null;
-  }
-
-  // Devuelve { name, idx } del NPC más cercano, o null
-  getNearbyWithId(px, pz, radius = 5) {
-    for (let i = 0; i < this._npcs.length; i++) {
-      const npc = this._npcs[i];
-      const dx  = npc.root.position.x - px;
-      const dz  = npc.root.position.z - pz;
-      if (dx * dx + dz * dz < radius * radius) return { name: npc.name, idx: i };
-    }
-    return null;
-  }
-
-  startTalk(name) {
-    const npc = this._npcs.find(n => n.name === name);
-    if (npc) npc.isTalking = true;
-  }
-
-  endTalk(name) {
-    const npc = this._npcs.find(n => n.name === name);
-    if (npc) npc.isTalking = false;
   }
 }
