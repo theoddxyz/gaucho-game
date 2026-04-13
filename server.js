@@ -742,11 +742,13 @@ Respondé SOLO con JSON válido, sin texto extra: [{"q":"...","a":"..."}]
 Preguntas: lo que preguntaría un gaucho de paso (máx 7 palabras).
 Respuestas: 1 oración, español rioplatense, personalidad filtrada por estado espiritual.
 Al menos una pregunta debe ser sobre un vecino específico.`;
+      const _t = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 9000));
       try {
-        const r   = await _gmModel.generateContent(prompt);
+        const r   = await Promise.race([_gmModel.generateContent(prompt), _t]);
         let raw   = r.response.text().trim().replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
         results[u.id] = JSON.parse(raw);
       } catch(e) {
+        console.warn('[aldeanoQA] error/timeout:', u.name, e.message);
         results[u.id] = [
           { q: '¿Cómo andás?',        a: 'Tirando, nomás.' },
           { q: '¿Qué hay de nuevo?',  a: 'Nada que no hayas visto.' },
@@ -770,11 +772,13 @@ Vecinos: ${vecinos}.${histStr}
 El gaucho te dice: "${message.trim()}"
 
 Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra cómo hablás.`;
+    const _timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 9000));
     try {
-      const r = await _gmModel.generateContent(prompt);
+      const r = await Promise.race([_gmModel.generateContent(prompt), _timeout]);
       socket.emit('aldeanoChatResponse', { response: r.response.text().trim() });
     } catch(e) {
-      socket.emit('aldeanoChatResponse', { response: '...' });
+      console.warn('[aldeanoChat] error/timeout:', e.message);
+      socket.emit('aldeanoChatResponse', { response: 'No tengo ganas de hablar ahora.' });
     }
   });
 
