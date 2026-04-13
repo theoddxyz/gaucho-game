@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRagdollBody, removeRagdollBody, syncMeshFromBody, bodyIsAsleep } from './physics.js';
 
-// Avestruz: alta y delgada, sin scale explícita
-const OST_HX = 0.22, OST_HY = 0.72, OST_HZ = 0.22, OST_MASS = 30;
+// Avestruz: hitbox real BoxGeometry(0.80, 2.40, 0.90) centrado en y=1.20
+const OST_HX = 0.40, OST_HY = 1.20, OST_HZ = 0.45, OST_MASS = 30;
 
 // ─── GLB swap — si existe /models/ostrich.glb lo usa en lugar del procedural ──
 let _ostrichTpl     = null;
@@ -268,7 +268,7 @@ export class OstrichSystem {
   getHitboxes() {
     const result = [];
     for (const e of this._entities) {
-      if (e.dead || e.dying || !e.mesh) continue;
+      if (e.dead || e.dying || e.dyingPhysics || !e.mesh) continue;
       // Propagar matrixWorld desde la raíz hasta el hitbox (hijo del grupo)
       e.mesh._hitbox.updateWorldMatrix(true, false);
       result.push(e.mesh._hitbox);
@@ -342,7 +342,7 @@ export class OstrichSystem {
   hit(idx, hitPoint, hitZone) {
     if (idx < 0 || idx >= this._entities.length) return;
     const e = this._entities[idx];
-    if (e.dead || e.dying || e.wounded) return;
+    if (e.dead || e.dying || e.wounded || e.dyingPhysics) return;
     e.hp = Math.max(0, e.hp - 1);
 
     // Spawn flying part

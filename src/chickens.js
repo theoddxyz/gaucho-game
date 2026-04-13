@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createRagdollBody, removeRagdollBody, syncMeshFromBody, bodyIsAsleep } from './physics.js';
 
-// Gallina: pequeña
-const CHK_HX = 0.14, CHK_HY = 0.16, CHK_HZ = 0.12, CHK_MASS = 2;
+// Gallina: hitbox real BoxGeometry(0.52, 0.45, 0.34) centrado en y=0.28
+const CHK_HX = 0.26, CHK_HY = 0.225, CHK_HZ = 0.17, CHK_MASS = 2;
 
 // ─── GLB swap — si existe /models/chicken.glb lo usa en lugar del procedural ──
 let _chickenTpl  = null;
@@ -350,7 +350,7 @@ export class ChickenSystem {
   // ── Hit (damage) ────────────────────────────────────────────────────────
   hit(id, hitPoint, hitZone) {
     const c = this._chickens[id];
-    if (!c || c.removed || c.wounded) return;
+    if (!c || c.removed || c.wounded || c.dyingPhysics) return;
     c.hp = Math.max(0, c.hp - 1);
 
     // Parte volando según zona
