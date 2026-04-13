@@ -782,8 +782,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         hitZone = (scanHit.point.y - baseY < 0.5) ? 'leg' : 'body';
       }
     } else if (scanHit.target.type === 'cow') {
-      // Cow at scale 1.4: head ~y>1.5, leg ~y<0.65
-      hitZone = scanHit.point.y > 1.5 ? 'head' : (scanHit.point.y < 0.65 ? 'leg' : 'body');
+      // Cow at scale 1.4: head ~y>1.9, leg ~y<0.65
+      hitZone = scanHit.point.y > 1.9 ? 'head' : (scanHit.point.y < 0.65 ? 'leg' : 'body');
     } else if (scanHit.target.type === 'ostrich') {
       // Ostrich: head ~y>1.8, leg ~y<0.65
       hitZone = scanHit.point.y > 1.8 ? 'head' : (scanHit.point.y < 0.65 ? 'leg' : 'body');
@@ -1384,8 +1384,8 @@ function gameLoop() {
 // --- Lobby ---
 UI.onPlay(() => startGame(UI.getNameInput() || 'Gaucho'));
 
-// Música de lobby al primer click en cualquier parte
-document.addEventListener('click', () => Audio.startLobbyMusic(), { once: true });
+// Desbloquear AudioContext al primer click (sin música de lobby — reemplazada por MIDI)
+document.addEventListener('click', () => Audio.initAudio(), { once: true });
 
 if (Network.getRoomId()) {
   const hintEl = document.querySelector('.lobby-hint');

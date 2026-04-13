@@ -250,9 +250,9 @@ export function shotgun() {
 
   // ── Capa 1: Sub-bass thump — golpe físico, pitch-drop rápido ─────────────
   const o1 = c.createOscillator(); o1.type = 'sine';
-  o1.frequency.setValueAtTime(110, t);
-  o1.frequency.exponentialRampToValueAtTime(24, t + 0.20);
-  const lp1 = c.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.value = 260;
+  o1.frequency.setValueAtTime(65, t);
+  o1.frequency.exponentialRampToValueAtTime(18, t + 0.22);
+  const lp1 = c.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.value = 200;
   const g1  = c.createGain();
   g1.gain.setValueAtTime(0.0001, t);
   g1.gain.linearRampToValueAtTime(0.85, t + 0.002);
@@ -263,7 +263,7 @@ export function shotgun() {
   // ── Capa 2: Cuerpo saturado — ruido a través de WaveShaper ───────────────
   const buf2 = _makeNoiseBuf(0.50); if (!buf2) return;
   const src2 = c.createBufferSource(); src2.buffer = buf2;
-  const lp2  = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 3800;
+  const lp2  = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 2200;
   const sat  = c.createWaveShaper(); sat.curve = _satCurve(140);
   const lp2b = c.createBiquadFilter(); lp2b.type = 'lowpass'; lp2b.frequency.value = 5000;
   const g2   = c.createGain();
