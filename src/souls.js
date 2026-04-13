@@ -226,9 +226,8 @@ export class SoulSystem {
   // dt: segundos reales del frame
   // externalHour: hora del juego (0-23) de daynight.js
   update(dt, externalHour) {
-    // Escalar dt para que el metaplano corra a velocidad razonable
-    // (igual que A/B usaba elapsed*0.06 ≈ 1.0 a 60fps; acá dt≈0.016)
-    const simDt = dt * 60;
+    // Escalar dt para el metaplano — reducido para movimiento lento y deliberado
+    const simDt = dt * 8;
 
     // ─── Tiempo ───────────────────────────────────────────────────────────────
     const ts    = this._time.totalSeconds + dt * 0.5;

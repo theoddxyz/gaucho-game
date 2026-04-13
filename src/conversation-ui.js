@@ -223,6 +223,18 @@ export class ConversationUI {
       energia: a.energia, recursos: a.recursos, vecinos: a.vecinos,
       historial: (this._history[a.name] || []).slice(-6),
     });
+
+    // Timeout de seguridad: si en 12s no llega respuesta, desbloquear
+    setTimeout(() => {
+      if (!this._waiting) return;
+      this._waiting = false;
+      if (this._current) {
+        (this._history[this._current.name] = this._history[this._current.name] || [])
+          .push({ from: 'npc', text: '...' });
+        this._renderHistory();
+        this._renderQuestions();
+      }
+    }, 12000);
   }
 }
 

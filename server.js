@@ -758,7 +758,8 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
   });
 
   socket.on('aldeanoChat', async ({ name, message, cuadrante, trayectoria, energia, recursos, vecinos, historial }) => {
-    if (!_gmModel || typeof message !== 'string' || !message.trim()) return;
+    if (typeof message !== 'string' || !message.trim()) return;
+    if (!_gmModel) { socket.emit('aldeanoChatResponse', { response: 'No tengo nada que decirte.' }); return; }
     const histStr = Array.isArray(historial) && historial.length
       ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? 'Gaucho' : name}: "${h.text}"`).join('\n') + '\n'
       : '';
