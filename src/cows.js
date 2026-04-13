@@ -178,12 +178,12 @@ function _startDeathPhysics(entity, hitPoint) {
     const a = Math.random() * Math.PI * 2;
     dx = Math.cos(a); dz = Math.sin(a);
   }
-  const spd = 6.5 + Math.random() * 4;
-  body.velocity.set(dx * spd, 4.0 + Math.random() * 2.5, dz * spd);
+  const spd = 4.0 + Math.random() * 3;
+  body.velocity.set(dx * spd, 2.5 + Math.random() * 1.5, dz * spd);
   body.angularVelocity.set(
-    (Math.random() - 0.5) * 14,
     (Math.random() - 0.5) * 6,
-    (Math.random() > 0.5 ? 1 : -1) * (9 + Math.random() * 7)
+    (Math.random() - 0.5) * 3,
+    (Math.random() > 0.5 ? 1 : -1) * (4 + Math.random() * 3)
   );
 
   entity._physBody = body;

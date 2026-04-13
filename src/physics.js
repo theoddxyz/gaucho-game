@@ -3,6 +3,7 @@
  * Un único World compartido por todos los sistemas de animales.
  */
 import * as CANNON from 'cannon-es';
+import * as THREE  from 'three';
 
 // ── World ─────────────────────────────────────────────────────────────────────
 export const physicsWorld = new CANNON.World({
@@ -10,14 +11,18 @@ export const physicsWorld = new CANNON.World({
 });
 physicsWorld.broadphase = new CANNON.NaiveBroadphase();
 physicsWorld.allowSleep = true;
+// Más iteraciones del solver → menos penetración en el suelo
+physicsWorld.solver.iterations = 20;
 
 // ── Materiales de contacto ────────────────────────────────────────────────────
 const _groundMat = new CANNON.Material('ground');
 const _animalMat = new CANNON.Material('animal');
 
 physicsWorld.addContactMaterial(new CANNON.ContactMaterial(_groundMat, _animalMat, {
-  friction:    0.45,
-  restitution: 0.20,   // rebote suave
+  friction:    0.55,
+  restitution: 0.10,   // rebote mínimo
+  contactEquationStiffness:  1e8,
+  contactEquationRelaxation: 3,
 }));
 
 // ── Plano de suelo estático en y = 0 ─────────────────────────────────────────
@@ -59,12 +64,19 @@ export function removeRagdollBody(body) {
 }
 
 // ── Sincronizar mesh Three.js desde el cuerpo cannon ─────────────────────────
-// halfHeight: offset desde el centro del body hasta los "pies" del mesh
-export function syncMeshFromBody(mesh, body, halfHeight) {
+// hy: distancia del centro del body hasta los "pies" del mesh en espacio LOCAL.
+// El offset (0, hy, 0) se rota junto con el quaternion del body para que
+// el pivote visual coincida con el centro de masa real, no con los pies.
+const _syncOffset = new THREE.Vector3();
+const _syncQuat   = new THREE.Quaternion();
+export function syncMeshFromBody(mesh, body, hy) {
   const p = body.position;
   const q = body.quaternion;
-  mesh.position.set(p.x, p.y - halfHeight, p.z);
-  mesh.quaternion.set(q.x, q.y, q.z, q.w);
+  // Rotar el offset local (0, hy, 0) por el quaternion del body
+  _syncQuat.set(q.x, q.y, q.z, q.w);
+  _syncOffset.set(0, hy, 0).applyQuaternion(_syncQuat);
+  mesh.position.set(p.x - _syncOffset.x, p.y - _syncOffset.y, p.z - _syncOffset.z);
+  mesh.quaternion.copy(_syncQuat);
 }
 
 // ── ¿El body ya está dormido / quieto? ───────────────────────────────────────
