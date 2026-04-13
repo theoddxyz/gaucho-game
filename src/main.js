@@ -24,6 +24,7 @@ import { SoulMap } from './soulmap.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
+import { BirdSystem } from './birds.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import * as Inventory from './inventory.js';
@@ -259,6 +260,7 @@ let currentWeapon = 'shotgun';
 const radialMenu  = new RadialMenu();
 const lassoSystem = new LassoSystem(scene);
 const windParticles = new WindParticles(scene);
+const birdSystem = new BirdSystem(scene);
 
 // Vacas
 let cowSystem = null;
@@ -685,7 +687,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   controls.applyRecoil();
   localPlayerModel?.triggerGunRecoil();
   localPlayerModel?.emitMuzzleSmoke(dir.x, dir.z);
-  muzzleFlash(scene, result.origin);
+  muzzleFlash(scene, result.origin, dir);
 
   // ── Camera-ray hitscan — SAME ray used by red crosshair ────────────────────
   // If crosshair is red, hit is guaranteed.
@@ -1171,6 +1173,9 @@ function gameLoop() {
 
   // ── Wind particles ─────────────────────────────────────────────────────
   windParticles.update(dt, pos);
+
+  // ── Bird flocks ────────────────────────────────────────────────────────
+  birdSystem.update(dt, pos);
 
   // ── Story NPC walk animation + 2D label projection ───────────────────────
   if (_storyNpcs.size > 0) {
