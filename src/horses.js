@@ -454,7 +454,6 @@ export class HorseManager {
 
     horse._baseY = 0;
     horse.riderId  = null;
-    horse.saddleNodes?.forEach(n => n.visible = false);
     this.network?.sendDismount(this.myHorseId);
     this.myHorseId = null;
     return { x: landX, z: landZ };
@@ -554,11 +553,11 @@ export class HorseManager {
 
   onRemoteMount(horseId, riderId)  {
     const h = this.horses.get(horseId);
-    if (h) { h.riderId = riderId; h.saddleNodes?.forEach(n => n.visible = true); }
+    if (h) h.riderId = riderId;
   }
   onRemoteDismount(horseId) {
     const h = this.horses.get(horseId);
-    if (h) { h.riderId = null; h._baseY = 0; h.saddleNodes?.forEach(n => n.visible = false); }
+    if (h) { h.riderId = null; h._baseY = 0; }
   }
 
   onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
@@ -586,5 +585,17 @@ export class HorseManager {
   speedMultiplier(sprinting = false) {
     if (!this.isMounted()) return 1.0;
     return this._mountedSpeedMult * (sprinting ? HORSE_SPRINT_EXTRA : 1.0);
+  }
+
+  // ── Caballo personal ─────────────────────────────────────────────────────────
+
+  /** Asigna determinísticamente un caballo al jugador según su ID.
+   *  Guarda el id en this._myOwnedId para uso futuro (unsaddle, call, etc.). */
+  initMyHorse(playerId) {
+    // Hash simple: suma de char codes módulo cantidad de caballos
+    let h = 0;
+    for (let i = 0; i < playerId.length; i++) h = (Math.imul(h, 31) + playerId.charCodeAt(i)) | 0;
+    const idx = Math.abs(h) % HORSE_SPAWNS.length;
+    this._myOwnedId = HORSE_SPAWNS[idx].id;
   }
 }

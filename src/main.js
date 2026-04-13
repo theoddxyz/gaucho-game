@@ -313,6 +313,7 @@ Network.onJoined((data) => {
 
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
+  horseManager.initMyHorse(myId);
   controls.onEPress = () => {
     const pos = controls.getPosition();
 
