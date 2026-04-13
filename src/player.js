@@ -381,7 +381,11 @@ export class PlayerModel {
               obj.castShadow    = true;
               obj.frustumCulled = false;
               const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
-              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+              const n2 = obj.name.toLowerCase().trim();
+              const isGun = n2 === 'gun' || n2 === 'gun.002' || n2.startsWith('gun');
+              obj.material = isGun
+                ? new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.35, metalness: 0.85 })
+                : new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
             const n = obj.name.toLowerCase().trim();
             if (n === 'muzzle') {
@@ -699,18 +703,28 @@ export class PlayerModel {
       } else if (!useShootModel) {
         // Caminata normal (modelo principal visible)
         const target = isMoving ? 1.0 : 0;
-        this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
-        if (this._walkAction)  { this._walkAction.paused  = false; this._walkAction.setEffectiveWeight(1); }
+        this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
+        if (this._walkSpd < 0.04) this._walkSpd = 0;
         if (this._horseAction) { this._horseAction.setEffectiveWeight(0); }
-        this._mixer.update(dt * this._walkSpd);
+        if (this._walkSpd > 0) {
+          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
+          this._mixer.update(dt * this._walkSpd);
+        } else {
+          if (this._walkAction) this._walkAction.paused = true;
+        }
       }
     }
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
       const target = isMoving ? 1.0 : 0;
-      this._walkSpd += (target - this._walkSpd) * Math.min(1, 10 * dt);
-      if (this._shootWalkAction) this._shootWalkAction.paused = false;
-      this._shootWalkMixer.update(dt * this._walkSpd);
+      this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
+      if (this._walkSpd < 0.04) this._walkSpd = 0;
+      if (this._walkSpd > 0) {
+        if (this._shootWalkAction) this._shootWalkAction.paused = false;
+        this._shootWalkMixer.update(dt * this._walkSpd);
+      } else {
+        if (this._shootWalkAction) this._shootWalkAction.paused = true;
+      }
     } else {
       // Fallback: rotación directa de meshes (player.glb sin esqueleto)
       const freq = 2.6, legAmp = 0.42, armAmp = 0.22;
@@ -798,8 +812,10 @@ export class PlayerModel {
       transparent: true,
       opacity: 0.5,
       depthWrite: false,
+      depthTest: true,
     });
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 10; // se evalúa DESPUÉS del opaco del player → depth test correcto
     mesh.position.copy(pos);
     this._scene.add(mesh);
 
