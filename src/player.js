@@ -26,7 +26,10 @@ function loadTemplate(isBot = false) {
 function loadHorseRideTemplate() {
   if (horseRideTemplate) return horseRideTemplate;
   horseRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+    loader.load('/models/ANDARACABALLO2.glb', (gltf) => resolve(gltf),
+      undefined, () => {
+        loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (g) => resolve(g), undefined, () => resolve(null));
+      });
   });
   return horseRideTemplate;
 }
@@ -219,6 +222,7 @@ export class PlayerModel {
     this._horseRideModel  = null;
     this._horseRideMixer  = null;
     this._horseRideAction = null;
+    this._horseSmokePoint = null;  // SMOKE_POINT del modelo de caballo
     this._shootMuzzle     = null;  // Empty "muzzle" del modelo de disparo
     this._smokePoint      = null;  // Empty "smoke_point" del modelo principal
     this._shootSmokePoint = null;  // Empty "smoke_point" del modelo de disparo
@@ -438,6 +442,10 @@ export class PlayerModel {
               obj.castShadow = true; obj.frustumCulled = false;
               const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+            const hn = obj.name.toUpperCase().trim();
+            if (hn === 'SMOKE_POINT' || hn === 'SMOKEPOINTT' || hn.includes('SMOKE')) {
+              this._horseSmokePoint = obj;
             }
           });
           horseScene.updateWorldMatrix(true, true);
@@ -844,10 +852,12 @@ export class PlayerModel {
     // Posición world: preferimos el Empty "smoke_point" del GLB;
     // si no está, usamos el Head bone + offset manual.
     let pos;
-    // Elegir el smoke_point del modelo que está activo en este frame
-    const activeSmokePoint = (this._isAimingAnim && this._shootSmokePoint)
-      ? this._shootSmokePoint
-      : this._smokePoint;
+    // Elegir el smoke_point del modelo activo en este frame
+    const activeSmokePoint = this._isRiding && this._horseSmokePoint
+      ? this._horseSmokePoint
+      : (this._isAimingAnim && this._shootSmokePoint)
+        ? this._shootSmokePoint
+        : this._smokePoint;
     if (activeSmokePoint) {
       activeSmokePoint.updateWorldMatrix(true, false);
       pos = activeSmokePoint.getWorldPosition(new THREE.Vector3());
