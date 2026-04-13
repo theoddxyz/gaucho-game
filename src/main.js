@@ -924,7 +924,7 @@ const SEND_RATE = 1 / 20;
 let sendTimer  = 0;
 
 // ── Timers de sonido ambiente ─────────────────────────────────────────────────
-let _stepTimer    = 0;           // pasos
+let _prevWalkTime = -1;          // fase de animación para pisadas
 let _moooTimer    = 8 + Math.random() * 12;   // mugido random
 let _coyoteTimer   = 30 + Math.random() * 60;
 let _thunderTimer  = 45 + Math.random() * 90;  // trueno lejano ocasional
@@ -1222,15 +1222,29 @@ function gameLoop() {
     const isMoving = Math.hypot(controls._velX ?? 0, controls._velZ ?? 0) > 0.4;
     const nightNow  = isNight();
 
-    // Pasos
-    if (!onHorse && isMoving && !isDead) {
-      _stepTimer -= dt;
-      if (_stepTimer <= 0) {
-        Audio.footstep('sand');
-        _stepTimer = controls.isSprinting() ? 0.28 : 0.42;
+    // Pasos — sincronizados con fase de animación de walk
+    if (!onHorse && !isDead && localPlayerModel) {
+      const _wAction = localPlayerModel._walkAction;
+      const _wSpd    = localPlayerModel._walkSpd ?? 0;
+      if (_wAction && _wSpd > 0.12) {
+        const dur  = _wAction.getClip?.()?.duration ?? 0.8;
+        const half = dur * 0.5;
+        const curT = _wAction.time;
+        const prevT = _prevWalkTime >= 0 ? _prevWalkTime : curT;
+        // Detectar: cruce del punto medio O wrap de loop
+        const wrapped  = prevT > curT + 0.01;           // el tiempo volvió atrás → loop
+        const midCross = prevT < half && curT >= half;   // cruzó el punto medio
+        if (wrapped || midCross) {
+          // Pitch levemente más alto a mayor velocidad
+          const pitch = 0.80 + _wSpd * 0.28 + (Math.random() - 0.5) * 0.10;
+          Audio.footstep('sand', pitch);
+        }
+        _prevWalkTime = curT;
+      } else {
+        _prevWalkTime = -1;
       }
     } else {
-      _stepTimer = 0;
+      _prevWalkTime = -1;
     }
 
     // Cascos: sincronizados con animación vía horseManager.onHoofTouch

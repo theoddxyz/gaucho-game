@@ -206,42 +206,98 @@ const _stepSand  = ['player/step_sand_1.mp3','player/step_sand_2.mp3',
                     'player/step_sand_3.mp3','player/step_sand_4.mp3'];
 const _stepGrass = ['player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3'];
 
-export function footstep(surface = 'sand') {
-  const pitch = 0.88 + Math.random() * 0.24;
-  const paths  = surface === 'grass' ? _stepGrass : _stepSand;
-  _playRandom(paths, { volume: 0.50, reverb: 0.06, pitch }, () => {
-    // fallback procedural — arena suave
+export function footstep(surface = 'sand', pitch = null) {
+  const p     = pitch ?? (0.88 + Math.random() * 0.24);
+  const paths = surface === 'grass' ? _stepGrass : _stepSand;
+  _playRandom(paths, { volume: 0.15, reverb: 0.03, pitch: p }, () => {
+    // fallback procedural — thud suave de tierra
     const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.12, 1800, 0.5);
-    if (n) { _env(n.gain, 0.003, 0.018, 0.06, 0.08, 0.18); _toOut(n.gain, 0.04); n.src.start(t); }
-    const n2 = _noise(0.08, 600, 0.7);
-    if (n2) { _env(n2.gain, 0.001, 0.010, 0.0, 0.07, 0.12); _toOut(n2.gain, 0.02); n2.src.start(t); }
+    // Golpe bajo (suelo)
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(65, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.08);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.10, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
+    const lp = _lp(180); o.connect(lp); lp.connect(g); _toOut(g, 0.03); o.start(t); o.stop(t + 0.12);
+    // Crujido de tierra (ruido filtrado medio-bajo)
+    const n = _noise(0.09, 480, 0.8);
+    if (n) { _env(n.gain, 0.001, 0.010, 0.05, 0.06, 0.08); _toOut(n.gain, 0.02); n.src.start(t); }
   });
 }
 
-// ── ESCOPETA ──────────────────────────────────────────────────────────────────
+// ── ESCOPETA — síntesis procedural pura ───────────────────────────────────────
+function _makeNoiseBuf(dur) {
+  const c = _ctx_(); if (!c) return null;
+  const len = Math.floor(c.sampleRate * dur);
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
 export function shotgun() {
-  _playFile('weapons/shotgun.mp3', { volume: 0.90, reverb: 0.55, pitch: 0.95 + Math.random()*0.1 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(58, t); o.frequency.exponentialRampToValueAtTime(20, t+0.22);
-    const lp = _lp(280); const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.55,t+0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.28);
-    o.connect(lp); lp.connect(g); _toOut(g, 0.45); o.start(t); o.stop(t+0.30);
-    const n = _noise(0.55, 160, 0.35);
-    if (n) { _env(n.gain, 0.012, 0.06, 0.15, 0.42, 0.16); _toOut(n.gain, 0.50); n.src.start(t); }
-  });
-  // Casquillo cayendo — 80ms después
-  setTimeout(() =>
-    _playFile('weapons/shell.mp3', { volume: 0.22, reverb: 0.06 }, () => {
-      const c = _ctx_(); if (!c) return; const t = _now();
-      const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 1800;
-      const g = c.createGain();
-      g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.12,t+0.003);
-      g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
-      o.connect(g); _toOut(g, 0.05); o.start(t); o.stop(t+0.20);
-    }), 80 + Math.random()*40);
+  const c = _ctx_(); if (!c) return; const t = _now();
+
+  // ── Capa 1: Sub-bass thump — el golpe físico del arma ─────────────────────
+  const o1 = c.createOscillator(); o1.type = 'sine';
+  o1.frequency.setValueAtTime(95, t);
+  o1.frequency.exponentialRampToValueAtTime(22, t + 0.26);
+  const lp1 = c.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.value = 240;
+  const g1  = c.createGain();
+  g1.gain.setValueAtTime(0.0001, t);
+  g1.gain.linearRampToValueAtTime(0.72, t + 0.003);   // ataque instantáneo
+  g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+  o1.connect(lp1); lp1.connect(g1); _toOut(g1, 0.45);
+  o1.start(t); o1.stop(t + 0.32);
+
+  // ── Capa 2: Cuerpo del disparo — ruido blanco lowpass, larga caída ─────────
+  const buf2  = _makeNoiseBuf(0.55); if (!buf2) return;
+  const src2  = c.createBufferSource(); src2.buffer = buf2;
+  const lp2   = c.createBiquadFilter(); lp2.type = 'lowpass';
+  lp2.frequency.value = 4200; lp2.Q.value = 0.5;
+  const g2    = c.createGain();
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.linearRampToValueAtTime(0.62, t + 0.005);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.48);
+  src2.connect(lp2); lp2.connect(g2); _toOut(g2, 0.55);
+  src2.start(t);
+
+  // ── Capa 3: Crack agudo — la rotura sónica del proyectil ──────────────────
+  const buf3  = _makeNoiseBuf(0.07); if (buf3) {
+    const src3  = c.createBufferSource(); src3.buffer = buf3;
+    const hp3   = c.createBiquadFilter(); hp3.type = 'highpass'; hp3.frequency.value = 5500;
+    const g3    = c.createGain();
+    g3.gain.setValueAtTime(0.0001, t);
+    g3.gain.linearRampToValueAtTime(0.40, t + 0.002);
+    g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.065);
+    src3.connect(hp3); hp3.connect(g3); _toOut(g3, 0.18);
+    src3.start(t);
+  }
+
+  // ── Capa 4: Resonancia de cañón — bandpass medio-grave ────────────────────
+  const buf4  = _makeNoiseBuf(0.38); if (buf4) {
+    const src4  = c.createBufferSource(); src4.buffer = buf4;
+    const bp4   = c.createBiquadFilter(); bp4.type = 'bandpass';
+    bp4.frequency.value = 620; bp4.Q.value = 1.4;
+    const g4    = c.createGain();
+    g4.gain.setValueAtTime(0.0001, t);
+    g4.gain.linearRampToValueAtTime(0.30, t + 0.008);
+    g4.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    src4.connect(bp4); bp4.connect(g4); _toOut(g4, 0.38);
+    src4.start(t);
+  }
+
+  // ── Casquillo — 85ms después ───────────────────────────────────────────────
+  setTimeout(() => {
+    _playFile('weapons/shell.mp3', { volume: 0.20, reverb: 0.05 }, () => {
+      const c2 = _ctx_(); if (!c2) return; const t2 = _now();
+      const o = c2.createOscillator(); o.type = 'triangle'; o.frequency.value = 1900;
+      const g = c2.createGain();
+      g.gain.setValueAtTime(0.0001, t2); g.gain.linearRampToValueAtTime(0.10, t2 + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.16);
+      o.connect(g); _toOut(g, 0.04); o.start(t2); o.stop(t2 + 0.18);
+    });
+  }, 80 + Math.random() * 45);
 }
 
 // ── BALA CERCA ────────────────────────────────────────────────────────────────
