@@ -7,6 +7,8 @@ let playerTemplate    = null;
 let botTemplate       = null;
 let horseRideTemplate = null;
 let shootWalkTemplate = null;
+let tranquiTemplate   = null;
+let hurtTemplate      = null;
 
 function loadTemplate(isBot = false) {
   if (isBot) {
@@ -40,6 +42,22 @@ function loadShootWalkTemplate() {
     loader.load('/models/CAMINANDOALOSTIROSPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return shootWalkTemplate;
+}
+
+function loadTranquiTemplate() {
+  if (tranquiTemplate) return tranquiTemplate;
+  tranquiTemplate = new Promise((resolve) => {
+    loader.load('/models/TRANQUIGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+  });
+  return tranquiTemplate;
+}
+
+function loadHurtTemplate() {
+  if (hurtTemplate) return hurtTemplate;
+  hurtTemplate = new Promise((resolve) => {
+    loader.load('/models/HERIDOGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+  });
+  return hurtTemplate;
 }
 
 function buildFallbackModel(color) {
@@ -226,6 +244,14 @@ export class PlayerModel {
     this._shootMuzzle     = null;  // Empty "muzzle" del modelo de disparo
     this._smokePoint      = null;  // Empty "smoke_point" del modelo principal
     this._shootSmokePoint = null;  // Empty "smoke_point" del modelo de disparo
+    // Animaciones idle/herido (a pie)
+    this._tranquiModel    = null;
+    this._tranquiMixer    = null;
+    this._tranquiAction   = null;
+    this._hurtModel       = null;
+    this._hurtMixer       = null;
+    this._hurtAction      = null;
+    this._hunger          = 100;   // 0-100, actualizado desde main.js
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
@@ -464,6 +490,66 @@ export class PlayerModel {
           this._horseRideAction = this._horseRideMixer.clipAction(gltf.animations[0]);
           this._horseRideAction.setLoop(THREE.LoopRepeat, Infinity);
           this._horseRideAction.play();
+        });
+
+        // ── Modelo tranquilo (idle a pie, sano) ──────────────────────────────
+        loadTranquiTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const sc = gltf.scene;
+          sc.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+          sc.updateWorldMatrix(true, true);
+          const bb = new THREE.Box3().setFromObject(sc);
+          const hh = bb.max.y - bb.min.y;
+          if (hh > 0.01) {
+            sc.scale.setScalar(2.8 / hh);
+            sc.updateWorldMatrix(true, true);
+            const bb2 = new THREE.Box3().setFromObject(sc);
+            sc.position.y -= bb2.min.y;
+          }
+          sc.visible = false;
+          this.group.add(sc);
+          this._tranquiModel  = sc;
+          this._tranquiMixer  = new THREE.AnimationMixer(sc);
+          this._tranquiAction = this._tranquiMixer.clipAction(gltf.animations[0]);
+          this._tranquiAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._tranquiAction.play();
+        });
+
+        // ── Modelo herido (idle a pie, hambre ≤ 50) ──────────────────────────
+        loadHurtTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const sc = gltf.scene;
+          sc.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+          sc.updateWorldMatrix(true, true);
+          const bb = new THREE.Box3().setFromObject(sc);
+          const hh = bb.max.y - bb.min.y;
+          if (hh > 0.01) {
+            sc.scale.setScalar(2.8 / hh);
+            sc.updateWorldMatrix(true, true);
+            const bb2 = new THREE.Box3().setFromObject(sc);
+            sc.position.y -= bb2.min.y;
+          }
+          sc.visible = false;
+          this.group.add(sc);
+          this._hurtModel  = sc;
+          this._hurtMixer  = new THREE.AnimationMixer(sc);
+          this._hurtAction = this._hurtMixer.clipAction(gltf.animations[0]);
+          this._hurtAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._hurtAction.play();
         });
       });
       return;
@@ -741,13 +827,18 @@ export class PlayerModel {
     const animDt = isBackward ? -dt * animSpeedMult : dt * animSpeedMult;
 
     // ── Model swap ────────────────────────────────────────────────────────────
-    const useShootModel = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
-    const useHorseModel = this._isRiding && !!this._horseRideModel;
-    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel;
+    const useShootModel  = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
+    const useHorseModel  = this._isRiding && !!this._horseRideModel;
+    const isIdleOnFoot   = !isMoving && !useShootModel && !useHorseModel;
+    const useHurtModel   = isIdleOnFoot && this._hunger <= 50 && !!this._hurtModel;
+    const useTranquiModel= isIdleOnFoot && !useHurtModel && !!this._tranquiModel;
+    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel;
     if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
     if (this._horseRideModel) this._horseRideModel.visible =  useHorseModel;
+    if (this._tranquiModel)   this._tranquiModel.visible   =  useTranquiModel;
+    if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
 
-    // ── Mixer principal (walk / idle) ─────────────────────────────────────────
+    // ── Mixer principal (walk) ────────────────────────────────────────────────
     if (this._mixer && !useHorseModel) {
       if (!useShootModel) {
         const target = isMoving ? 1.0 : 0;
@@ -762,6 +853,10 @@ export class PlayerModel {
     if (this._horseRideMixer && useHorseModel) {
       this._horseRideMixer.update(dt);
     }
+
+    // ── Mixers idle a pie ─────────────────────────────────────────────────────
+    if (this._tranquiMixer && useTranquiModel) this._tranquiMixer.update(dt);
+    if (this._hurtMixer    && useHurtModel)    this._hurtMixer.update(dt);
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
@@ -923,6 +1018,10 @@ export class PlayerModel {
     this._extMoving    = isMoving;
     this._extBackward  = isBackward;
     this._extSprinting = isSprinting;
+  }
+
+  setHunger(val) {
+    this._hunger = val;
   }
 
   setAiming(isAiming) {

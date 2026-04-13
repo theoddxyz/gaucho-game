@@ -1042,6 +1042,7 @@ function gameLoop() {
     const extSprinting = controls.isSprinting() && extMoving;
     localPlayerModel.setMovement(extMoving, extBackward, extSprinting);
   }
+  localPlayerModel?.setHunger(getHunger());
   localPlayerModel?.update(dt);
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);
