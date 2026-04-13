@@ -140,6 +140,16 @@ function findLegs(horseMesh) {
   }));
 }
 
+// Deterministic horse assignment: hash player id → horse index 0..5
+function _hashId(id) {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) | 0;
+  return Math.abs(h) % HORSE_SPAWNS.length;
+}
+
+const CALL_SPEED    = 5.5;  // m/s horse auto-navigates toward player when called
+const UNSADDLE_HOLD = 1500; // ms to hold E to unsaddle
+
 // ─── HorseManager ────────────────────────────────────────────────────────────
 export class HorseManager {
   constructor(scene, network) {
@@ -147,11 +157,13 @@ export class HorseManager {
     this.network = network;
     this.horses  = new Map();
     this.myHorseId = null;
+    this._myOwnedId = null;  // horse belonging to local player
     this._mountedSpeedMult = HORSE_SPEED_MULT;
     this._mountPrompt = this._createPrompt();
     this._nearestHorseId = null;
     this._anim = null;
     this._mountLandPos = null;
+    this._unsaddleDone = false;  // prevents repeat fire while E held
     /** Called when a hoof hits the ground on the local player's horse.
      *  Signature: (speed: number, sprint: boolean) => void */
     this.onHoofTouch = null;
@@ -225,6 +237,8 @@ export class HorseManager {
       const legs = template ? findLegs(mesh) : [];
       this.horses.set(spawn.id, {
         mesh, legs, riderId: null, saddleNodes, isWild,
+        ownerId: null,   // set by initMyHorse / remote claim
+        saddled: !isWild, // wild horses start unsaddled; domestic start saddled
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z, _vx: 0, _vz: 0,
         _sprinting: false,
@@ -233,6 +247,7 @@ export class HorseManager {
         _baseY: 0,    // base Y (jumpY from rider, 0 otherwise)
         _bobY:  0,    // vertical bob offset applied on top of _baseY
         headNode, neckNode,
+        _callTarget: null,  // {x,z} set when player calls horse
       });
     }
   }
@@ -285,6 +300,24 @@ export class HorseManager {
     }
 
     for (const [id, horse] of this.horses) {
+      // ── Auto-navigate toward _callTarget (called horse, unmounted) ──────────
+      if (horse._callTarget && horse.riderId === null) {
+        const cdx = horse._callTarget.x - horse.x;
+        const cdz = horse._callTarget.z - horse.z;
+        const dist = Math.sqrt(cdx * cdx + cdz * cdz);
+        if (dist > 1.8) {
+          const step = CALL_SPEED * dt;
+          horse.x += (cdx / dist) * step;
+          horse.z += (cdz / dist) * step;
+          horse.mesh.position.x = horse.x;
+          horse.mesh.position.z = horse.z;
+          horse._targetRY = Math.atan2(cdx, cdz) + Math.PI;
+          horse.walkTime += dt;
+        } else {
+          horse._callTarget = null;
+        }
+      }
+
       const dx = horse.x - horse._prevX;
       const dz = horse.z - horse._prevZ;
       const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);
@@ -320,8 +353,20 @@ export class HorseManager {
       const d  = Math.sqrt(dx * dx + dz * dz);
       if (d < nearestDist) { nearestDist = d; nearest = id; }
     }
-    this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
     this._nearestHorseId = nearest;
+
+    if (nearest !== null) {
+      const nearHorse = this.horses.get(nearest);
+      const isOwn = nearest === this._myOwnedId;
+      if (isOwn && nearHorse?.saddled) {
+        this._mountPrompt.textContent = '[E] Montar  [mantener E] Quitar montura';
+      } else {
+        this._mountPrompt.textContent = '[E] Montar';
+      }
+      this._mountPrompt.style.display = 'block';
+    } else {
+      this._mountPrompt.style.display = 'none';
+    }
   }
 
   _animateLegs(horse, moving, isLocal = false, speed = 0) {
@@ -424,7 +469,8 @@ export class HorseManager {
     if (!horse) return;
     horse.riderId  = playerId;
     this.myHorseId = horseId;
-    horse.saddleNodes?.forEach(n => n.visible = true);
+    horse._callTarget = null;  // cancel any pending call
+    // Saddle visibility is purely driven by horse.saddled — don't override here
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 
@@ -454,7 +500,7 @@ export class HorseManager {
 
     horse._baseY = 0;
     horse.riderId  = null;
-    horse.saddleNodes?.forEach(n => n.visible = false);
+    // Saddle stays visible/hidden based on horse.saddled — don't override here
     this.network?.sendDismount(this.myHorseId);
     this.myHorseId = null;
     return { x: landX, z: landZ };
@@ -554,11 +600,11 @@ export class HorseManager {
 
   onRemoteMount(horseId, riderId)  {
     const h = this.horses.get(horseId);
-    if (h) { h.riderId = riderId; h.saddleNodes?.forEach(n => n.visible = true); }
+    if (h) { h.riderId = riderId; h._callTarget = null; }
   }
   onRemoteDismount(horseId) {
     const h = this.horses.get(horseId);
-    if (h) { h.riderId = null; h._baseY = 0; h.saddleNodes?.forEach(n => n.visible = false); }
+    if (h) { h.riderId = null; h._baseY = 0; }
   }
 
   onRemoteHorseMoved(horseId, x, z, ry, remotePlayer) {
@@ -571,6 +617,68 @@ export class HorseManager {
     horse._targetRY = ry + Math.PI;
     // Snap remote player model directly to horse — avoids interpolation lag
     if (remotePlayer) remotePlayer.snapTo(x, SADDLE_HEIGHT, z, ry);
+  }
+
+  // ── Ownership ───────────────────────────────────────────────────────────────
+
+  /** Claim a personal horse for the local player (deterministic by player ID).
+   *  Makes saddle permanently visible on that horse. */
+  initMyHorse(playerId) {
+    const idx = _hashId(playerId);
+    this._myOwnedId = HORSE_SPAWNS[idx].id;
+    const horse = this.horses.get(this._myOwnedId);
+    if (!horse) return;
+    horse.ownerId = playerId;
+    // Ensure saddle is visible (domestic horse starts saddled)
+    if (horse.saddled) {
+      horse.saddleNodes?.forEach(n => n.visible = true);
+    }
+  }
+
+  /** Permanently remove saddle from a horse (local + broadcast). */
+  unsaddle(horseId) {
+    const horse = this.horses.get(horseId);
+    if (!horse || !horse.saddled) return;
+    horse.saddled = false;
+    horse.saddleNodes?.forEach(n => n.visible = false);
+    this.network?.sendUnsaddle(horseId);
+  }
+
+  /** Called from remote — another player removed the saddle on their horse. */
+  onRemoteUnsaddle(horseId) {
+    const horse = this.horses.get(horseId);
+    if (!horse) return;
+    horse.saddled = false;
+    horse.saddleNodes?.forEach(n => n.visible = false);
+  }
+
+  /** Check if E has been held long enough near own unmounted horse → unsaddle.
+   *  @param eHoldMs  how long E has been held (ms)
+   *  @param playerPos  { x, z }
+   *  @param unsaddleDoneRef  object with .done bool to prevent re-fire while held
+   *  @returns true if unsaddle was triggered */
+  tryUnsaddle(eHoldMs, playerPos, unsaddleDoneRef) {
+    if (unsaddleDoneRef.done) return false;
+    if (eHoldMs < UNSADDLE_HOLD) return false;
+    if (this.myHorseId !== null) return false;          // currently mounted
+    if (this._myOwnedId === null) return false;
+    const horse = this.horses.get(this._myOwnedId);
+    if (!horse || horse.riderId !== null) return false; // ridden by someone else
+    if (!horse.saddled) return false;                   // already unsaddled
+    const dx = horse.x - playerPos.x;
+    const dz = horse.z - playerPos.z;
+    if (Math.sqrt(dx * dx + dz * dz) > MOUNT_RADIUS) return false;
+    unsaddleDoneRef.done = true;
+    this.unsaddle(this._myOwnedId);
+    return true;
+  }
+
+  /** Navigate own horse toward player position (called with tap E when nothing nearby). */
+  callMyHorse(playerX, playerZ) {
+    if (this._myOwnedId === null) return;
+    const horse = this.horses.get(this._myOwnedId);
+    if (!horse || horse.riderId !== null) return;
+    horse._callTarget = { x: playerX, z: playerZ };
   }
 
   /** True if this player ID is currently riding any horse (for network filtering). */

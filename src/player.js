@@ -3,6 +3,27 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
+
+/** Aplica opacity a todos los meshes de un model. opacity=1 → opaco (transparent=false). */
+function _blendModelOpacity(model, opacity) {
+  if (!model) return;
+  model.visible = opacity > 0;
+  if (opacity <= 0 || opacity >= 1) {
+    // Estado final: reset a sólido o invisible
+    model.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      o.material.transparent = false;
+      o.material.opacity     = 1;
+    });
+  } else {
+    model.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      o.material.transparent = true;
+      o.material.opacity     = opacity;
+    });
+  }
+}
+
 let playerTemplate    = null;
 let botTemplate       = null;
 let horseRideTemplate = null;
@@ -254,6 +275,7 @@ export class PlayerModel {
     this._hunger          = 100;   // 0-100, actualizado desde main.js
     this._hp              = 200;   // 0-200, actualizado desde main.js
     this._extSpeedFrac    = 0;     // fracción de velocidad real (0-1)
+    this._idleBlend       = 0;     // 0=walk, 1=tranqui/hurt — para cross-fade
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
@@ -840,19 +862,45 @@ export class PlayerModel {
     }
     if (this._walkSpd < 0.03) this._walkSpd = 0;
 
-    // ── Model swap ────────────────────────────────────────────────────────────
+    // ── Model swap con cross-fade walk ↔ idle ────────────────────────────────
     const useShootModel  = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
     const useHorseModel  = this._isRiding && !!this._horseRideModel;
-    // Idle: basado en walkSpd real (no boolean) → transición suave
     const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
     const isHurt         = this._hunger <= 50 || this._hp <= 100;
     const useHurtModel   = isIdleOnFoot && isHurt && !!this._hurtModel;
     const useTranquiModel= isIdleOnFoot && !useHurtModel && !!this._tranquiModel;
-    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel;
-    if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
-    if (this._horseRideModel) this._horseRideModel.visible =  useHorseModel;
-    if (this._tranquiModel)   this._tranquiModel.visible   =  useTranquiModel;
-    if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
+    const wantIdle       = useHurtModel || useTranquiModel;
+
+    if (useShootModel || useHorseModel) {
+      // Mientras apunta/monta: reset del blend, no cross-fade
+      this._idleBlend = 0;
+      if (this._mainModel)    this._mainModel.visible    = false;
+      if (this._tranquiModel) this._tranquiModel.visible = false;
+      if (this._hurtModel)    this._hurtModel.visible    = false;
+    } else {
+      // Cross-fade entre walk y idle (TRANQUI o HERIDO)
+      const blendTarget = wantIdle ? 1 : 0;
+      this._idleBlend  += (blendTarget - this._idleBlend) * Math.min(1, 7 * dt);
+      if (this._idleBlend < 0.02) this._idleBlend = 0;
+      if (this._idleBlend > 0.98) this._idleBlend = 1;
+
+      const mainOpacity  = 1 - this._idleBlend;
+      const idleOpacity  = this._idleBlend;
+      const idleModel    = useHurtModel ? this._hurtModel : (this._tranquiModel ?? null);
+      const otherIdle    = useHurtModel ? this._tranquiModel : this._hurtModel;
+
+      // Aplicar opacidad — solo traversar cuando estamos en la zona de blend
+      if (this._idleBlend > 0 && this._idleBlend < 1) {
+        _blendModelOpacity(this._mainModel, mainOpacity);
+        _blendModelOpacity(idleModel,       idleOpacity);
+      } else {
+        _blendModelOpacity(this._mainModel, mainOpacity);
+        _blendModelOpacity(idleModel,       idleOpacity);
+      }
+      if (otherIdle) otherIdle.visible = false;
+    }
+    if (this._shootWalkModel) this._shootWalkModel.visible = useShootModel;
+    if (this._horseRideModel) this._horseRideModel.visible = useHorseModel;
 
     // ── Mixer principal (walk) ────────────────────────────────────────────────
     if (this._mixer && !useHorseModel) {

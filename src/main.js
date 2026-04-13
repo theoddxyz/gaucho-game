@@ -313,6 +313,16 @@ Network.onJoined((data) => {
 
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
+  horseManager.initMyHorse(myId);
+
+  Network.onHorseUnsaddled(({ horseId }) => horseManager?.onRemoteUnsaddle(horseId));
+
+  // Ref object for hold-E unsaddle — reset each time E is released
+  const _unsaddleRef = { done: false };
+  document.addEventListener('keyup', (e) => {
+    if (e.key.toLowerCase() === 'e') _unsaddleRef.done = false;
+  });
+
   controls.onEPress = () => {
     const pos = controls.getPosition();
 
@@ -355,7 +365,14 @@ Network.onJoined((data) => {
     if (nearHorse || mounted) {
       const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
       if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
-    } else if (currentWeapon === 'food' && Inventory.hasAny()) {
+      return;
+    }
+
+    // ── 3. Llamar al propio caballo (sin montura cerca, sin estar montado) ────
+    horseManager?.callMyHorse(pos.x, pos.z);
+
+    // ── 4. Tirar comida si food equipado ─────────────────────────────────────
+    if (currentWeapon === 'food' && Inventory.hasAny()) {
       _throwFood(pos);
     }
   };
@@ -1029,6 +1046,14 @@ function gameLoop() {
         const jumpY   = pos.y;  // save height before landOnHorse resets it
         const mounted = horseManager.tryAutoMount(pos, myId, jumpY);
         if (mounted) controls.landOnHorse();
+      }
+
+      // Hold-E unsaddle check — runs every frame while E is held
+      if (controls._eHeld && !isDead) {
+        const eMs = performance.now() - controls._eDownAt;
+        if (horseManager.tryUnsaddle(eMs, pos, _unsaddleRef)) {
+          Audio.horseNeigh();
+        }
       }
     }
 
