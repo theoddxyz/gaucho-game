@@ -706,43 +706,34 @@ export class PlayerModel {
 
     if (this._mixer) {
       if (this._isRiding) {
-        // Transición: acaba de montar → reiniciar horse action limpia
-        if (!this._wasRiding) {
-          if (this._horseAction) { this._horseAction.reset(); this._horseAction.play(); }
-          if (this._walkAction)  { this._walkAction.paused = true; }
-          this._walkSpd = 0;
+        // Al montar por primera vez: reiniciar horse action desde frame 0
+        if (!this._wasRiding && this._horseAction) {
+          this._horseAction.reset();
+          this._horseAction.play();
         }
         this._wasRiding = true;
         if (this._horseAction) {
-          // Horse action disponible: reproducirla con peso pleno
-          this._horseAction.paused = false;
           this._horseAction.setEffectiveWeight(1);
           if (this._walkAction) this._walkAction.setEffectiveWeight(0);
         } else {
-          // Fallback: no hay horse action (GLB sin anim), usar walk action
-          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
+          // Fallback sin horse action: usar walk
+          if (this._walkAction) this._walkAction.setEffectiveWeight(1);
         }
         this._mixer.update(dt);
-      } else if (!useShootModel) {
-        if (this._wasRiding) {
-          // Acaba de desmontar → dejar walk action lista para reanudar
-          if (this._horseAction) { this._horseAction.setEffectiveWeight(0); this._horseAction.paused = true; }
-        }
+      } else {
         this._wasRiding = false;
-        // Caminata normal (modelo principal visible)
-        const target = isMoving ? 1.0 : 0;
-        this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
-        if (this._walkSpd < 0.04) this._walkSpd = 0;
-        if (this._horseAction) { this._horseAction.setEffectiveWeight(0); }
-        if (this._walkSpd > 0) {
-          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
-          this._mixer.update(animDt * this._walkSpd);
-        } else {
-          if (this._walkAction) this._walkAction.paused = true;
+        if (!useShootModel) {
+          // Walk: weight=1 siempre, velocidad controlada con dt escalado
+          // dt=0 cuando quieto → pose se freezea sin usar paused
+          const target = isMoving ? 1.0 : 0;
+          this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
+          if (this._walkSpd < 0.04) this._walkSpd = 0;
+          if (this._horseAction) this._horseAction.setEffectiveWeight(0);
+          if (this._walkAction)  this._walkAction.setEffectiveWeight(1);
+          this._mixer.update(this._walkSpd > 0 ? animDt * this._walkSpd : 0);
         }
       }
     }
-    if (!this._isRiding) this._wasRiding = false;
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
@@ -779,7 +770,7 @@ export class PlayerModel {
         this._bodyRecoilPos = 0; this._bodyRecoilVel = 0;
       }
       // Desplazar el grupo del modelo hacia atrás en local Z
-      const recoilOffset = this._bodyRecoilPos * 0.18;
+      const recoilOffset = this._bodyRecoilPos * 0.38;
       const ry = this.group.rotation.y;
       this.group.position.x += Math.sin(ry) * recoilOffset;
       this.group.position.z += Math.cos(ry) * recoilOffset;
@@ -915,8 +906,7 @@ export class PlayerModel {
 
   triggerGunRecoil() {
     this._gunRecoil = 1;
-    // Empuje del cuerpo hacia atrás
-    this._bodyRecoilVel = -4.5;
+    this._bodyRecoilVel = -9.0;
   }
 
   getFirepointWorldPos() {
