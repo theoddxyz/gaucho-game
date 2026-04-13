@@ -223,6 +223,13 @@ export class PlayerModel {
     this._rootBone        = null;
     this._isRiding        = false;
     this._isAimingAnim    = false;
+    // Movimiento controlado externamente (solo jugador local)
+    this._extMoving       = false;  // hay teclas presionadas
+    this._extBackward     = false;  // se mueve hacia atrás
+    this._extSprinting    = false;  // shift sprint
+    // Recoil de cuerpo al disparar
+    this._bodyRecoilPos   = 0;
+    this._bodyRecoilVel   = 0;
     // Smoke (cigarrillo) — posición desde Head bone
     this._headBone       = null;
     this._smokeParticles = [];
@@ -683,7 +690,13 @@ export class PlayerModel {
     const moved = this.group.position.distanceTo(this._prevPos);
     this._moveSpeed = moved / Math.max(dt, 0.001);
     this._prevPos.copy(this.group.position);
-    const isMoving = this._moveSpeed > 0.08;
+    // Jugador local: usar estado de teclas (confiable). Remoto: usar distancia.
+    const isMoving   = this._isLocal ? this._extMoving   : (this._moveSpeed > 0.08);
+    const isBackward = this._isLocal ? this._extBackward : false;
+    const isSprinting = this._isLocal ? this._extSprinting : false;
+    // dt para el mixer: negativo si va para atrás, multiplicado si sprint
+    const animSpeedMult = isSprinting ? 1.65 : 1.0;
+    const animDt = isBackward ? -dt * animSpeedMult : dt * animSpeedMult;
 
     // ── Model swap: modelo de disparo (con arma) ↔ modelo normal ────────────────
     const useShootModel = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
@@ -704,7 +717,7 @@ export class PlayerModel {
         if (this._horseAction) { this._horseAction.setEffectiveWeight(0); }
         if (this._walkSpd > 0) {
           if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
-          this._mixer.update(dt * this._walkSpd);
+          this._mixer.update(animDt * this._walkSpd);
         } else {
           if (this._walkAction) this._walkAction.paused = true;
         }
@@ -717,7 +730,7 @@ export class PlayerModel {
       if (this._walkSpd < 0.04) this._walkSpd = 0;
       if (this._walkSpd > 0) {
         if (this._shootWalkAction) this._shootWalkAction.paused = false;
-        this._shootWalkMixer.update(dt * this._walkSpd);
+        this._shootWalkMixer.update(animDt * this._walkSpd);
       } else {
         if (this._shootWalkAction) this._shootWalkAction.paused = true;
       }
@@ -733,6 +746,22 @@ export class PlayerModel {
         const t = isMoving ? Math.sin(this._walkT * freq + phase) * armAmp : 0;
         mesh.rotation.x += (t - mesh.rotation.x) * Math.min(1, 12 * dt);
       }
+    }
+
+    // ── Body recoil (empuje hacia atrás al disparar) ─────────────────────────
+    if (this._bodyRecoilVel !== 0 || this._bodyRecoilPos !== 0) {
+      const K = 40, D = 8;
+      this._bodyRecoilVel -= this._bodyRecoilPos * K * dt;
+      this._bodyRecoilVel *= (1 - D * dt);
+      this._bodyRecoilPos += this._bodyRecoilVel * dt;
+      if (Math.abs(this._bodyRecoilPos) < 0.002 && Math.abs(this._bodyRecoilVel) < 0.002) {
+        this._bodyRecoilPos = 0; this._bodyRecoilVel = 0;
+      }
+      // Desplazar el grupo del modelo hacia atrás en local Z
+      const recoilOffset = this._bodyRecoilPos * 0.18;
+      const ry = this.group.rotation.y;
+      this.group.position.x += Math.sin(ry) * recoilOffset;
+      this.group.position.z += Math.cos(ry) * recoilOffset;
     }
 
     // ── Smoke particles (cigarrillo) ─────────────────────────────────────────
@@ -847,6 +876,13 @@ export class PlayerModel {
     this._isRiding = isRiding;
   }
 
+  /** Llamar desde main.js cada frame con el estado real de teclas (solo jugador local). */
+  setMovement(isMoving, isBackward, isSprinting) {
+    this._extMoving    = isMoving;
+    this._extBackward  = isBackward;
+    this._extSprinting = isSprinting;
+  }
+
   setAiming(isAiming) {
     if (this._gun) {
       this._gun.visible = isAiming;
@@ -856,7 +892,11 @@ export class PlayerModel {
     this._isAimingAnim = isAiming;
   }
 
-  triggerGunRecoil() { this._gunRecoil = 1; }
+  triggerGunRecoil() {
+    this._gunRecoil = 1;
+    // Empuje del cuerpo hacia atrás
+    this._bodyRecoilVel = -4.5;
+  }
 
   getFirepointWorldPos() {
     // Cuando el modelo de disparo está activo, usar el Empty "muzzle" de ese modelo

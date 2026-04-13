@@ -973,6 +973,18 @@ function gameLoop() {
 
   for (const [, pm] of remotePlayers) pm.update(dt);
   localPlayerModel?.setRiding(horseManager?.isMounted() ?? false);
+  if (localPlayerModel && pos) {
+    const _vx = controls._velX ?? 0, _vz = controls._velZ ?? 0;
+    const spd  = Math.hypot(_vx, _vz);
+    const extMoving    = spd > 0.15;
+    // Backward: dot entre dir movimiento y dir facing (forward = +Z local)
+    const ry   = localPlayerModel.group.rotation.y;
+    const fwdX = Math.sin(ry), fwdZ = Math.cos(ry);
+    const dot  = (_vx * fwdX + _vz * fwdZ);   // positivo = adelante, negativo = atrás
+    const extBackward  = extMoving && dot < -0.1;
+    const extSprinting = controls.isSprinting() && extMoving;
+    localPlayerModel.setMovement(extMoving, extBackward, extSprinting);
+  }
   localPlayerModel?.update(dt);
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
   if (horseManager) hoofprints.update(horseManager.horses, dt);
