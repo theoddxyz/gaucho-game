@@ -11,28 +11,28 @@ let _t = 0.5;
 // Each entry: [t, r, g, b]  (r/g/b in 0-255)
 
 const SKY_KEYS = [
-  [0.00,   8,   8,  22],  // midnight
-  [0.18,  18,  12,  38],  // pre-dawn purple
+  [0.00,  18,  22,  55],  // midnight — deep blue (noche americana)
+  [0.18,  25,  20,  60],  // pre-dawn blue-purple
   [0.25, 195,  95,  45],  // dawn orange
   [0.30, 130, 165, 215],  // morning haze
   [0.50, 130, 195, 235],  // noon sky blue
   [0.68, 138, 170, 210],  // late afternoon
   [0.75, 198, 118,  65],  // dusk orange
   [0.80,  70,  35,  55],  // twilight purple
-  [0.87,  12,   8,  24],  // night
-  [1.00,   8,   8,  22],  // midnight
+  [0.87,  18,  18,  48],  // night — deep blue
+  [1.00,  18,  22,  55],  // midnight
 ];
 
 const AMB_INT_KEYS = [
-  [0.00, 0.04],
-  [0.22, 0.08],
+  [0.00, 0.30],  // midnight — levantado para noche americana
+  [0.22, 0.32],
   [0.25, 0.38],
   [0.32, 0.52],
   [0.50, 0.62],
   [0.68, 0.54],
   [0.75, 0.36],
-  [0.82, 0.10],
-  [1.00, 0.04],
+  [0.82, 0.32],
+  [1.00, 0.30],
 ];
 
 const SUN_INT_KEYS = [
@@ -78,30 +78,30 @@ function _lerp3(keys, t) {
   const last = keys[keys.length - 1]; return [last[1], last[2], last[3]];
 }
 
-// Fog near/far keyframes — denser at dawn/dusk, clear at noon, near-zero at night
+// Fog near/far keyframes — denser at dawn/dusk, clear at noon, clear at night (noche americana)
 const FOG_NEAR_KEYS = [
-  [0.00,  60],  // midnight: close fog (dark, eerie)
-  [0.22,  45],  // pre-dawn: heaviest fog
+  [0.00, 120],  // midnight: pampa visible bajo la luna
+  [0.22,  60],  // pre-dawn: niebla pesada
   [0.27,  55],  // dawn lifting
   [0.33,  90],  // morning
   [0.50, 200],  // noon: clear pampa
   [0.68, 160],  // late afternoon haze
   [0.73,  70],  // dusk fog rolling in
-  [0.80,  50],  // twilight
-  [0.87,  60],  // night
-  [1.00,  60],
+  [0.80,  60],  // twilight
+  [0.87, 120],  // night
+  [1.00, 120],
 ];
 const FOG_FAR_KEYS = [
-  [0.00, 280],
-  [0.22, 220],  // pre-dawn heavy
+  [0.00, 480],  // midnight: horizonte visible (noche americana)
+  [0.22, 240],  // pre-dawn heavy
   [0.27, 260],
   [0.33, 360],
   [0.50, 480],  // noon clear
   [0.68, 400],
   [0.73, 260],  // dusk
   [0.80, 240],
-  [0.87, 280],
-  [1.00, 280],
+  [0.87, 480],  // night
+  [1.00, 480],
 ];
 
 // ─── Main update ──────────────────────────────────────────────────────────────
@@ -125,10 +125,11 @@ export function updateDayNight(dt, scene, sun, ambient, moon = null) {
   const nightFrac = _t < 0.25
     ? Math.max(0, 1 - _t / 0.22)
     : _t > 0.78 ? Math.min(1, (_t - 0.78) / 0.10) : 0;
+  // Noche americana: azul-frío pronunciado de noche, cálido de día
   ambient.color.setRGB(
-    0.55 + (1 - nightFrac) * 0.45,
-    0.50 + (1 - nightFrac) * 0.45,
-    0.55 + nightFrac * 0.30,
+    0.32 + (1 - nightFrac) * 0.68,  // R: 0.32 noche → 1.0 día
+    0.38 + (1 - nightFrac) * 0.57,  // G: 0.38 noche → 0.95 día
+    0.80 + (1 - nightFrac) * 0.05,  // B: 0.80 noche → 0.85 día (siempre algo azul)
   );
 
   // Sun intensity + color
@@ -155,17 +156,17 @@ export function getSunOffset() {
   return { x: ex, y: height, z: ez };
 }
 
-// Moon intensity keyframes: bright at midnight, gone during day
+// Moon intensity keyframes: noche americana — luna fuerte que ilumina y hace sombras
 const MOON_INT_KEYS = [
-  [0.00, 0.55],
-  [0.18, 0.35],
-  [0.24, 0.00],
+  [0.00, 2.0],   // midnight — luna llena, iluminación fuerte
+  [0.18, 1.5],   // pre-dawn — sigue alumbrando
+  [0.24, 0.00],  // desaparece al amanecer
   [0.26, 0.00],
   [0.74, 0.00],
   [0.78, 0.00],
-  [0.82, 0.30],
-  [0.90, 0.55],
-  [1.00, 0.55],
+  [0.82, 1.2],   // vuelve al anochecer
+  [0.90, 1.8],
+  [1.00, 2.0],
 ];
 
 /** 0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk */

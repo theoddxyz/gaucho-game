@@ -9,17 +9,18 @@ export function createWorld(scene) {
   const ambient = new THREE.AmbientLight(0xffe8cc, 0.55);
   scene.add(ambient);
 
-  // Moon — dim cool blue-white, opposite direction from sun
-  const moon = new THREE.DirectionalLight(0x8899cc, 0);  // intensity driven by daynight
+  // Moon — noche americana: iluminación fuerte azul-plateada, hace sombras nítidas
+  const moon = new THREE.DirectionalLight(0xc8d8ff, 0);  // intensity driven by daynight
   moon.position.set(-80, 30, -20);
   moon.castShadow = true;
-  moon.shadow.mapSize.set(1024, 1024);
+  moon.shadow.mapSize.set(2048, 2048);
   moon.shadow.camera.near   = 1;
-  moon.shadow.camera.far    = 350;
-  moon.shadow.camera.left   = -120;
-  moon.shadow.camera.right  =  120;
-  moon.shadow.camera.top    =  120;
-  moon.shadow.camera.bottom = -120;
+  moon.shadow.camera.far    = 400;
+  moon.shadow.camera.left   = -140;
+  moon.shadow.camera.right  =  140;
+  moon.shadow.camera.top    =  140;
+  moon.shadow.camera.bottom = -140;
+  moon.shadow.bias          = -0.0003;
   scene.add(moon);
   scene.add(moon.target);  // target must be in scene so position updates propagate
 
