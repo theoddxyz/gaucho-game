@@ -1,46 +1,58 @@
-// --- Bird Flock System (dBBMM-inspired, same base as cows) ---
+/**
+ * src/birds.js — Bird flock system using Reynolds Boids (1987)
+ * Three steering rules: Separation · Alignment · Cohesion
+ * Birds are hitscannable, fall with physics when shot, lootable with E.
+ */
 import * as THREE from 'three';
 
-// ─── dBBMM parameters for birds ──────────────────────────────────────────────
-// Alta sigma = movimiento caótico en bandada; viajan rápido, huyen rápido
-const BB_STATES = {
-  resting:   { sigma: 0.3,  speed: 0,    wpRadius: [0,  0 ], timer: [8, 20] },
-  flying:    { sigma: 2.8,  speed: 5.5,  wpRadius: [20, 55], timer: [8, 18] },
-  scattering:{ sigma: 4.5,  speed: 9.0,  wpRadius: [40, 80], timer: [6, 10] },
-};
-const FLOCK_COHESION  = 0.22;  // pull hacia centroide del grupo
-const TAU             = { resting: 0.0, flying: 0.35, scattering: 0.18 };
-const FLEE_RADIUS     = 14;    // distancia al player para scattering
-const LAND_RADIUS     = 10;    // distancia al player para poder aterrizar
+// ── Boids tuning ──────────────────────────────────────────────────────────────
+const SEP_RADIUS   = 1.6;   // repulsión si están muy juntos
+const ALI_RADIUS   = 7.0;   // radio de alineación de velocidades
+const COH_RADIUS   = 14.0;  // radio de cohesión (se jalan al centro del grupo)
+const SEP_WEIGHT   = 2.2;
+const ALI_WEIGHT   = 1.0;
+const COH_WEIGHT   = 0.7;
 
-const FLY_HEIGHT      = 4.8;   // altura normal de vuelo (m)
-const FLY_HEIGHT_SCAT = 8.5;   // altura al scatter
-const Y_LERP          = 2.5;   // velocidad de cambio de altura
+const SPEED_CRUISE = 5.5;   // m/s en vuelo normal
+const SPEED_FLEE   = 9.5;   // m/s al huir del jugador
+const SPEED_MAX    = 11.0;
+const FLEE_RADIUS  = 16;    // distancia al jugador para huir
+const LAND_RADIUS  = 12;    // no aterriza si jugador más cerca
 
-const WING_FREQ       = 5.5;   // frecuencia de aleteo
-const WING_AMP        = 0.35;  // amplitud de aleteo (rad)
+const FLY_H        = 5.0;   // altura de vuelo normal
+const FLY_H_FLEE   = 9.0;   // altura al huir
+const FLY_H_NOISE  = 1.2;   // variación aleatoria de altura por bird
+const Y_LERP       = 2.2;
 
-// ─── Gaussian random (Box-Muller) ─────────────────────────────────────────────
-function _gauss() {
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
+const WING_FREQ    = 5.8;
+const WING_AMP     = 0.38;
 
-// ─── Build a single bird mesh ─────────────────────────────────────────────────
+const GRAVITY      = 16;    // para pájaros caídos (m/s²)
+const BOUNCE_REST  = 0.22;  // rebote en el suelo
+const DEAD_LIFE    = 60;    // segundos hasta desaparecer
+
+// ── Spawn points (x, z, cantidad) ────────────────────────────────────────────
+const FLOCK_SPAWNS = [
+  { x:   8, z: -55,  n: 14 },
+  { x: -35, z: -90,  n: 11 },
+  { x:  55, z: -40,  n: 16 },
+  { x: -15, z:-120,  n: 10 },
+  { x:  70, z: -75,  n: 13 },
+  { x:   0, z: -30,  n: 12 },
+  { x: -60, z: -50,  n:  9 },
+];
+
+// ── Bird mesh builder ─────────────────────────────────────────────────────────
 const M_BIRD = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.9 });
 const M_WING = new THREE.MeshStandardMaterial({ color: 0x2a1e10, roughness: 0.9 });
 
 function buildBird() {
   const root = new THREE.Group();
 
-  // Cuerpo pequeño
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.18), M_BIRD);
   body.castShadow = false;
   root.add(body);
 
-  // Ala izquierda: pivot en el cuerpo, gira en X
   const wingPivotL = new THREE.Group();
   wingPivotL.position.set(-0.04, 0, 0);
   const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.03, 0.14), M_WING);
@@ -49,7 +61,6 @@ function buildBird() {
   wingPivotL.add(wingL);
   root.add(wingPivotL);
 
-  // Ala derecha
   const wingPivotR = new THREE.Group();
   wingPivotR.position.set(0.04, 0, 0);
   const wingR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.03, 0.14), M_WING);
@@ -63,161 +74,331 @@ function buildBird() {
   return root;
 }
 
-// ─── Spawn positions de bandadas (repartidas por el mapa) ─────────────────────
-const FLOCK_SPAWNS = [
-  { x:   8, z: -55,  n: 14 },
-  { x: -35, z: -90,  n: 11 },
-  { x:  55, z: -40,  n: 16 },
-  { x: -15, z:-120,  n: 10 },
-  { x:  70, z: -75,  n: 13 },
-  { x:   0, z: -30,  n: 12 },
-  { x: -60, z: -50,  n: 9  },
-];
+// ── Vec2 helpers ──────────────────────────────────────────────────────────────
+function _len2(x, z) { return Math.sqrt(x * x + z * z); }
+function _norm2(x, z) { const l = _len2(x, z) || 1; return [x / l, z / l]; }
 
-// ─── BirdSystem ───────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
 export class BirdSystem {
   constructor(scene) {
     this._scene  = scene;
-    this._flocks = [];
+    this._flocks = [];   // array of bird arrays (one per spawn)
+    this._dead   = [];   // dead birds with physics
+
+    // Flat list of all live birds for hitscan
+    this._allBirds   = [];
+    this._hitboxes   = [];   // THREE.Mesh per bird (invisible)
+    this._hitboxMap  = new Map();  // hitbox.uuid → bird object
 
     for (const sp of FLOCK_SPAWNS) {
-      this._flocks.push(this._createFlock(sp.x, sp.z, sp.n));
+      this._flocks.push(this._spawnFlock(sp.x, sp.z, sp.n));
     }
   }
 
-  _createFlock(cx, cz, n) {
-    const birds = [];
+  // ── Spawn ──────────────────────────────────────────────────────────────────
+  _spawnFlock(cx, cz, n) {
+    const flock = [];
     for (let i = 0; i < n; i++) {
       const mesh = buildBird();
-      const ox   = (Math.random() - 0.5) * 6;
-      const oz   = (Math.random() - 0.5) * 6;
-      mesh.position.set(cx + ox, 0, cz + oz);
+      const ox   = (Math.random() - 0.5) * 8;
+      const oz   = (Math.random() - 0.5) * 8;
+      const x    = cx + ox, z = cz + oz;
+      mesh.position.set(x, 0, z);
       mesh.rotation.y = Math.random() * Math.PI * 2;
       this._scene.add(mesh);
 
-      birds.push({
-        mesh,
-        vx: 0, vz: 0,
-        targetY: 0,   // altura objetivo
-        wingT: Math.random() * Math.PI * 2,
-        bbState: 'resting',
-        waypoint: { x: cx + ox, z: cz + oz },
-        waypointTimer: 4 + Math.random() * 8,
-        stateTimer:    8 + Math.random() * 12,
-      });
+      // Hitbox invisible (solo para raycasting)
+      const hbGeo = new THREE.BoxGeometry(0.55, 0.18, 0.22);
+      const hbMat = new THREE.MeshBasicMaterial({ visible: false });
+      const hb    = new THREE.Mesh(hbGeo, hbMat);
+      hb.name     = 'bird_body';
+      mesh.add(hb);  // sigue al mesh automáticamente
+
+      const bird = {
+        mesh, hb,
+        x, y: 0, z,
+        vx: (Math.random() - 0.5) * 2,
+        vy: 0,
+        vz: (Math.random() - 0.5) * 2,
+        wingT:   Math.random() * Math.PI * 2,
+        targetY: 0,
+        heightNoise: (Math.random() - 0.5) * FLY_H_NOISE,
+        state:   'resting',   // 'resting' | 'flying' | 'fleeing'
+        stateTimer: 4 + Math.random() * 8,
+        alive: true,
+      };
+
+      this._allBirds.push(bird);
+      this._hitboxes.push(hb);
+      this._hitboxMap.set(hb.uuid, bird);
+      flock.push(bird);
     }
-    return { cx, cz, birds };
+    return flock;
   }
 
-  update(dt, playerPos) {
+  // ── Hitscan API ───────────────────────────────────────────────────────────
+  getHitboxes()        { return this._hitboxes.filter(h => {
+    const b = this._hitboxMap.get(h.uuid);
+    return b?.alive;
+  }); }
+  getBirdByHitbox(hb)  { return this._hitboxMap.get(hb.uuid) ?? null; }
+
+  // ── Hit: bala impacta un pájaro ───────────────────────────────────────────
+  hitBird(bird) {
+    if (!bird?.alive) return;
+    bird.alive = false;
+
+    // Sacar de los arrays vivos
+    this._hitboxes = this._hitboxes.filter(h => h !== bird.hb);
+    this._hitboxMap.delete(bird.hb.uuid);
     for (const flock of this._flocks) {
-      const { birds } = flock;
+      const idx = flock.indexOf(bird);
+      if (idx >= 0) flock.splice(idx, 1);
+    }
+    const ai = this._allBirds.indexOf(bird);
+    if (ai >= 0) this._allBirds.splice(ai, 1);
 
-      // ── Centroide del grupo ───────────────────────────────────────────────
+    // Desconectar hitbox del mesh
+    bird.mesh.remove(bird.hb);
+
+    // Iniciar física de caída
+    bird.vy    = 1.5 + Math.random();   // pequeño impulso vertical
+    bird.vx   += (Math.random() - 0.5) * 3;
+    bird.vz   += (Math.random() - 0.5) * 3;
+    bird.deadTimer  = DEAD_LIFE;
+    bird.settled    = false;
+    bird.lootable   = false;
+    bird.angVX  = (Math.random() - 0.5) * 6;
+    bird.angVZ  = (Math.random() - 0.5) * 6;
+    this._dead.push(bird);
+  }
+
+  // ── Loot API ──────────────────────────────────────────────────────────────
+  getNearbyDead(px, pz, radius) {
+    const r2 = radius * radius;
+    return this._dead.find(b => {
+      if (!b.lootable) return false;
+      const dx = b.x - px, dz = b.z - pz;
+      return dx * dx + dz * dz < r2;
+    }) ?? null;
+  }
+
+  lootBird(bird) {
+    if (!bird || !bird.lootable) return null;
+    const idx = this._dead.indexOf(bird);
+    if (idx >= 0) this._dead.splice(idx, 1);
+    this._scene.remove(bird.mesh);
+    bird.mesh.geometry?.dispose?.();
+    return { hunger: 18, hp: 12 };
+  }
+
+  // ── Main update ───────────────────────────────────────────────────────────
+  update(dt, playerPos) {
+    this._updateFlocks(dt, playerPos);
+    this._updateDead(dt);
+  }
+
+  // ── Boids por bandada ─────────────────────────────────────────────────────
+  _updateFlocks(dt, playerPos) {
+    for (const flock of this._flocks) {
+      if (flock.length === 0) continue;
+
+      // ── Centroide del grupo ─────────────────────────────────────────────
       let sumX = 0, sumZ = 0;
-      for (const b of birds) { sumX += b.mesh.position.x; sumZ += b.mesh.position.z; }
-      const centX = sumX / birds.length;
-      const centZ = sumZ / birds.length;
+      for (const b of flock) { sumX += b.x; sumZ += b.z; }
+      const centX = sumX / flock.length;
+      const centZ = sumZ / flock.length;
 
-      for (const bird of birds) {
-        const bx = bird.mesh.position.x, bz = bird.mesh.position.z;
-        const by = bird.mesh.position.y;
+      // ── Estado global de la bandada ─────────────────────────────────────
+      let flockFlee = false;
+      if (playerPos) {
+        const dx = centX - playerPos.x, dz = centZ - playerPos.z;
+        if (dx * dx + dz * dz < FLEE_RADIUS * FLEE_RADIUS) flockFlee = true;
+      }
 
-        // ── Player proximity → scatter ────────────────────────────────────
-        if (playerPos) {
-          const pdx = bx - playerPos.x, pdz = bz - playerPos.z;
-          const pd2 = pdx * pdx + pdz * pdz;
-          if (pd2 < FLEE_RADIUS * FLEE_RADIUS && bird.bbState !== 'scattering') {
-            bird.bbState = 'scattering';
-            bird.stateTimer = BB_STATES.scattering.timer[0] + Math.random() *
-              (BB_STATES.scattering.timer[1] - BB_STATES.scattering.timer[0]);
-          }
-        }
-
-        // ── State timer ───────────────────────────────────────────────────
+      for (const bird of flock) {
+        // ── Transición de estado ──────────────────────────────────────────
         bird.stateTimer -= dt;
-        if (bird.stateTimer <= 0) {
-          if (bird.bbState === 'scattering') {
-            bird.bbState = 'flying';
-          } else if (bird.bbState === 'flying') {
-            // Puede aterrizar si no hay player cerca
+        if (flockFlee) {
+          bird.state = 'fleeing';
+          bird.stateTimer = 3 + Math.random() * 4;
+        } else if (bird.stateTimer <= 0) {
+          if (bird.state === 'fleeing' || bird.state === 'flying') {
             const canLand = !playerPos || (() => {
-              const dx = bx - playerPos.x, dz = bz - playerPos.z;
+              const dx = bird.x - playerPos.x, dz = bird.z - playerPos.z;
               return dx * dx + dz * dz > LAND_RADIUS * LAND_RADIUS;
             })();
-            bird.bbState = canLand && Math.random() < 0.25 ? 'resting' : 'flying';
+            bird.state = (canLand && Math.random() < 0.25) ? 'resting' : 'flying';
           } else {
-            // resting → take off
-            bird.bbState = 'flying';
+            bird.state = 'flying';
           }
-          const st = BB_STATES[bird.bbState];
-          bird.stateTimer = st.timer[0] + Math.random() * (st.timer[1] - st.timer[0]);
+          bird.stateTimer = 5 + Math.random() * 12;
         }
 
-        // ── Waypoint timer (dBBMM step) ──────────────────────────────────
-        bird.waypointTimer -= dt;
-        if (bird.waypointTimer <= 0) {
-          const st       = BB_STATES[bird.bbState];
-          const [r0, r1] = st.wpRadius;
-          if (r1 > 0) {
-            const wpR   = r0 + Math.random() * (r1 - r0);
+        if (bird.state === 'resting') {
+          // Pájaros posados: desaceleran y se detienen
+          bird.vx *= Math.max(0, 1 - 5 * dt);
+          bird.vz *= Math.max(0, 1 - 5 * dt);
+          bird.targetY = 0;
+        } else {
+          // ── Boids: calcular fuerzas ─────────────────────────────────────
+          let sepX = 0, sepZ = 0;
+          let aliVX = 0, aliVZ = 0, aliCount = 0;
+          let cohX = 0, cohZ = 0, cohCount = 0;
+
+          for (const other of flock) {
+            if (other === bird) continue;
+            const dx = bird.x - other.x;
+            const dz = bird.z - other.z;
+            const d2 = dx * dx + dz * dz;
+
+            // Separación
+            if (d2 < SEP_RADIUS * SEP_RADIUS && d2 > 0.0001) {
+              const d = Math.sqrt(d2);
+              sepX += (dx / d) * (SEP_RADIUS - d) / SEP_RADIUS;
+              sepZ += (dz / d) * (SEP_RADIUS - d) / SEP_RADIUS;
+            }
+
+            // Alineación
+            if (d2 < ALI_RADIUS * ALI_RADIUS) {
+              aliVX += other.vx; aliVZ += other.vz; aliCount++;
+            }
+
+            // Cohesión
+            if (d2 < COH_RADIUS * COH_RADIUS) {
+              cohX += other.x; cohZ += other.z; cohCount++;
+            }
+          }
+
+          // Normalizar fuerzas
+          const [snx, snz] = _norm2(sepX, sepZ);
+          const sepFX = sepX !== 0 ? snx * SEP_WEIGHT : 0;
+          const sepFZ = sepZ !== 0 ? snz * SEP_WEIGHT : 0;
+
+          let aliFX = 0, aliFZ = 0;
+          if (aliCount > 0) {
+            const [ax, az] = _norm2(aliVX / aliCount, aliVZ / aliCount);
+            aliFX = ax * ALI_WEIGHT;
+            aliFZ = az * ALI_WEIGHT;
+          }
+
+          let cohFX = 0, cohFZ = 0;
+          if (cohCount > 0) {
+            const cx2 = cohX / cohCount - bird.x;
+            const cz2 = cohZ / cohCount - bird.z;
+            const [ccx, ccz] = _norm2(cx2, cz2);
+            cohFX = ccx * COH_WEIGHT;
+            cohFZ = ccz * COH_WEIGHT;
+          }
+
+          // Huída del jugador
+          let fleeFX = 0, fleeFZ = 0;
+          if (playerPos && bird.state === 'fleeing') {
+            const [fx, fz] = _norm2(bird.x - playerPos.x, bird.z - playerPos.z);
+            fleeFX = fx * 3.0;
+            fleeFZ = fz * 3.0;
+          }
+
+          // Fuerza total → aceleración hacia velocidad objetivo
+          const accX = (sepFX + aliFX + cohFX + fleeFX) * 12;
+          const accZ = (sepFZ + aliFZ + cohFZ + fleeFZ) * 12;
+
+          const tau = bird.state === 'fleeing' ? 0.12 : 0.28;
+          bird.vx += (accX - bird.vx * 0.5) * Math.min(1, tau * dt * 30);
+          bird.vz += (accZ - bird.vz * 0.5) * Math.min(1, tau * dt * 30);
+
+          // Limitar velocidad máxima
+          const spd = _len2(bird.vx, bird.vz);
+          const maxSpd = bird.state === 'fleeing' ? SPEED_FLEE : SPEED_CRUISE;
+          if (spd > maxSpd) {
+            const s = maxSpd / spd;
+            bird.vx *= s; bird.vz *= s;
+          }
+          // Mínimo de velocidad en vuelo (no se quedan quietos en el aire)
+          if (spd < 1.5 && bird.state !== 'resting') {
             const angle = Math.random() * Math.PI * 2;
-            // Brownian bridge: mezcla de dirección aleatoria + drift hacia waypoint
-            const driftX = bx < centX ? 1 : -1;
-            const driftZ = bz < centZ ? 1 : -1;
-            bird.waypoint = {
-              x: bx + Math.cos(angle) * wpR * st.sigma + driftX * wpR * FLOCK_COHESION,
-              z: bz + Math.sin(angle) * wpR * st.sigma + driftZ * wpR * FLOCK_COHESION,
-            };
+            bird.vx += Math.cos(angle) * 1.8;
+            bird.vz += Math.sin(angle) * 1.8;
           }
-          bird.waypointTimer = 0.6 + Math.random() * 1.5;
+
+          // Altura objetivo
+          const baseH = bird.state === 'fleeing' ? FLY_H_FLEE : FLY_H;
+          bird.targetY = baseH + bird.heightNoise;
         }
 
-        // ── Movimiento ────────────────────────────────────────────────────
-        const st    = BB_STATES[bird.bbState];
-        const tdx   = bird.waypoint.x - bx;
-        const tdz   = bird.waypoint.z - bz;
-        const tdist = Math.sqrt(tdx * tdx + tdz * tdz) || 1;
-        const tau   = TAU[bird.bbState] || 0.35;
+        // ── Integrar posición ─────────────────────────────────────────────
+        bird.x += bird.vx * dt;
+        bird.z += bird.vz * dt;
+        bird.y += (bird.targetY - bird.y) * Math.min(1, Y_LERP * dt);
 
-        const targetVX = (tdx / tdist) * st.speed + _gauss() * st.sigma * 0.2;
-        const targetVZ = (tdz / tdist) * st.speed + _gauss() * st.sigma * 0.2;
-        bird.vx += (targetVX - bird.vx) * Math.min(1, (1 / tau) * dt);
-        bird.vz += (targetVZ - bird.vz) * Math.min(1, (1 / tau) * dt);
+        bird.mesh.position.set(bird.x, bird.y, bird.z);
 
-        bird.mesh.position.x += bird.vx * dt;
-        bird.mesh.position.z += bird.vz * dt;
-
-        // Rotación hacia dirección de movimiento
-        if (Math.abs(bird.vx) + Math.abs(bird.vz) > 0.3) {
+        // ── Rotación hacia dirección de vuelo ─────────────────────────────
+        const spd2D = _len2(bird.vx, bird.vz);
+        if (spd2D > 0.4) {
           const targetRY = Math.atan2(bird.vx, bird.vz);
           let diff = targetRY - bird.mesh.rotation.y;
           while (diff >  Math.PI) diff -= Math.PI * 2;
           while (diff < -Math.PI) diff += Math.PI * 2;
-          bird.mesh.rotation.y += diff * Math.min(1, 6 * dt);
+          bird.mesh.rotation.y += diff * Math.min(1, 7 * dt);
         }
-
-        // ── Altura objetivo según estado ──────────────────────────────────
-        bird.targetY = bird.bbState === 'resting'
-          ? 0
-          : bird.bbState === 'scattering'
-            ? FLY_HEIGHT_SCAT + _gauss() * 0.8
-            : FLY_HEIGHT + _gauss() * 0.4;
-
-        bird.mesh.position.y += (bird.targetY - by) * Math.min(1, Y_LERP * dt);
 
         // ── Aleteo ────────────────────────────────────────────────────────
-        if (bird.bbState !== 'resting') {
-          bird.wingT += dt * WING_FREQ;
-          const wingAngle = Math.sin(bird.wingT) * WING_AMP;
-          if (bird.mesh._wingL) bird.mesh._wingL.rotation.x =  wingAngle;
-          if (bird.mesh._wingR) bird.mesh._wingR.rotation.x = -wingAngle;
+        if (bird.state !== 'resting') {
+          const freqMult = bird.state === 'fleeing' ? 1.5 : 1.0;
+          bird.wingT += dt * WING_FREQ * freqMult;
+          const wa = Math.sin(bird.wingT) * WING_AMP;
+          if (bird.mesh._wingL) bird.mesh._wingL.rotation.x =  wa;
+          if (bird.mesh._wingR) bird.mesh._wingR.rotation.x = -wa;
         } else {
-          // En tierra: alas bajas
-          if (bird.mesh._wingL) bird.mesh._wingL.rotation.x = 0.1;
-          if (bird.mesh._wingR) bird.mesh._wingR.rotation.x = 0.1;
+          if (bird.mesh._wingL) bird.mesh._wingL.rotation.x = 0.08;
+          if (bird.mesh._wingR) bird.mesh._wingR.rotation.x = 0.08;
         }
       }
+    }
+  }
+
+  // ── Física de pájaros muertos ─────────────────────────────────────────────
+  _updateDead(dt) {
+    for (let i = this._dead.length - 1; i >= 0; i--) {
+      const b = this._dead[i];
+      b.deadTimer -= dt;
+
+      if (b.deadTimer <= 0) {
+        this._scene.remove(b.mesh);
+        this._dead.splice(i, 1);
+        continue;
+      }
+
+      if (b.settled) continue;
+
+      // Gravedad
+      b.vy -= GRAVITY * dt;
+      b.x  += b.vx * dt;
+      b.y  += b.vy * dt;
+      b.z  += b.vz * dt;
+
+      // Rotación tumble
+      b.mesh.rotation.x += b.angVX * dt;
+      b.mesh.rotation.z += b.angVZ * dt;
+
+      // Suelo
+      if (b.y <= 0) {
+        b.y = 0;
+        b.vy *= -BOUNCE_REST;
+        b.vx *= 0.65;
+        b.vz *= 0.65;
+        b.angVX *= 0.4;
+        b.angVZ *= 0.4;
+        if (Math.abs(b.vy) < 0.3 && _len2(b.vx, b.vz) < 0.3) {
+          b.settled   = true;
+          b.lootable  = true;
+          b.mesh.rotation.z = Math.PI / 2;  // tumbado de lado
+          b.vy = b.vx = b.vz = 0;
+        }
+      }
+
+      b.mesh.position.set(b.x, b.y, b.z);
     }
   }
 }

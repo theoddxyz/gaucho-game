@@ -281,13 +281,17 @@ function startGame(name) {
   Audio.stopLobbyMusic();
   Audio.startWind();
   Audio.startAmbientDrone();
-  // Música MIDI — arranca con fade-in tras un pequeño delay
+  // Música MIDI — arranca con fade-in; baja el drone ambient para que no tape
   try {
     const ctx  = getAudioCtx();
     const out  = getMasterGain();
     if (ctx && out) {
       _musicPlayer = new MusicPlayer(ctx, out);
-      setTimeout(() => { _musicPlayer.start(); _musicPlayer.fadeIn(3.0); }, 2000);
+      setTimeout(() => {
+        _musicPlayer.start();
+        _musicPlayer.fadeIn(3.0);
+        Audio.setMasterVolume(0.55);  // bajar un poco el master para el drone
+      }, 2000);
     }
   } catch(e) { console.warn('[MUSIC]', e); }
   const roomId = Network.getRoomId() || Network.generateRoomId();
@@ -312,23 +316,31 @@ Network.onJoined((data) => {
   controls.onEPress = () => {
     const pos = controls.getPosition();
 
-    // ── 1. Recolectar animal herido cercano (prioridad sobre caballo) ─────────
-    const LOOT_R = 2.8;
+    // ── 1. Recolectar animal herido/muerto cercano ────────────────────────────
+    const LOOT_R   = 2.8;
     const wCow     = cowSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
-    const wOstrich = !wCow && ostrichSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
-    const wChicken = !wCow && !wOstrich && chickenSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
-    const wAnimal  = wCow || wOstrich || wChicken;
+    const wOstrich = !wCow     && ostrichSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
+    const wChicken = !wCow     && !wOstrich && chickenSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
+    const wBird    = !wCow     && !wOstrich && !wChicken && birdSystem?.getNearbyDead(pos.x, pos.z, LOOT_R);
+    const wAnimal  = wCow || wOstrich || wChicken || wBird;
+
     if (wAnimal) {
-      let food;
-      if (wCow)         food = cowSystem.lootWounded(wCow);
-      else if (wOstrich) food = ostrichSystem.lootWounded(wOstrich);
-      else               food = chickenSystem.lootWounded(wChicken);
-      if (food) {
-        restoreHunger(food.hunger);
-        myData.hp = Math.min(200, myData.hp + food.hp);
-        UI.updateHP(myData.hp);
-        UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
-      }
+      // Mostrar churrascos PRIMERO — consumir la comida después del delay
+      UI.showEatEffect();
+      Audio.eatSound();
+      setTimeout(() => {
+        let food;
+        if (wCow)          food = cowSystem?.lootWounded(wCow);
+        else if (wOstrich) food = ostrichSystem?.lootWounded(wOstrich);
+        else if (wChicken) food = chickenSystem?.lootWounded(wChicken);
+        else if (wBird)    food = birdSystem?.lootBird(wBird);
+        if (food) {
+          restoreHunger(food.hunger);
+          myData.hp = Math.min(200, myData.hp + food.hp);
+          UI.updateHP(myData.hp);
+          UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
+        }
+      }, 1400);
       return;
     }
 
@@ -728,6 +740,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const cIdx = chickenSystem.getIdByHitbox(hb);
     if (cIdx >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: cIdx, type: 'chicken' }); }
   }
+  for (const hb of birdSystem.getHitboxes()) {
+    const bird = birdSystem.getBirdByHitbox(hb);
+    if (bird) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: bird, type: 'bird' }); }
+  }
 
   const scanHit = hitscan(ray, allHitboxes, infoMap);
 
@@ -773,9 +789,18 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
 
     setTimeout(() => {
+      // Sonido de impacto en carne para cualquier entidad viva
+      if (['player','cow','ostrich','chicken','bird'].includes(scanHit.target.type)) {
+        Audio.bulletImpactFlesh();
+      }
+
       if (scanHit.target.type === 'player') {
         Network.sendBulletHit(scanHit.target.id);
         remotePlayers.get(scanHit.target.id)?.applyImpact(hitZone, scanHit.point);
+      }
+      else if (scanHit.target.type === 'bird') {
+        birdSystem.hitBird(scanHit.target.id);
+        Network.sendGameEvent('animal_killed', { detail: `Un pájaro cayó abatido del cielo.` });
       }
       else if (scanHit.target.type === 'cow') {
         const cowZone = hitZone === 'body' ? (Math.random() < 0.8 ? 'leg' : 'head') : hitZone;
@@ -807,6 +832,11 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
       }
     }, travelMs);
+  } else {
+    // Miss → impacto en tierra
+    const missDist = BULLET_RANGE;
+    const missMs   = Math.max(80, (missDist / BULLET_SPEED) * 1000 * 0.6);
+    setTimeout(() => Audio.bulletImpactDirt(), missMs);
   }
 
   // Broadcast shot visual to other clients

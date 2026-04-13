@@ -67,14 +67,19 @@ export class MusicPlayer {
     this._schedIdx  = 0;
     this._timer     = null;
     this._endTime   = 0;
+    this._lastIdx   = -1;
     this._cache     = new Map();   // url → Midi
     this._noiseCache = null;       // reutilizar el buffer de ruido blanco
   }
 
   // ── API pública ─────────────────────────────────────────────────────────────
-  async start() {
+  async start(skipIdx = -1) {
     if (this._playing) this.stop(false);
-    const url  = TRACKS[Math.floor(Math.random() * TRACKS.length)];
+    // No repetir la canción anterior
+    let idx;
+    do { idx = Math.floor(Math.random() * TRACKS.length); } while (idx === skipIdx && TRACKS.length > 1);
+    this._lastIdx = idx;
+    const url  = TRACKS[idx];
     const midi = await this._loadMidi(url);
     if (!midi) return;
 
@@ -152,8 +157,9 @@ export class MusicPlayer {
     }
 
     if (songPos >= this._endTime) {
-      // Termina la canción: elegir otra
-      this._timer = setTimeout(() => this.start(), 800);
+      // Termina la canción: elegir otra diferente
+      const last = this._lastIdx;
+      this._timer = setTimeout(() => this.start(last), 800);
       return;
     }
 
