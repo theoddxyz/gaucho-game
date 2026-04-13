@@ -184,7 +184,8 @@ const npcSessions = new Map();
 // ─── Gemini Game Master ───────────────────────────────────────────────────────
 const _geminiKey = process.env.GEMINI_API_KEY || '';
 const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
-const _gmModel   = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }) : null;
+const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }) : null;
+const _aldeanoModel = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })      : null;
 console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO key=...'+_geminiKey.slice(-4) : 'INACTIVO (sin API key)'}`);
 
 // ── Story Bible — persistent narrative state per room ────────────────────────
@@ -744,7 +745,8 @@ Respuestas: 1 oración, español rioplatense, personalidad filtrada por estado e
 Al menos una pregunta debe ser sobre un vecino específico.`;
       const _t = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 9000));
       try {
-        const r   = await Promise.race([_gmModel.generateContent(prompt), _t]);
+        const _m  = _aldeanoModel || _gmModel;
+        const r   = await Promise.race([_m.generateContent(prompt), _t]);
         let raw   = r.response.text().trim().replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
         results[u.id] = JSON.parse(raw);
       } catch(e) {
@@ -774,7 +776,8 @@ El gaucho te dice: "${message.trim()}"
 Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra cómo hablás.`;
     const _timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 9000));
     try {
-      const r = await Promise.race([_gmModel.generateContent(prompt), _timeout]);
+      const _m = _aldeanoModel || _gmModel;
+      const r = await Promise.race([_m.generateContent(prompt), _timeout]);
       socket.emit('aldeanoChatResponse', { response: r.response.text().trim() });
     } catch(e) {
       console.warn('[aldeanoChat] error/timeout:', e.message);
