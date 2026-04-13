@@ -323,10 +323,9 @@ export class HorseManager {
     this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
     this._nearestHorseId = nearest;
 
-    // Prompt contextual según si es el caballo propio o ajeno
     if (nearest !== null) {
       this._mountPrompt.textContent = nearest === this._myOwnedId
-        ? '[E] Montar  [mantener E] Quitar montura'
+        ? '[E] Montar  [Q] Quitar montura'
         : '[E] Montar';
     }
   }
