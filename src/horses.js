@@ -434,7 +434,8 @@ export class HorseManager {
     if (!horse) return;
     horse.riderId  = playerId;
     this.myHorseId = horseId;
-    horse.saddleNodes?.forEach(n => n.visible = true);
+    // Mostrar montura solo si el caballo la tiene — no forzar si fue quitada
+    horse.saddleNodes?.forEach(n => n.visible = horse.saddled === true);
     this._mountPrompt.style.display = 'none';
     this.network?.sendMount(horseId);
 
