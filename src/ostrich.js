@@ -253,6 +253,34 @@ export class OstrichSystem {
     e.dyingT = 0;
   }
 
+  /** Devuelve el avestruz herido/agonizante más cercano dentro de radius, o null. */
+  getNearbyWounded(x, z, radius) {
+    const r2 = radius * radius;
+    let nearest = null, nearestD2 = r2;
+    for (const e of this._entities) {
+      if ((!e.wounded && !e.dying) || e.dead || !e.mesh) continue;
+      const dx = e.mesh.position.x - x, dz = e.mesh.position.z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < nearestD2) { nearestD2 = d2; nearest = e; }
+    }
+    return nearest;
+  }
+
+  /** Deshuesar avestruz herido: lo elimina y devuelve { hunger, hp }. */
+  lootWounded(e) {
+    if (!e || e.dead) return null;
+    if (e.mesh) {
+      this._scene.remove(e.mesh);
+      e.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+      e.mesh = null;
+    }
+    e.dead  = true;
+    e.wounded = false;
+    e.dying   = false;
+    e.respawnTimer = RESPAWN_DELAY;
+    return { hunger: 28, hp: 18 };
+  }
+
   /** Hit ostrich: 2 hits to kill. First hit → limb flies. Second → wounded → die. */
   hit(idx, hitPoint, hitZone) {
     if (idx < 0 || idx >= this._entities.length) return;

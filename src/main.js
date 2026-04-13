@@ -295,9 +295,31 @@ Network.onJoined((data) => {
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   controls.onEPress = () => {
-    const pos        = controls.getPosition();
-    const nearHorse  = horseManager?._nearestHorseId !== null;
-    const mounted    = horseManager?.isMounted();
+    const pos = controls.getPosition();
+
+    // ── 1. Recolectar animal herido cercano (prioridad sobre caballo) ─────────
+    const LOOT_R = 2.8;
+    const wCow     = cowSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
+    const wOstrich = !wCow && ostrichSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
+    const wChicken = !wCow && !wOstrich && chickenSystem?.getNearbyWounded(pos.x, pos.z, LOOT_R);
+    const wAnimal  = wCow || wOstrich || wChicken;
+    if (wAnimal) {
+      let food;
+      if (wCow)         food = cowSystem.lootWounded(wCow);
+      else if (wOstrich) food = ostrichSystem.lootWounded(wOstrich);
+      else               food = chickenSystem.lootWounded(wChicken);
+      if (food) {
+        restoreHunger(food.hunger);
+        myData.hp = Math.min(200, myData.hp + food.hp);
+        UI.updateHP(myData.hp);
+        UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
+      }
+      return;
+    }
+
+    // ── 2. Montar/desmontar caballo ───────────────────────────────────────────
+    const nearHorse = horseManager?._nearestHorseId !== null;
+    const mounted   = horseManager?.isMounted();
     if (nearHorse || mounted) {
       const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
       if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
@@ -1034,18 +1056,23 @@ function gameLoop() {
     const _vx = controls._velX ?? 0, _vz = controls._velZ ?? 0;
     const spd  = Math.hypot(_vx, _vz);
     const extMoving    = spd > 0.15;
+    // Fracción real de velocidad (0-1) para ease-out suave de animación
+    const speedFrac    = Math.min(1, spd / 10.0);
     // Backward: dot entre dir movimiento y dir facing (forward = +Z local)
     const ry   = localPlayerModel.group.rotation.y;
     const fwdX = Math.sin(ry), fwdZ = Math.cos(ry);
     const dot  = (_vx * fwdX + _vz * fwdZ);   // positivo = adelante, negativo = atrás
     const extBackward  = extMoving && dot < -0.1;
     const extSprinting = controls.isSprinting() && extMoving;
-    localPlayerModel.setMovement(extMoving, extBackward, extSprinting);
+    localPlayerModel.setMovement(extMoving, extBackward, extSprinting, speedFrac);
   }
   localPlayerModel?.setHunger(getHunger());
+  localPlayerModel?.setHP(myData?.hp ?? 200);
   localPlayerModel?.update(dt);
   updateLandmarkEffects(dt, pos, horseManager?.isMounted() ? pos : null);
-  if (horseManager) hoofprints.update(horseManager.horses, dt);
+  const _onFoot = pos && !(horseManager?.isMounted());
+  const _footPos = (_onFoot && (controls._velX || controls._velZ)) ? pos : null;
+  hoofprints.update(horseManager?.horses ?? new Map(), dt, _footPos);
   updateBullets(scene, dt);
 
   // ── Comida tirada — detectar pickup por otro jugador (o por el mismo tras delay) ──

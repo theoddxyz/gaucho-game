@@ -262,6 +262,31 @@ export class ChickenSystem {
     return id !== undefined ? id : -1;
   }
 
+  /** Devuelve el pollo herido más cercano dentro de radius, o null. */
+  getNearbyWounded(x, z, radius) {
+    const r2 = radius * radius;
+    let nearest = null, nearestD2 = r2;
+    for (const c of this._chickens) {
+      if (!c.wounded || c.removed || !c.mesh) continue;
+      const dx = c.mesh.position.x - x, dz = c.mesh.position.z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < nearestD2) { nearestD2 = d2; nearest = c; }
+    }
+    return nearest;
+  }
+
+  /** Deshuesar pollo herido: lo elimina y devuelve { hunger, hp }. */
+  lootWounded(c) {
+    if (!c || !c.wounded || c.removed) return null;
+    c.removed = true;
+    this._hitboxMap?.delete(c.hitbox);
+    if (c.mesh) {
+      this._scene.remove(c.mesh);
+      c.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+    }
+    return { hunger: 15, hp: 8 };
+  }
+
   // ── Hit (damage) ────────────────────────────────────────────────────────
   hit(id, hitPoint, hitZone) {
     const c = this._chickens[id];

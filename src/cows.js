@@ -366,6 +366,31 @@ export class CowSystem {
     this._killCowInternal(this._cows[id]);
   }
 
+  /** Devuelve la vaca herida más cercana dentro de radius, o null. */
+  getNearbyWounded(x, z, radius) {
+    const r2 = radius * radius;
+    let nearest = null, nearestD2 = r2;
+    for (const cow of this._cows) {
+      if (!cow.wounded || cow.removed || !cow.mesh) continue;
+      const dx = cow.mesh.position.x - x, dz = cow.mesh.position.z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < nearestD2) { nearestD2 = d2; nearest = cow; }
+    }
+    return nearest;
+  }
+
+  /** Deshuesar vaca herida: la elimina y devuelve { hunger, hp }. */
+  lootWounded(cow) {
+    if (!cow || !cow.wounded || cow.removed) return null;
+    cow.removed = true;
+    this._hitboxMap?.delete(cow.hitbox);
+    if (cow.mesh) {
+      this._scene.remove(cow.mesh);
+      cow.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+    }
+    return { hunger: 40, hp: 25 };
+  }
+
   /** Disparar vaca: pierde vida, vuela un miembro, eventual estado herida → muerte. */
   hitCow(id, hitPoint, hitZone) {
     const cow = this._cows[id];

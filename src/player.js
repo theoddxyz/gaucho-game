@@ -252,6 +252,8 @@ export class PlayerModel {
     this._hurtMixer       = null;
     this._hurtAction      = null;
     this._hunger          = 100;   // 0-100, actualizado desde main.js
+    this._hp              = 200;   // 0-200, actualizado desde main.js
+    this._extSpeedFrac    = 0;     // fracción de velocidad real (0-1)
     this._walkSpd         = 0;
     this._rootBone        = null;
     this._isRiding        = false;
@@ -826,11 +828,25 @@ export class PlayerModel {
     const animSpeedMult = isSprinting ? 1.65 : 1.0;
     const animDt = isBackward ? -dt * animSpeedMult : dt * animSpeedMult;
 
+    // ── walkSpd: local → velocidad real (ease-out natural); remoto → lerp ────
+    if (this._isLocal) {
+      // Seguir la velocidad física real: cuando el jugador suelta la tecla,
+      // extSpeedFrac baja gradualmente junto con la física → animación desacelera sola
+      const rawTarget = this._extMoving ? this._extSpeedFrac : 0;
+      this._walkSpd += (rawTarget - this._walkSpd) * Math.min(1, 22 * dt);
+    } else {
+      const target = isMoving ? 1.0 : 0;
+      this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
+    }
+    if (this._walkSpd < 0.03) this._walkSpd = 0;
+
     // ── Model swap ────────────────────────────────────────────────────────────
     const useShootModel  = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
     const useHorseModel  = this._isRiding && !!this._horseRideModel;
-    const isIdleOnFoot   = !isMoving && !useShootModel && !useHorseModel;
-    const useHurtModel   = isIdleOnFoot && this._hunger <= 50 && !!this._hurtModel;
+    // Idle: basado en walkSpd real (no boolean) → transición suave
+    const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
+    const isHurt         = this._hunger <= 50 || this._hp <= 100;
+    const useHurtModel   = isIdleOnFoot && isHurt && !!this._hurtModel;
     const useTranquiModel= isIdleOnFoot && !useHurtModel && !!this._tranquiModel;
     if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel;
     if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
@@ -841,9 +857,6 @@ export class PlayerModel {
     // ── Mixer principal (walk) ────────────────────────────────────────────────
     if (this._mixer && !useHorseModel) {
       if (!useShootModel) {
-        const target = isMoving ? 1.0 : 0;
-        this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
-        if (this._walkSpd < 0.04) this._walkSpd = 0;
         if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
         this._mixer.update(this._walkSpd > 0 ? animDt * this._walkSpd : 0);
       }
@@ -860,9 +873,6 @@ export class PlayerModel {
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
-      const target = isMoving ? 1.0 : 0;
-      this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
-      if (this._walkSpd < 0.04) this._walkSpd = 0;
       if (this._walkSpd > 0) {
         if (this._shootWalkAction) this._shootWalkAction.paused = false;
         this._shootWalkMixer.update(animDt * this._walkSpd);
@@ -1014,15 +1024,15 @@ export class PlayerModel {
   }
 
   /** Llamar desde main.js cada frame con el estado real de teclas (solo jugador local). */
-  setMovement(isMoving, isBackward, isSprinting) {
+  setMovement(isMoving, isBackward, isSprinting, speedFrac = 1.0) {
     this._extMoving    = isMoving;
     this._extBackward  = isBackward;
     this._extSprinting = isSprinting;
+    this._extSpeedFrac = speedFrac;
   }
 
-  setHunger(val) {
-    this._hunger = val;
-  }
+  setHunger(val) { this._hunger = val; }
+  setHP(val)     { this._hp     = val; }
 
   setAiming(isAiming) {
     if (this._gun) {
