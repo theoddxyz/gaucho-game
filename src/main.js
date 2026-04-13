@@ -280,7 +280,6 @@ function startGame(name) {
   Audio.initAudio();
   Audio.stopLobbyMusic();
   Audio.startWind();
-  Audio.startAmbientDrone();
   // Música MIDI — arranca con fade-in; baja el drone ambient para que no tape
   try {
     const ctx  = getAudioCtx();
@@ -325,22 +324,27 @@ Network.onJoined((data) => {
     const wAnimal  = wCow || wOstrich || wChicken || wBird;
 
     if (wAnimal) {
-      // Mostrar churrascos PRIMERO — consumir la comida después del delay
-      UI.showEatEffect();
+      // Spawnar animación visual (carne/churrascos vuelan) — pickup es por proximidad
       Audio.eatSound();
-      setTimeout(() => {
-        let food;
-        if (wCow)          food = cowSystem?.lootWounded(wCow);
-        else if (wOstrich) food = ostrichSystem?.lootWounded(wOstrich);
-        else if (wChicken) food = chickenSystem?.lootWounded(wChicken);
-        else if (wBird)    food = birdSystem?.lootBird(wBird);
+      if (wCow)          cowSystem?.lootWounded(wCow);
+      else if (wOstrich) ostrichSystem?.lootWounded(wOstrich);
+      else if (wChicken) {
+        const food = chickenSystem?.lootWounded(wChicken);
         if (food) {
           restoreHunger(food.hunger);
           myData.hp = Math.min(200, myData.hp + food.hp);
-          UI.updateHP(myData.hp);
+          UI.updateHP(myData.hp); UI.showEatEffect();
           UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
         }
-      }, 1400);
+      } else if (wBird) {
+        const food = birdSystem?.lootBird(wBird);
+        if (food) {
+          restoreHunger(food.hunger);
+          myData.hp = Math.min(200, myData.hp + food.hp);
+          UI.updateHP(myData.hp); UI.showEatEffect();
+          UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
+        }
+      }
       return;
     }
 
@@ -1172,14 +1176,22 @@ function gameLoop() {
   // ── Avestruz + churrascos ────────────────────────────────────────────────
   const pickup = ostrichSystem.update(dt, pos);
   if (pickup && myId && !isDead) {
-    if (Inventory.add('ostrich', pickup.hunger, pickup.hp)) _updateInventoryHUD();
+    if (Inventory.add('ostrich', pickup.hunger, pickup.hp)) {
+      _updateInventoryHUD();
+      UI.showEatEffect();
+      Audio.eatSound();
+    }
   }
 
   // ── Carne de vaca ─────────────────────────────────────────────────────────
   if (cowSystem && myId && !isDead && pos) {
     const meatPickup = cowSystem.updateMeats(dt, pos);
     if (meatPickup) {
-      if (Inventory.add('beef', meatPickup.hunger, meatPickup.hp)) _updateInventoryHUD();
+      if (Inventory.add('beef', meatPickup.hunger, meatPickup.hp)) {
+        _updateInventoryHUD();
+        UI.showEatEffect();
+        Audio.eatSound();
+      }
     }
   }
 

@@ -426,18 +426,31 @@ export class CowSystem {
     return nearest;
   }
 
-  /** Deshuesar vaca herida: la elimina y devuelve { hunger, hp }. */
+  /** Deshuesar vaca herida: spawna carne y la elimina. El pickup es por proximidad. */
   lootWounded(cow) {
     if (!cow || cow.removed) return null;
     if (!cow.wounded && !cow.dyingPhysics) return null;
-    cow.removed = true;
+    const wx = cow.mesh?.position.x ?? 0;
+    const wz = cow.mesh?.position.z ?? 0;
+    cow.removed      = true;
     cow.dyingPhysics = false;
     this._hitboxMap?.delete(cow.hitbox);
     if (cow.mesh) {
       this._scene.remove(cow.mesh);
-      cow.mesh.traverse(o => { if (o.isMesh) { o.geometry?.dispose(); } });
+      cow.mesh.traverse(o => { if (o.isMesh) o.geometry?.dispose(); });
+      cow.mesh = null;
     }
-    return { hunger: 40, hp: 25 };
+    // Soltar pedazos de carne — pickup por proximidad vía updateMeats
+    for (let i = 0; i < 7; i++) {
+      const ang = (i / 7) * Math.PI * 2 + Math.random() * 0.5;
+      const r   = 0.4 + Math.random() * 1.2;
+      const m   = buildMeatPiece();
+      m.position.set(wx + Math.cos(ang) * r, 0.12, wz + Math.sin(ang) * r);
+      m.rotation.y = Math.random() * Math.PI * 2;
+      this._scene.add(m);
+      this._meats.push({ mesh: m, t: 0, bobPhase: Math.random() * Math.PI * 2 });
+    }
+    return null;  // el pickup real lo hace updateMeats
   }
 
   /** Disparar vaca: pierde vida, vuela un miembro, eventual estado herida → muerte. */

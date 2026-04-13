@@ -299,16 +299,27 @@ export function shotgun() {
     src4.start(t);
   }
 
-  // ── Casquillo — 90ms después ──────────────────────────────────────────────
+  // ── Casquillo — síntesis pura, sin mp3 ────────────────────────────────────
   setTimeout(() => {
-    _playFile('weapons/shell.mp3', { volume: 0.20, reverb: 0.05 }, () => {
-      const c2 = _ctx_(); if (!c2) return; const t2 = _now();
-      const o = c2.createOscillator(); o.type = 'triangle'; o.frequency.value = 1900;
-      const g = c2.createGain();
-      g.gain.setValueAtTime(0.0001, t2); g.gain.linearRampToValueAtTime(0.10, t2 + 0.003);
-      g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.16);
-      o.connect(g); _toOut(g, 0.04); o.start(t2); o.stop(t2 + 0.18);
-    });
+    const c2 = _ctx_(); if (!c2) return; const t2 = _now();
+    // Tono metálico decayente
+    const o = c2.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(2200, t2);
+    o.frequency.exponentialRampToValueAtTime(900, t2 + 0.12);
+    const g = c2.createGain();
+    g.gain.setValueAtTime(0.0001, t2); g.gain.linearRampToValueAtTime(0.08, t2 + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.18);
+    o.connect(g); _toOut(g, 0.03); o.start(t2); o.stop(t2 + 0.20);
+    // Pequeño ruido de impacto
+    const nb = _makeNoiseBuf(0.05);
+    if (nb) {
+      const ns = c2.createBufferSource(); ns.buffer = nb;
+      const hp = c2.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3500;
+      const ng = c2.createGain();
+      ng.gain.setValueAtTime(0.0001, t2); ng.gain.linearRampToValueAtTime(0.06, t2 + 0.001);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.04);
+      ns.connect(hp); hp.connect(ng); _toOut(ng, 0.02); ns.start(t2);
+    }
   }, 88 + Math.random() * 40);
 }
 

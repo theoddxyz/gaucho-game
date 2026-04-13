@@ -309,20 +309,22 @@ export class OstrichSystem {
     return nearest;
   }
 
-  /** Deshuesar avestruz herido: lo elimina y devuelve { hunger, hp }. */
+  /** Deshuesar avestruz herido: spawna churrascos y lo elimina. Pickup por proximidad. */
   lootWounded(e) {
     if (!e || e.dead) return null;
     if (!e.wounded && !e.dyingPhysics) return null;
+    // Spawnar churrascos antes de eliminar el mesh
+    this._spawnChurrascos(e);
     e.dyingPhysics = false;
-    e.wounded = false;
-    e.dead = true;
+    e.wounded      = false;
+    e.dead         = true;
     e.respawnTimer = RESPAWN_DELAY;
     if (e.mesh) {
       this._scene.remove(e.mesh);
       e.mesh.traverse(o => { if (o.isMesh) { o.geometry?.dispose(); } });
       e.mesh = null;
     }
-    return { hunger: 28, hp: 18 };
+    return null;  // pickup real lo hace _tickChurrascos / update()
   }
 
   /** Hit ostrich: 2 hits to kill. First hit → limb flies. Second → wounded → die. */
