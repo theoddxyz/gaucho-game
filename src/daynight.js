@@ -78,14 +78,46 @@ function _lerp3(keys, t) {
   const last = keys[keys.length - 1]; return [last[1], last[2], last[3]];
 }
 
+// Fog near/far keyframes — denser at dawn/dusk, clear at noon, near-zero at night
+const FOG_NEAR_KEYS = [
+  [0.00,  60],  // midnight: close fog (dark, eerie)
+  [0.22,  45],  // pre-dawn: heaviest fog
+  [0.27,  55],  // dawn lifting
+  [0.33,  90],  // morning
+  [0.50, 200],  // noon: clear pampa
+  [0.68, 160],  // late afternoon haze
+  [0.73,  70],  // dusk fog rolling in
+  [0.80,  50],  // twilight
+  [0.87,  60],  // night
+  [1.00,  60],
+];
+const FOG_FAR_KEYS = [
+  [0.00, 280],
+  [0.22, 220],  // pre-dawn heavy
+  [0.27, 260],
+  [0.33, 360],
+  [0.50, 480],  // noon clear
+  [0.68, 400],
+  [0.73, 260],  // dusk
+  [0.80, 240],
+  [0.87, 280],
+  [1.00, 280],
+];
+
 // ─── Main update ──────────────────────────────────────────────────────────────
 export function updateDayNight(dt, scene, sun, ambient, moon = null) {
   if (!_locked) _t = (_t + dt / DAY_DURATION) % 1;
 
-  // Sky + fog
+  // Sky + fog color
   const [sr, sg, sb] = _lerp3(SKY_KEYS, _t);
   scene.background.setRGB(sr / 255, sg / 255, sb / 255);
   scene.fog.color.setRGB(sr / 255 * 0.82, sg / 255 * 0.82, sb / 255 * 0.78);
+
+  // Fog density: dynamic near/far (skip if externally overridden — e.g. dust storm)
+  if (!scene._fogOverride) {
+    scene.fog.near = _lerp1(FOG_NEAR_KEYS, _t);
+    scene.fog.far  = _lerp1(FOG_FAR_KEYS,  _t);
+  }
 
   // Ambient
   ambient.intensity = _lerp1(AMB_INT_KEYS, _t);
@@ -99,13 +131,28 @@ export function updateDayNight(dt, scene, sun, ambient, moon = null) {
     0.55 + nightFrac * 0.30,
   );
 
-  // Sun
+  // Sun intensity + color
   sun.intensity = _lerp1(SUN_INT_KEYS, _t);
   const [cr, cg, cb] = _lerp3(SUN_COLOR_KEYS, _t);
   sun.color.setRGB(cr / 255, cg / 255, cb / 255);
 
   // Moon
   if (moon) moon.intensity = _lerp1(MOON_INT_KEYS, _t);
+}
+
+/**
+ * Return sun offset from a world position, following a day-arc.
+ * At dawn (t=0.25): sun rises east (+X). At noon (t=0.5): sun is high.
+ * At dusk (t=0.75): sun sets west (-X).
+ */
+export function getSunOffset() {
+  // Map day fraction 0.25–0.75 → angle 0–PI (east to west arc)
+  const angle = (_t - 0.25) * Math.PI / 0.5; // 0=east, PI/2=south-high, PI=west
+  const radius = 140;
+  const height = Math.max(5, Math.sin(angle) * 90);
+  const ex = Math.cos(angle) * radius;   // east–west
+  const ez = -30;                         // fixed south offset
+  return { x: ex, y: height, z: ez };
 }
 
 // Moon intensity keyframes: bright at midnight, gone during day

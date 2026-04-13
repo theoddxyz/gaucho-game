@@ -1,5 +1,8 @@
 // --- GAUCHO: Main Game Loop ---
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass }     from 'three/addons/postprocessing/ShaderPass.js';
 import { IsoControls } from './controls.js';
 import { createWorld }  from './world.js';
 import { ChunkManager } from './chunk.js';
@@ -10,7 +13,7 @@ import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
-import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight, setDayProgress, unlockDayProgress } from './daynight.js';
+import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight, setDayProgress, unlockDayProgress, getSunOffset } from './daynight.js';
 import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
 import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
@@ -148,10 +151,60 @@ camera.lookAt(0, 0, 0);
 const scene = new THREE.Scene();
 
 
+// --- Post-processing: color grading western + chromatic aberration ---
+const _westernShader = {
+  uniforms: {
+    tDiffuse:   { value: null },
+    aberration: { value: 0.0 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float aberration;
+    varying vec2 vUv;
+    vec3 colorGrade(vec3 c) {
+      // Lift shadows warm brown
+      c += vec3(0.04, 0.02, -0.02) * smoothstep(0.0, 0.3, 1.0 - dot(c, vec3(0.299,0.587,0.114)));
+      // Push highlights yellow
+      float lum = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(c, c * vec3(1.06, 1.02, 0.88), smoothstep(0.5, 1.0, lum));
+      // Slight desaturation midtones (dusty)
+      c = mix(vec3(lum), c, mix(1.0, 0.82, smoothstep(0.25, 0.75, lum) * 0.4));
+      // Vignette
+      vec2 u = vUv * (1.0 - vUv.yx);
+      c *= mix(1.0, pow(u.x * u.y * 18.0, 0.35), 0.45);
+      return c;
+    }
+    void main() {
+      float ab = aberration * 0.012;
+      float r = texture2D(tDiffuse, vUv + vec2(ab, 0.0)).r;
+      float g = texture2D(tDiffuse, vUv).g;
+      float b = texture2D(tDiffuse, vUv - vec2(ab, 0.0)).b;
+      vec3 col = colorGrade(vec3(r, g, b));
+      if (aberration > 0.01) {
+        vec2 u = vUv * (1.0 - vUv.yx);
+        float edge = 1.0 - pow(u.x * u.y * 15.0, 0.3);
+        col = mix(col, vec3(0.8, 0.0, 0.0), edge * aberration * 0.55);
+      }
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+};
+const _composer = new EffectComposer(renderer);
+_composer.addPass(new RenderPass(scene, camera));
+const _fxPass = new ShaderPass(_westernShader);
+_fxPass.renderToScreen = true;
+_composer.addPass(_fxPass);
+let _aberration = 0;
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  _composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // --- World setup ---
@@ -345,6 +398,7 @@ Network.onPlayerHit((data) => {
     myData.hp = data.hp;
     UI.updateHP(myData.hp);
     UI.showDamageFlash();
+    _aberration = 1.0;
     localPlayerModel?.detachHat();
     Audio.playerHurt();
     if (myData.hp <= 30) Audio.startHeartbeat();
@@ -448,9 +502,10 @@ Network.onGmCommand((cmd) => {
       break;
 
     case 'fog':
+      scene._fogOverride = true;
       scene.fog.near = 10;
       scene.fog.far  = Math.max(20, 120 * (1 - (cmd.density ?? 0.5)));
-      setTimeout(() => { scene.fog.near = 80; scene.fog.far = 420; }, 20000);
+      setTimeout(() => { scene._fogOverride = false; }, 20000);
       break;
 
     case 'day_speed':
@@ -607,6 +662,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (!result) return;
   controls.applyRecoil();
   localPlayerModel?.triggerGunRecoil();
+  localPlayerModel?.emitMuzzleSmoke(dir.x, dir.z);
   muzzleFlash(scene, result.origin);
 
   // ── Camera-ray hitscan — SAME ray used by red crosshair ────────────────────
@@ -871,8 +927,9 @@ function gameLoop() {
     // Chunk streaming
     chunkManager.update(pos);
 
-    // Shadow follows player — frustum centrado en el jugador para sombras siempre visibles
-    sun.position.set(pos.x + 90, 22, pos.z + 25);
+    // Shadow follows player — sun moves on a day arc (east at dawn, west at dusk)
+    const _sunOff = getSunOffset();
+    sun.position.set(pos.x + _sunOff.x, _sunOff.y, pos.z + _sunOff.z);
     sun.target.position.set(pos.x, 0, pos.z);
     sun.target.updateMatrixWorld();
     sun.shadow.camera.updateProjectionMatrix();
@@ -1219,7 +1276,9 @@ function gameLoop() {
     }
   }
 
-  renderer.render(scene, camera);
+  _aberration = Math.max(0, _aberration - dt * 3.5);
+  _fxPass.uniforms.aberration.value = _aberration;
+  _composer.render();
   soulMap.draw();
 }
 
