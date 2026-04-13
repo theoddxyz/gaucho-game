@@ -713,23 +713,21 @@ export class PlayerModel {
         }
         this._wasRiding = true;
         if (this._horseAction) {
+          this._horseAction.paused = false;
           this._horseAction.setEffectiveWeight(1);
           if (this._walkAction) this._walkAction.setEffectiveWeight(0);
         } else {
-          // Fallback sin horse action: usar walk
-          if (this._walkAction) this._walkAction.setEffectiveWeight(1);
+          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
         }
         this._mixer.update(dt);
       } else {
         this._wasRiding = false;
         if (!useShootModel) {
-          // Walk: weight=1 siempre, velocidad controlada con dt escalado
-          // dt=0 cuando quieto → pose se freezea sin usar paused
           const target = isMoving ? 1.0 : 0;
           this._walkSpd += (target - this._walkSpd) * Math.min(1, 14 * dt);
           if (this._walkSpd < 0.04) this._walkSpd = 0;
           if (this._horseAction) this._horseAction.setEffectiveWeight(0);
-          if (this._walkAction)  this._walkAction.setEffectiveWeight(1);
+          if (this._walkAction) { this._walkAction.paused = false; this._walkAction.setEffectiveWeight(1); }
           this._mixer.update(this._walkSpd > 0 ? animDt * this._walkSpd : 0);
         }
       }
