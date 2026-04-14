@@ -222,10 +222,11 @@ export class CarrosaSystem {
         Math.max((trackHalf - 0.7) * 2, 1.6), 2.0, Math.abs(fwdZ - bwdZ) + 0.5);
     }
 
-    // Wheel debug cylinders at exact wheel node local XZ positions
+    // Wheel debug cylinders pushed outward beyond body edge
+    const wt = trackHalf + 0.9;
     this._dbgWheelPositions = [
-      [-trackHalf, fwdZ], [trackHalf, fwdZ],
-      [-trackHalf, bwdZ], [trackHalf, bwdZ],
+      [-wt, fwdZ], [wt, fwdZ],
+      [-wt, bwdZ], [wt, bwdZ],
     ];
   }
 
@@ -362,7 +363,7 @@ export class CarrosaSystem {
       const cabinTop    = Math.max(topY * 2.2, WHL_R * 4.5);
       const cabinH      = cabinTop - cabinBottom;
       const cabinCY     = cabinBottom + cabinH / 2;          // center above ground, not from 0
-      const cabinW      = (trackHalf - 1.0) * 2;            // significantly narrower → clear gap to wheels
+      const cabinW      = trackHalf * 2;                     // body at real track width
       const cabinL      = Math.abs(fwdZ - bwdZ) + 0.4;
       const cabinCZ     = (fwdZ + bwdZ) / 2;
 
