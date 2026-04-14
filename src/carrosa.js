@@ -348,24 +348,25 @@ export class CarrosaSystem {
 
       this._finalizeCannonWheels(fwdZ, bwdZ, trackHalf);
 
-      // ── Green box: bounding box of carriage BODY (exclude wheel nodes) ──────
-      const bodyBox = new THREE.Box3();
-      const wheelSet = new Set(wheelCandidates.flatMap(n => { const arr=[]; n.traverse(c=>arr.push(c)); return arr; }));
-      car.traverse(o => {
-        if (o.isMesh && o.geometry && !wheelSet.has(o)) {
-          o.geometry.computeBoundingBox();
-          const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
-          bodyBox.union(b);
-        }
+      // ── Green box: defined by axle positions, not bounding box ──────────────
+      // The carriage body lives between the two axles. Use axle Z + wheel height.
+      // Get Y from the highest wheel node world position for the top of the cabin.
+      let topY = 0;
+      const tmpV = new THREE.Vector3();
+      wheelCandidates.forEach(n => {
+        n.getWorldPosition(tmpV);
+        if (tmpV.y > topY) topY = tmpV.y;
       });
-      // Convert bodyBox to group-local space
-      const groupInv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
-      bodyBox.applyMatrix4(groupInv);
-      const bSize   = new THREE.Vector3(); bodyBox.getSize(bSize);
-      const bCenter = new THREE.Vector3(); bodyBox.getCenter(bCenter);
-      console.log(`[carrosa] body box local center=(${bCenter.x.toFixed(2)},${bCenter.y.toFixed(2)},${bCenter.z.toFixed(2)}) size=(${bSize.x.toFixed(2)},${bSize.y.toFixed(2)},${bSize.z.toFixed(2)})`);
+      // cabin height: from ground (0) to roughly 2x wheel-center height
+      const cabinH  = Math.max(topY * 2.2, WHL_R * 3.5);
+      const cabinCY = cabinH / 2;                            // center Y
+      const cabinW  = (trackHalf - 0.25) * 2;               // slightly narrower than track
+      const cabinL  = Math.abs(fwdZ - bwdZ) + 0.4;         // axle span + small overhang
+      const cabinCZ = (fwdZ + bwdZ) / 2;                    // center between axles
 
-      this._rebuildDebugWheels(fwdZ, bwdZ, trackHalf, bCenter, bSize);
+      this._rebuildDebugWheels(fwdZ, bwdZ, trackHalf,
+        new THREE.Vector3(0, cabinCY, cabinCZ),
+        new THREE.Vector3(cabinW, cabinH, cabinL));
     }
 
     if (!this._conductorNode)   console.warn('[carrosa] no encontré CONDUCTOR');
