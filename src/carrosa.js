@@ -1,30 +1,43 @@
 // ─── Carrosa (carriage) system ───────────────────────────────────────────────
-import * as THREE from 'three';
+import * as THREE  from 'three';
+import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const loader      = new GLTFLoader();
-const CAR_SCALE   = 7.14;
-const MOUNT_R     = 5.0;
-const MOUNT_DUR   = 0.45;
-const WALK_FREQ   = 6.0;
-const WALK_AMP    = 0.45;
-const SPEED_MULT  = 1.4;
-const SPRINT_MULT = 1.6;
-const WHEEL_RADIUS   = 1.5;
+const loader = new GLTFLoader();
+
+// ── Visual / game constants ───────────────────────────────────────────────────
+const CAR_SCALE      = 7.14;
+const MOUNT_R        = 5.0;
+const MOUNT_DUR      = 0.45;
+const SPEED_MULT     = 1.4;
+const SPRINT_MULT    = 1.6;
+const WHEEL_RADIUS   = 1.5;   // visual spin radius
 const CONDUCTOR_FWD  = 0.5;
 const CONDUCTOR_Y    = -0.5;
 const PASSENGER_Y    = -0.5;
 
-// ── Carriage physics (Newtonian — no external library) ───────────────────────
-// F_net = F_horse - drag*|v| * v_dir   →   a = F_net / mass
-// Bicycle model for yaw: ω = (v_fwd / wheelbase) * tan(δ)
-const CARRIAGE_MASS    = 600;         // kg  — heavy wagon
-const HORSE_FORCE      = 4200;        // N   — combined pull force
-const DRAG_COEFF       = 18;          // N·s/m  — rolling resistance (terminal ~14 m/s at trot)
-const SPRINT_FORCE_MULT = 1.55;       // extra force when sprinting
-const MAX_STEER        = Math.PI / 5; // 36° — max front-axle angle
-const DEFAULT_WHEELBASE = 4.5;        // fallback if axles not in model
-const MAX_SPEED        = 22;          // hard cap m/s
+// ── Cannon-es RaycastVehicle constants ────────────────────────────────────────
+const CARRIAGE_MASS    = 600;           // kg
+const ENGINE_FORCE     = 3500;          // N per driven wheel (front)
+const REAR_FORCE_RATIO = 0.7;           // rear wheels get 70% of front force
+const BRAKE_FORCE      = 28;            // N braking
+const MAX_STEER        = Math.PI / 6;   // 30°
+const SPRINT_F_MULT    = 1.55;
+
+// Wheel geometry (world units — same scale as game)
+const WHL_R      = 0.8;    // physics wheel radius
+const TRACK_W    = 1.3;    // half track-width (wheel X offset from center)
+const AXLE_FWD   = 2.2;    // front axle Z from chassis center
+const AXLE_BWD   = -2.2;   // rear axle Z
+const CONN_Y     = -0.4;   // wheel connection point Y from chassis center
+
+// Suspension — stiff so it barely bounces on flat terrain
+const SUSP_REST  = 0.25;
+const SUSP_STIFF = 180;
+const SUSP_DAMP  = 18;
+
+// Chassis rests at this Y so wheels just touch y=0
+const CHASSIS_REST_Y = WHL_R + SUSP_REST + Math.abs(CONN_Y); // ≈ 1.45
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -34,37 +47,43 @@ function loadGLB(path) {
 
 export class CarrosaSystem {
   constructor(scene, spawnX = 14, spawnZ = -56, horseManager = null) {
-    this.scene         = scene;
-    this._horseManager = horseManager;
-    this.group         = new THREE.Group();
-    this._x            = spawnX;
-    this._z            = spawnZ;
-    this._ry           = 0;
-    this._moveDist     = 0;
-    this._wheelAngle   = 0;
-    this._walkTime     = 0;
-    this._wheelData    = [];
-    this._axles        = [];
+    this.scene          = scene;
+    this._horseManager  = horseManager;
+    this.group          = new THREE.Group();
+    this._x             = spawnX;
+    this._z             = spawnZ;
+    this._ry            = 0;
+    this._moveDist      = 0;
+    this._wheelAngle    = 0;
+    this._wheelData     = [];
+    this._axles         = [];
     this._hitchedHorses = [];
-    this._conductorNode    = null;
-    this._acompananteNode  = null;
+    this._conductorNode   = null;
+    this._acompananteNode = null;
 
-    // ── Conductor (driver) state ──────────────────────────────────────────────
-    this._conducting  = false;   // local player is driving
-    this._driverId    = null;    // socket.id of driver (local or remote)
-    this._anim        = null;    // mount/dismount anim for conductor
+    // ── Conductor state ───────────────────────────────────────────────────────
+    this._conducting  = false;
+    this._driverId    = null;
+    this._anim        = null;
     this._mountLandPos = null;
 
-    // ── Carriage physics ──────────────────────────────────────────────────────
-    this._physVelX   = 0;   // world-space velocity m/s
-    this._physVelZ   = 0;
-    this._wheelbase  = DEFAULT_WHEELBASE;
-
     // ── Passenger state ───────────────────────────────────────────────────────
-    this._isPassenger       = false;   // local player is passenger
-    this._passengerId       = null;    // socket.id of passenger (local or remote)
-    this._passengerAnim     = null;
+    this._isPassenger         = false;
+    this._passengerId         = null;
+    this._passengerAnim       = null;
     this._passengerMountLandPos = null;
+
+    // ── Physics velocity (read by main.js to sync controls) ──────────────────
+    this._physVelX = 0;
+    this._physVelZ = 0;
+
+    // ── Cannon-es ─────────────────────────────────────────────────────────────
+    this._cannonWorld  = null;
+    this._chassisBody  = null;
+    this._vehicle      = null;
+    this._fwdLocal     = null;   // pre-alloc Vec3 reused each frame
+    this._fwdWorld     = null;
+    this._initCannon(spawnX, spawnZ);
 
     this._nearCarrosa = false;
     this._prompt      = this._mkPrompt();
@@ -72,6 +91,82 @@ export class CarrosaSystem {
     this.group.position.set(spawnX, 0, spawnZ);
     scene.add(this.group);
     this._load().catch(e => console.warn('[carrosa] error en carga:', e));
+  }
+
+  // ── Cannon init ───────────────────────────────────────────────────────────
+
+  _initCannon(x, z) {
+    try {
+      // World — real gravity so wheel raycasts hit the ground plane
+      this._cannonWorld = new CANNON.World();
+      this._cannonWorld.gravity.set(0, -9.82, 0);
+      this._cannonWorld.broadphase = new CANNON.SAPBroadphase(this._cannonWorld);
+      this._cannonWorld.allowSleep = false;
+
+      // Static flat ground
+      const ground = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC });
+      ground.addShape(new CANNON.Plane());
+      ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+      this._cannonWorld.addBody(ground);
+
+      // Chassis — low center of mass, high angular damping to prevent tipping
+      this._chassisBody = new CANNON.Body({ mass: CARRIAGE_MASS });
+      this._chassisBody.addShape(new CANNON.Box(new CANNON.Vec3(1.3, 0.4, 2.8)));
+      this._chassisBody.position.set(x, CHASSIS_REST_Y, z);
+      this._chassisBody.linearDamping  = 0.05;
+      this._chassisBody.angularDamping = 0.95;  // resists tipping hard
+
+      // RaycastVehicle — X right, Y up, Z forward
+      this._vehicle = new CANNON.RaycastVehicle({
+        chassisBody:      this._chassisBody,
+        indexRightAxis:   0,
+        indexUpAxis:      1,
+        indexForwardAxis: 2,
+      });
+
+      // Shared wheel options
+      const base = {
+        radius:               WHL_R,
+        directionLocal:       new CANNON.Vec3(0, -1, 0),
+        axleLocal:            new CANNON.Vec3(-1, 0, 0),
+        suspensionRestLength: SUSP_REST,
+        suspensionStiffness:  SUSP_STIFF,
+        dampingRelaxation:    SUSP_DAMP,
+        dampingCompression:   SUSP_DAMP * 1.3,
+        maxSuspensionForce:   500000,
+        maxSuspensionTravel:  0.3,
+        frictionSlip:         2.5,
+        rollInfluence:        0.01,
+        customSlidingRotationalSpeed:    -30,
+        useCustomSlidingRotationalSpeed: true,
+      };
+
+      // 4 wheels: [frontLeft, frontRight, rearLeft, rearRight]
+      const wheelPos = [
+        [-TRACK_W, AXLE_FWD],
+        [ TRACK_W, AXLE_FWD],
+        [-TRACK_W, AXLE_BWD],
+        [ TRACK_W, AXLE_BWD],
+      ];
+      for (const [tx, tz] of wheelPos) {
+        this._vehicle.addWheel({
+          ...base,
+          chassisConnectionPointLocal: new CANNON.Vec3(tx, CONN_Y, tz),
+        });
+      }
+
+      this._vehicle.addToWorld(this._cannonWorld);
+
+      // Pre-alloc vectors for heading extraction (avoid GC each frame)
+      this._fwdLocal = new CANNON.Vec3(0, 0, 1);
+      this._fwdWorld = new CANNON.Vec3();
+
+    } catch (err) {
+      console.error('[carrosa] cannon init failed — fallback to manual physics:', err);
+      this._vehicle     = null;
+      this._chassisBody = null;
+      this._cannonWorld = null;
+    }
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -88,33 +183,21 @@ export class CarrosaSystem {
     car.traverse(o => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
       const n = o.name;
-      if (/eje/i.test(n))          this._axles.push(o);
-      if (/conductor/i.test(n))    this._conductorNode   = o;
-      if (/acompa/i.test(n))       this._acompananteNode = o;
-      if (/caballo/i.test(n))      horseNodes.push(o);
+      if (/eje/i.test(n))       this._axles.push(o);
+      if (/conductor/i.test(n)) this._conductorNode   = o;
+      if (/acompa/i.test(n))    this._acompananteNode = o;
+      if (/caballo/i.test(n))   horseNodes.push(o);
     });
 
     this.group.add(car);
     this.group.updateWorldMatrix(false, true);
 
-    // ── Measure real wheelbase from axle nodes ───────────────────────────────
-    if (this._axles.length >= 2) {
-      const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
-      this._axles[0].getWorldPosition(p0);
-      this._axles[1].getWorldPosition(p1);
-      this._wheelbase = p0.distanceTo(p1);
-    }
-
     // ── Collect wheel nodes ──────────────────────────────────────────────────
     const wheelCandidates = [];
-    car.traverse(o => {
-      if (/rueda|wheel/i.test(o.name)) wheelCandidates.push(o);
-    });
-    if (!wheelCandidates.length) {
-      for (const axle of this._axles) {
+    car.traverse(o => { if (/rueda|wheel/i.test(o.name)) wheelCandidates.push(o); });
+    if (!wheelCandidates.length)
+      for (const axle of this._axles)
         axle.children.forEach(c => { if (c.isMesh) wheelCandidates.push(c); });
-      }
-    }
     if (!wheelCandidates.length) wheelCandidates.push(...this._axles);
 
     for (const node of wheelCandidates) {
@@ -123,14 +206,11 @@ export class CarrosaSystem {
         if (o.isMesh && o.geometry) {
           o.geometry.computeBoundingBox();
           const b = o.geometry.boundingBox;
-          const sx = b.max.x - b.min.x;
-          const sy = b.max.y - b.min.y;
-          const sz = b.max.z - b.min.z;
-          const minV = Math.min(sx, sy, sz);
-          if (minV === sx) spinAxis = new THREE.Vector3(1, 0, 0);
-          else if (minV === sy) spinAxis = new THREE.Vector3(0, 1, 0);
-          else spinAxis = new THREE.Vector3(0, 0, 1);
-
+          const sx = b.max.x - b.min.x, sy = b.max.y - b.min.y, sz = b.max.z - b.min.z;
+          const m = Math.min(sx, sy, sz);
+          spinAxis = m === sx ? new THREE.Vector3(1, 0, 0)
+                   : m === sy ? new THREE.Vector3(0, 1, 0)
+                              : new THREE.Vector3(0, 0, 1);
         }
       });
       this._wheelData.push({ node, restQuat: node.quaternion.clone(), spinAxis });
@@ -139,32 +219,26 @@ export class CarrosaSystem {
     if (!this._conductorNode)   console.warn('[carrosa] no encontré CONDUCTOR');
     if (!this._acompananteNode) console.warn('[carrosa] no encontré ACOMPAÑANTE');
 
-    // ── Hitch real horses ─────────────────────────────────────────────────────
+    // ── Hitch horses ──────────────────────────────────────────────────────────
     if (this._horseManager && horseNodes.length) {
       let retries = 0;
       while (this._horseManager.horses.size === 0 && retries < 50) {
         await new Promise(r => setTimeout(r, 100));
         retries++;
       }
-
       let horseIdx = 0;
       for (const node of horseNodes) {
         let horse = null;
-        while (!horse && horseIdx < 10) {
-          horse = this._horseManager.hitchHorse(horseIdx++);
-        }
+        while (!horse && horseIdx < 10) horse = this._horseManager.hitchHorse(horseIdx++);
         if (!horse) { console.warn('[carrosa] sin caballo disponible'); continue; }
-
         const wp = node.getWorldPosition(new THREE.Vector3());
         horse.mesh.position.set(wp.x, 0, wp.z);
         horse.mesh.rotation.y = this._ry + Math.PI;
         horse.x = wp.x; horse.z = wp.z;
         horse._prevX = wp.x; horse._prevZ = wp.z;
-
         this._hitchedHorses.push({ horse, node, walkTime: 0 });
       }
     }
-
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────
@@ -195,33 +269,25 @@ export class CarrosaSystem {
   isConducting()     { return this._conducting; }
   isPassenger()      { return this._isPassenger; }
   isOnBoard()        { return this._conducting || this._isPassenger; }
-  isMountAnimating() {
-    return this._anim?.type === 'mount' || this._passengerAnim?.type === 'mount';
-  }
+  isMountAnimating() { return this._anim?.type === 'mount' || this._passengerAnim?.type === 'mount'; }
   speedMultiplier(sprinting) { return sprinting ? SPEED_MULT * SPRINT_MULT : SPEED_MULT; }
-  getDriverId()    { return this._driverId; }
-  getPassengerId() { return this._passengerId; }
+  getDriverId()      { return this._driverId; }
+  getPassengerId()   { return this._passengerId; }
 
-  /** Remote clients call this to lock/unlock conductor seat */
-  setRemoteDriver(id) { if (!this._conducting) this._driverId = id; }
-  /** Remote clients call this to lock/unlock passenger seat */
+  setRemoteDriver(id)    { if (!this._conducting)  this._driverId    = id; }
   setRemotePassenger(id) { if (!this._isPassenger) this._passengerId = id; }
 
-  // ── Seat world positions (no guard — safe for remote clients too) ──────────
+  // ── Seat positions ────────────────────────────────────────────────────────
 
   getRiderY() {
     if (!this._conductorNode) return 3.0;
     return this._conductorNode.getWorldPosition(new THREE.Vector3()).y + CONDUCTOR_Y;
   }
 
-  /** World XZ of conductor seat. No _conducting guard — usable on remote clients. */
   getRiderWorldPos() {
     if (!this._conductorNode) return null;
     const wp = this._conductorNode.getWorldPosition(new THREE.Vector3());
-    return {
-      x: wp.x + Math.sin(this._ry) * CONDUCTOR_FWD,
-      z: wp.z + Math.cos(this._ry) * CONDUCTOR_FWD,
-    };
+    return { x: wp.x + Math.sin(this._ry) * CONDUCTOR_FWD, z: wp.z + Math.cos(this._ry) * CONDUCTOR_FWD };
   }
 
   getPassengerY() {
@@ -229,7 +295,6 @@ export class CarrosaSystem {
     return this._acompananteNode.getWorldPosition(new THREE.Vector3()).y + PASSENGER_Y;
   }
 
-  /** World XZ of passenger seat. No _isPassenger guard — usable on remote clients. */
   getPassengerWorldPos() {
     if (!this._acompananteNode) return null;
     const wp = this._acompananteNode.getWorldPosition(new THREE.Vector3());
@@ -238,25 +303,18 @@ export class CarrosaSystem {
 
   // ── Animation helpers ─────────────────────────────────────────────────────
 
-  consumeMountLand() {
-    const p = this._mountLandPos; this._mountLandPos = null; return p;
-  }
-  consumePassengerLand() {
-    const p = this._passengerMountLandPos; this._passengerMountLandPos = null; return p;
-  }
+  consumeMountLand()     { const p = this._mountLandPos;          this._mountLandPos          = null; return p; }
+  consumePassengerLand() { const p = this._passengerMountLandPos; this._passengerMountLandPos = null; return p; }
 
-  /** Arc XZ for mount/dismount animation — covers both conductor and passenger. */
   getMountModelPos() {
-    const a = this._anim?.type === 'mount' ? this._anim
-      : (this._passengerAnim?.type === 'mount' ? this._passengerAnim : null);
+    const a = this._anim?.type === 'mount' ? this._anim : (this._passengerAnim?.type === 'mount' ? this._passengerAnim : null);
     if (!a) return null;
     const t = _ease(a.t);
     return { x: a.fromX + (a.toX - a.fromX) * t, z: a.fromZ + (a.toZ - a.fromZ) * t };
   }
 
   getDismountModelPos(controlsPos) {
-    const a = this._anim?.type === 'dismount' ? this._anim
-      : (this._passengerAnim?.type === 'dismount' ? this._passengerAnim : null);
+    const a = this._anim?.type === 'dismount' ? this._anim : (this._passengerAnim?.type === 'dismount' ? this._passengerAnim : null);
     if (!a) return null;
     const t = _ease(a.t);
     return { x: a.fromX + (controlsPos.x - a.fromX) * t, z: a.fromZ + (controlsPos.z - a.fromZ) * t };
@@ -267,23 +325,22 @@ export class CarrosaSystem {
     if (!a) return null;
     const seatY = (a === this._anim) ? this.getRiderY() : this.getPassengerY();
     const t = a.t, ease = _ease(t);
-    if (a.type === 'mount')    return ease * seatY + Math.sin(t * Math.PI) * 0.3;
-    return (1 - ease) * seatY + Math.sin(t * Math.PI) * 0.5;
+    return a.type === 'mount'
+      ? ease * seatY + Math.sin(t * Math.PI) * 0.3
+      : (1 - ease) * seatY + Math.sin(t * Math.PI) * 0.5;
   }
 
   // ── Mount / dismount ──────────────────────────────────────────────────────
 
   tryMount(playerId, fromX, fromZ) {
-    // ── Dismount conductor ────────────────────────────────────────────────
     if (this._conducting) {
       this._conducting = false;
       this._driverId   = null;
       this._physVelX   = 0;
       this._physVelZ   = 0;
-      const cx = this._conductorNode
-        ? this._conductorNode.getWorldPosition(new THREE.Vector3()).x : this._x;
-      const cz = this._conductorNode
-        ? this._conductorNode.getWorldPosition(new THREE.Vector3()).z : this._z;
+      this._stopCannon();
+      const cx = this._conductorNode?.getWorldPosition(new THREE.Vector3()).x ?? this._x;
+      const cz = this._conductorNode?.getWorldPosition(new THREE.Vector3()).z ?? this._z;
       const sideAngle = this._ry + Math.PI * 0.5;
       this._anim = { type: 'dismount', t: 0, dur: 0.4,
         fromX: cx, fromZ: cz,
@@ -291,79 +348,88 @@ export class CarrosaSystem {
         toZ: this._z + Math.cos(sideAngle) * 3 };
       return null;
     }
-
-    // ── Lock: someone else is already driving ─────────────────────────────
     if (this._driverId && this._driverId !== playerId) return null;
     if (!this._nearCarrosa) return null;
-
-    // ── Mount conductor ───────────────────────────────────────────────────
     this._conducting = true;
     this._driverId   = playerId;
+    this._syncCannonToState();
     const wp = this._conductorNode
       ? this._conductorNode.getWorldPosition(new THREE.Vector3())
       : new THREE.Vector3(this._x, 0, this._z);
-    this._anim = { type: 'mount', t: 0, dur: MOUNT_DUR,
-      fromX: fromX, fromZ: fromZ, toX: wp.x, toZ: wp.z };
+    this._anim = { type: 'mount', t: 0, dur: MOUNT_DUR, fromX: fromX, fromZ: fromZ, toX: wp.x, toZ: wp.z };
     return { x: wp.x, z: wp.z };
   }
 
   tryMountPassenger(playerId, fromX, fromZ) {
-    // ── Dismount passenger ────────────────────────────────────────────────
     if (this._isPassenger) {
-      this._isPassenger  = false;
-      this._passengerId  = null;
-      const cx = this._acompananteNode
-        ? this._acompananteNode.getWorldPosition(new THREE.Vector3()).x : this._x;
-      const cz = this._acompananteNode
-        ? this._acompananteNode.getWorldPosition(new THREE.Vector3()).z : this._z;
-      const sideAngle = this._ry - Math.PI * 0.5;  // opposite side from conductor
+      this._isPassenger = false;
+      this._passengerId = null;
+      const cx = this._acompananteNode?.getWorldPosition(new THREE.Vector3()).x ?? this._x;
+      const cz = this._acompananteNode?.getWorldPosition(new THREE.Vector3()).z ?? this._z;
+      const sideAngle = this._ry - Math.PI * 0.5;
       this._passengerAnim = { type: 'dismount', t: 0, dur: 0.4,
         fromX: cx, fromZ: cz,
         toX: this._x + Math.sin(sideAngle) * 3,
         toZ: this._z + Math.cos(sideAngle) * 3 };
       return null;
     }
-
-    // ── Lock: no passenger seat or seat taken ────────────────────────────
     if (!this._acompananteNode) return null;
     if (this._passengerId && this._passengerId !== playerId) return null;
     if (!this._nearCarrosa) return null;
-
-    // ── Mount passenger ───────────────────────────────────────────────────
-    this._isPassenger  = true;
-    this._passengerId  = playerId;
+    this._isPassenger = true;
+    this._passengerId = playerId;
     const wp = this._acompananteNode.getWorldPosition(new THREE.Vector3());
-    this._passengerAnim = { type: 'mount', t: 0, dur: MOUNT_DUR,
-      fromX: fromX, fromZ: fromZ, toX: wp.x, toZ: wp.z };
+    this._passengerAnim = { type: 'mount', t: 0, dur: MOUNT_DUR, fromX: fromX, fromZ: fromZ, toX: wp.x, toZ: wp.z };
     return { x: wp.x, z: wp.z };
+  }
+
+  // ── Cannon helpers ────────────────────────────────────────────────────────
+
+  _syncCannonToState() {
+    if (!this._chassisBody) return;
+    this._chassisBody.position.set(this._x, CHASSIS_REST_Y, this._z);
+    this._chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), this._ry);
+    this._chassisBody.velocity.set(0, 0, 0);
+    this._chassisBody.angularVelocity.set(0, 0, 0);
+    // Zero all wheel forces
+    if (this._vehicle) {
+      for (let i = 0; i < 4; i++) {
+        this._vehicle.applyEngineForce(0, i);
+        this._vehicle.setBrake(0, i);
+      }
+    }
+  }
+
+  _stopCannon() {
+    if (!this._chassisBody) return;
+    this._chassisBody.velocity.set(0, 0, 0);
+    this._chassisBody.angularVelocity.set(0, 0, 0);
+    if (this._vehicle) for (let i = 0; i < 4; i++) {
+      this._vehicle.applyEngineForce(0, i);
+      this._vehicle.setBrake(BRAKE_FORCE, i);
+    }
   }
 
   // ── Per-frame update ──────────────────────────────────────────────────────
 
   update(playerPos, dt) {
-    // Advance conductor anim
     if (this._anim) {
       this._anim.t += dt / this._anim.dur;
       if (this._anim.t >= 1) {
         this._anim.t = 1;
-        if (this._anim.type === 'mount')
-          this._mountLandPos = { x: this._anim.toX, z: this._anim.toZ };
+        if (this._anim.type === 'mount') this._mountLandPos = { x: this._anim.toX, z: this._anim.toZ };
         this._anim = null;
       }
     }
-
-    // Advance passenger anim
     if (this._passengerAnim) {
       this._passengerAnim.t += dt / this._passengerAnim.dur;
       if (this._passengerAnim.t >= 1) {
         this._passengerAnim.t = 1;
-        if (this._passengerAnim.type === 'mount')
-          this._passengerMountLandPos = { x: this._passengerAnim.toX, z: this._passengerAnim.toZ };
+        if (this._passengerAnim.type === 'mount') this._passengerMountLandPos = { x: this._passengerAnim.toX, z: this._passengerAnim.toZ };
         this._passengerAnim = null;
       }
     }
 
-    // Proximity prompt (only when not on board)
     if (!this._conducting && !this._isPassenger) {
       const dx = this._x - playerPos.x, dz = this._z - playerPos.z;
       this._nearCarrosa = (dx * dx + dz * dz) < MOUNT_R * MOUNT_R;
@@ -375,100 +441,153 @@ export class CarrosaSystem {
 
     const moving = this._moveDist > 0.001;
 
-    // ── Hitched horses ────────────────────────────────────────────────────
     for (const h of this._hitchedHorses) {
-      if (moving) h.walkTime += dt;
-      else        h.walkTime  = 0;
+      if (moving) h.walkTime += dt; else h.walkTime = 0;
       const wp = h.node.getWorldPosition(new THREE.Vector3());
-      this._horseManager.driveHitchedHorse(
-        h.horse, wp.x, wp.z, this._ry + Math.PI, h.walkTime, moving
-      );
+      this._horseManager.driveHitchedHorse(h.horse, wp.x, wp.z, this._ry + Math.PI, h.walkTime, moving);
     }
 
-    // ── Wheels ────────────────────────────────────────────────────────────
     if (this._wheelData.length) {
-      const dist = Math.min(this._moveDist, 0.3);
-      this._wheelAngle += dist / WHEEL_RADIUS;
+      this._wheelAngle += Math.min(this._moveDist, 0.3) / WHEEL_RADIUS;
       for (const wd of this._wheelData) {
-        const spinQuat = new THREE.Quaternion().setFromAxisAngle(wd.spinAxis, this._wheelAngle);
-        wd.node.quaternion.multiplyQuaternions(wd.restQuat, spinQuat);
+        const sq = new THREE.Quaternion().setFromAxisAngle(wd.spinAxis, this._wheelAngle);
+        wd.node.quaternion.multiplyQuaternions(wd.restQuat, sq);
       }
     }
     this._moveDist = 0;
   }
 
+  // ── Physics drive (RaycastVehicle) ────────────────────────────────────────
+
   /**
-   * Newtonian drive — F_horse - drag = ma, bicycle model for yaw.
-   * desiredVelX/Z: raw WASD from controls.getDesiredVelocity().
-   * Returns new world position {x, z, ry}.
+   * Horses pull carriage via RaycastVehicle with real wheel friction/steering.
+   * Falls back to manual Newtonian physics if cannon failed to init.
    */
   drive(desiredVelX, desiredVelZ, moveAngle, dt) {
+    if (!this._vehicle) return this._driveFallback(desiredVelX, desiredVelZ, moveAngle, dt);
+
     const isMoving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.25;
 
-    // ── Lateral constraint ────────────────────────────────────────────────────
-    // Wheels can't slide sideways — project velocity onto current heading.
-    // This is what makes a vehicle feel like a vehicle (not ice).
-    const fwdX = Math.sin(this._ry), fwdZ = Math.cos(this._ry);
-    let forwardSpeed = this._physVelX * fwdX + this._physVelZ * fwdZ;
-    this._physVelX = fwdX * forwardSpeed;
-    this._physVelZ = fwdZ * forwardSpeed;
+    // ── Determine steering and engine force ───────────────────────────────
+    let engineF = 0;
+    let steerV  = 0;
 
-    // ── Steering ──────────────────────────────────────────────────────────────
-    let steeringAngle = 0;
-    let wantsForward  = false;
     if (isMoving) {
+      // Extract current heading from chassis quaternion
+      this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
+      const heading = Math.atan2(this._fwdWorld.x, this._fwdWorld.z);
+
       const desiredAngle = Math.atan2(desiredVelX, desiredVelZ);
-      let diff = desiredAngle - this._ry;
+      let diff = desiredAngle - heading;
       while (diff >  Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      // If desired direction is more than ~100° from heading → player wants to stop/reverse
-      wantsForward  = Math.abs(diff) < Math.PI * 0.55;
-      if (wantsForward) steeringAngle = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
+
+      const wantsForward = Math.abs(diff) < Math.PI * 0.55;
+      if (wantsForward) {
+        const ds       = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
+        const sprint   = ds > 13 ? SPRINT_F_MULT : 1.0;
+        engineF = ENGINE_FORCE * sprint;
+        steerV  = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
+      }
     }
 
-    // Bicycle model: ω = (v / L) * tan(δ)
-    // Use a small minimum speed so the carriage can start turning before it's moving fast
-    const turnSpeed = Math.max(Math.abs(forwardSpeed), 1.2);
-    this._ry += (turnSpeed / this._wheelbase) * Math.tan(steeringAngle) * dt;
+    // Front axle steers, all wheels get engine force (horses pull whole carriage)
+    this._vehicle.setSteeringValue(steerV, 0);   // front-left
+    this._vehicle.setSteeringValue(steerV, 1);   // front-right
+    this._vehicle.applyEngineForce(engineF,                    0);
+    this._vehicle.applyEngineForce(engineF,                    1);
+    this._vehicle.applyEngineForce(engineF * REAR_FORCE_RATIO, 2);
+    this._vehicle.applyEngineForce(engineF * REAR_FORCE_RATIO, 3);
 
-    // ── Forces ────────────────────────────────────────────────────────────────
-    let forwardAccel = 0;
+    const brakeF = !isMoving ? BRAKE_FORCE : 0;
+    for (let i = 0; i < 4; i++) this._vehicle.setBrake(brakeF, i);
 
-    if (isMoving && wantsForward) {
-      const ds         = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
-      const sprintMult = ds > 13 ? SPRINT_FORCE_MULT : 1.0;
-      const pullF      = HORSE_FORCE * sprintMult * Math.max(Math.cos(steeringAngle), 0.15);
-      forwardAccel    += pullF / CARRIAGE_MASS;
+    // Lock pitch/roll — ground vehicle, prevent tipping
+    this._chassisBody.angularVelocity.x = 0;
+    this._chassisBody.angularVelocity.z = 0;
+
+    this._cannonWorld.step(1 / 60, dt, 3);
+
+    // ── Read back position and heading ─────────────────────────────────────
+    const px = this._chassisBody.position.x;
+    const pz = this._chassisBody.position.z;
+    this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
+    const ry = Math.atan2(this._fwdWorld.x, this._fwdWorld.z);
+
+    // NaN guard — reset if physics exploded
+    if (!isFinite(px) || !isFinite(pz) || !isFinite(ry)) {
+      console.warn('[carrosa] physics diverged — resetting cannon body');
+      this._syncCannonToState();
+      return { x: this._x, z: this._z, ry: this._ry };
     }
 
-    // Rolling drag — opposes current motion direction
-    const absSpd = Math.abs(forwardSpeed);
-    if (absSpd > 0.01) {
-      forwardAccel -= Math.sign(forwardSpeed) * (DRAG_COEFF * absSpd) / CARRIAGE_MASS;
-    }
-
-    // Integrate forward speed (velocity is always along heading after lateral constraint)
-    forwardSpeed += forwardAccel * dt;
-    forwardSpeed  = Math.max(-MAX_SPEED * 0.25, Math.min(MAX_SPEED, forwardSpeed));
-
-    // Rebuild world velocity along the (possibly updated) heading
-    const newFwdX = Math.sin(this._ry), newFwdZ = Math.cos(this._ry);
-    this._physVelX = newFwdX * forwardSpeed;
-    this._physVelZ = newFwdZ * forwardSpeed;
-
-    // Integrate position
-    const nx  = this._x + this._physVelX * dt;
-    const nz  = this._z + this._physVelZ * dt;
-    const ddx = nx - this._x, ddz = nz - this._z;
+    this._ry = ry;
+    const ddx = px - this._x, ddz = pz - this._z;
     this._moveDist = Math.sqrt(ddx * ddx + ddz * ddz);
-    this._x = nx; this._z = nz;
+    this._x = px; this._z = pz;
 
+    // Keep chassis on ground (prevent bouncing off on ramps or physics glitches)
+    if (this._chassisBody.position.y < CHASSIS_REST_Y - 0.3) {
+      this._chassisBody.position.y = CHASSIS_REST_Y;
+      this._chassisBody.velocity.y = 0;
+    }
+
+    // Sync _physVelX/_physVelZ so main.js can read carriage speed
+    this._physVelX = this._chassisBody.velocity.x;
+    this._physVelZ = this._chassisBody.velocity.z;
+
+    // Visual group always at y=0 (flat terrain)
     this.group.position.set(this._x, 0, this._z);
     this.group.rotation.y = this._ry;
     this.group.updateWorldMatrix(false, true);
 
     return { x: this._x, z: this._z, ry: this._ry };
   }
+
+  // ── Fallback: manual Newtonian physics (if cannon failed to init) ─────────
+
+  _driveFallback(desiredVelX, desiredVelZ, moveAngle, dt) {
+    const isMoving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.25;
+    const fwdX = Math.sin(this._ry), fwdZ = Math.cos(this._ry);
+    let forwardSpeed = this._physVelX * fwdX + this._physVelZ * fwdZ;
+    this._physVelX = fwdX * forwardSpeed;
+    this._physVelZ = fwdZ * forwardSpeed;
+
+    let steerAngle = 0, wantsForward = false;
+    if (isMoving) {
+      const desiredAngle = Math.atan2(desiredVelX, desiredVelZ);
+      let diff = desiredAngle - this._ry;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      wantsForward = Math.abs(diff) < Math.PI * 0.55;
+      if (wantsForward) steerAngle = Math.max(-Math.PI / 5, Math.min(Math.PI / 5, diff));
+    }
+    const turnSpd = Math.max(Math.abs(forwardSpeed), 1.2);
+    this._ry += (turnSpd / 4.5) * Math.tan(steerAngle) * dt;
+
+    let fwdAccel = 0;
+    if (isMoving && wantsForward) {
+      const ds = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
+      fwdAccel += (4200 * (ds > 13 ? 1.55 : 1.0) * Math.max(Math.cos(steerAngle), 0.15)) / 600;
+    }
+    const absSpd = Math.abs(forwardSpeed);
+    if (absSpd > 0.01) fwdAccel -= Math.sign(forwardSpeed) * (18 * absSpd) / 600;
+
+    forwardSpeed  = Math.max(-5, Math.min(22, forwardSpeed + fwdAccel * dt));
+    const nfwdX = Math.sin(this._ry), nfwdZ = Math.cos(this._ry);
+    this._physVelX = nfwdX * forwardSpeed;
+    this._physVelZ = nfwdZ * forwardSpeed;
+
+    const nx = this._x + this._physVelX * dt, nz = this._z + this._physVelZ * dt;
+    this._moveDist = Math.sqrt((nx - this._x) ** 2 + (nz - this._z) ** 2);
+    this._x = nx; this._z = nz;
+    this.group.position.set(this._x, 0, this._z);
+    this.group.rotation.y = this._ry;
+    this.group.updateWorldMatrix(false, true);
+    return { x: this._x, z: this._z, ry: this._ry };
+  }
+
+  // ── Remote sync ───────────────────────────────────────────────────────────
 
   syncPosition(x, z, moveAngle) {
     const dx = x - this._x, dz = z - this._z;
@@ -487,6 +606,13 @@ export class CarrosaSystem {
     this.group.position.set(x, 0, z);
     this.group.rotation.y = ry;
     this.group.updateWorldMatrix(false, true);
+    // Sync cannon so mounting works correctly if local player boards later
+    if (this._chassisBody) {
+      this._chassisBody.position.set(x, CHASSIS_REST_Y, z);
+      this._chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), ry);
+      this._chassisBody.velocity.set(0, 0, 0);
+      this._chassisBody.angularVelocity.set(0, 0, 0);
+    }
   }
 }
 
