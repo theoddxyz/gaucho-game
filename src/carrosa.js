@@ -81,9 +81,18 @@ export class CarrosaSystem {
     this._cannonWorld  = null;
     this._chassisBody  = null;
     this._vehicle      = null;
-    this._fwdLocal     = null;   // pre-alloc Vec3 reused each frame
+    this._fwdLocal     = null;
     this._fwdWorld     = null;
     this._initCannon(spawnX, spawnZ);
+
+    // ── Debug visualisation ───────────────────────────────────────────────────
+    this._debugMode    = false;
+    this._debugGroup   = null;
+    this._dbgChassis   = null;
+    this._dbgWheels    = [];
+    this._dbgArrow     = null;
+    this._initDebug(scene);
+    window.addEventListener('keydown', e => { if (e.key === 'V' || e.key === 'v') this.toggleDebug(); });
 
     this._nearCarrosa = false;
     this._prompt      = this._mkPrompt();
@@ -157,7 +166,7 @@ export class CarrosaSystem {
 
       this._vehicle.addToWorld(this._cannonWorld);
 
-      // Pre-alloc vectors for heading extraction (avoid GC each frame)
+        // Pre-alloc vectors for heading extraction (avoid GC each frame)
       this._fwdLocal = new CANNON.Vec3(0, 0, 1);
       this._fwdWorld = new CANNON.Vec3();
 
@@ -166,6 +175,83 @@ export class CarrosaSystem {
       this._vehicle     = null;
       this._chassisBody = null;
       this._cannonWorld = null;
+    }
+  }
+
+  // ── Debug helpers ────────────────────────────────────────────────────────
+
+  _initDebug(scene) {
+    this._debugGroup = new THREE.Group();
+    this._debugGroup.visible = false;
+    scene.add(this._debugGroup);
+
+    // Chassis wireframe box (green) — shown at cannon physics position (y ≈ 1.45)
+    const chassisMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+    this._dbgChassis = new THREE.Mesh(
+      new THREE.BoxGeometry(2.6, 0.8, 5.6),  // full extents: 2×half-extents
+      chassisMat
+    );
+    this._debugGroup.add(this._dbgChassis);
+
+    // 4 wheel spheres (cyan)
+    const whlMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(WHL_R, 8, 6), whlMat);
+      this._dbgWheels.push(m);
+      this._debugGroup.add(m);
+    }
+
+    // Heading arrow (yellow) — shows cannon heading direction
+    this._dbgArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0, 0, 0),
+      4, 0xffff00, 0.8, 0.4
+    );
+    this._debugGroup.add(this._dbgArrow);
+
+    // Label
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#00ff00'; ctx.font = '20px monospace';
+    ctx.fillText('CANNON DEBUG (V=toggle)', 4, 40);
+    const tex = new THREE.CanvasTexture(canvas);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    label.scale.set(6, 1.5, 1);
+    label.position.set(0, 4, 0);
+    this._dbgChassis.add(label);
+  }
+
+  toggleDebug() {
+    this._debugMode = !this._debugMode;
+    this._debugGroup.visible = this._debugMode;
+    console.log('[carrosa] debug', this._debugMode ? 'ON' : 'OFF');
+  }
+
+  _updateDebug() {
+    if (!this._debugMode || !this._chassisBody) return;
+
+    // Chassis position and rotation from cannon (Y is real physics Y, not 0)
+    const cp = this._chassisBody.position;
+    const cq = this._chassisBody.quaternion;
+    this._dbgChassis.position.set(cp.x, cp.y, cp.z);
+    this._dbgChassis.quaternion.set(cq.x, cq.y, cq.z, cq.w);
+
+    // Heading arrow
+    this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
+    this._dbgArrow.position.set(cp.x, cp.y, cp.z);
+    this._dbgArrow.setDirection(new THREE.Vector3(this._fwdWorld.x, this._fwdWorld.y, this._fwdWorld.z).normalize());
+    const spd = Math.sqrt(this._chassisBody.velocity.x ** 2 + this._chassisBody.velocity.z ** 2);
+    this._dbgArrow.setLength(Math.max(2, spd * 0.5), 0.8, 0.4);
+
+    // Wheel positions from cannon
+    if (this._vehicle) {
+      for (let i = 0; i < 4; i++) {
+        this._vehicle.updateWheelTransform(i);
+        const wt = this._vehicle.wheelInfos[i].worldTransform;
+        this._dbgWheels[i].position.set(wt.position.x, wt.position.y, wt.position.z);
+        this._dbgWheels[i].quaternion.set(wt.quaternion.x, wt.quaternion.y, wt.quaternion.z, wt.quaternion.w);
+      }
     }
   }
 
@@ -491,13 +577,14 @@ export class CarrosaSystem {
       }
     }
 
-    // Front axle steers, all wheels get engine force (horses pull whole carriage)
+    // Front axle steers, all wheels get engine force (horses pull whole carriage).
+    // Negative force = forward in +Z (axleLocal=-X convention in cannon-es).
     this._vehicle.setSteeringValue(steerV, 0);   // front-left
     this._vehicle.setSteeringValue(steerV, 1);   // front-right
-    this._vehicle.applyEngineForce(engineF,                    0);
-    this._vehicle.applyEngineForce(engineF,                    1);
-    this._vehicle.applyEngineForce(engineF * REAR_FORCE_RATIO, 2);
-    this._vehicle.applyEngineForce(engineF * REAR_FORCE_RATIO, 3);
+    this._vehicle.applyEngineForce(-engineF,                    0);
+    this._vehicle.applyEngineForce(-engineF,                    1);
+    this._vehicle.applyEngineForce(-engineF * REAR_FORCE_RATIO, 2);
+    this._vehicle.applyEngineForce(-engineF * REAR_FORCE_RATIO, 3);
 
     const brakeF = !isMoving ? BRAKE_FORCE : 0;
     for (let i = 0; i < 4; i++) this._vehicle.setBrake(brakeF, i);
@@ -531,6 +618,8 @@ export class CarrosaSystem {
       this._chassisBody.position.y = CHASSIS_REST_Y;
       this._chassisBody.velocity.y = 0;
     }
+
+    this._updateDebug();
 
     // Sync _physVelX/_physVelZ so main.js can read carriage speed
     this._physVelX = this._chassisBody.velocity.x;
