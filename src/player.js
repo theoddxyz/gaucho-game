@@ -579,6 +579,7 @@ export class PlayerModel {
         this._headMesh  = model._headMesh  || null;
         this._legMeshes = model._legMeshes || [];
       }
+      this._mainModel = model;
       this.group.add(model);
       // HP bar for bots
       if (this._isBot) this._buildHPBar();
