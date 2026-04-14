@@ -291,23 +291,20 @@ export class PlayerModel {
       const clips      = isFullGLTF ? (gltfOrScene.animations || []) : [];
       const source     = isFullGLTF ? gltfOrScene.scene : gltfOrScene;
 
-      // Escalar el SOURCE a TARGET_H una sola vez (idempotente: la segunda vez h≈2.8 → scale=1).
-      // Hacerlo ANTES de clonar para que cada clone herede la escala ya correcta.
+      // Clonar PRIMERO, luego escalar el clon (no el source compartido)
       const TARGET_H = 2.8;
-      source.updateWorldMatrix(true, true);
+      const model = SkeletonUtils.clone(source);
+      model.updateWorldMatrix(true, true);
       {
-        const bbox = new THREE.Box3().setFromObject(source);
+        const bbox = new THREE.Box3().setFromObject(model);
         const h = bbox.max.y - bbox.min.y;
         if (h > 0.01) {
-          source.scale.setScalar(TARGET_H / h);
-          source.updateWorldMatrix(true, true);
-          const bb2 = new THREE.Box3().setFromObject(source);
-          if (bb2.max.y - bb2.min.y > 0.1) source.position.y -= bb2.min.y;
+          model.scale.setScalar(TARGET_H / h);
+          model.updateWorldMatrix(true, true);
+          const bb2 = new THREE.Box3().setFromObject(model);
+          if (bb2.max.y - bb2.min.y > 0.1) model.position.y -= bb2.min.y;
         }
       }
-
-      // SkeletonUtils.clone() clona correctamente SkinnedMesh — cada jugador tiene su propia copia.
-      const model = SkeletonUtils.clone(source);
       model.visible = true;
       // First pass: make everything visible, replace materials, detect special nodes
       const gunNodes = [];
