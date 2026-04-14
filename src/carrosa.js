@@ -12,10 +12,7 @@ const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
 const WHEEL_RADIUS   = 1.5;   // world-unit radius — adjust if spin looks too fast/slow
 const CONDUCTOR_FWD  = 0.5;   // nudge conductor seat forward
-const CONDUCTOR_Y    = -0.35; // nudge conductor seat down
-
-// Spin axis: parent's local +Z = car's lateral axis = world lateral (see comments in update)
-const _SPIN_AXIS = new THREE.Vector3(0, 0, 1);
+const CONDUCTOR_Y    = -0.5;  // nudge conductor seat down
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -89,9 +86,24 @@ export class CarrosaSystem {
       wheelCandidates.push(...this._axles);
     }
 
-    // Store rest quaternion so we can set ABSOLUTE rotation each frame
+    // Store rest quaternion + detect axle axis (thin dim of geometry = spin axis)
     for (const node of wheelCandidates) {
-      this._wheelData.push({ node, restQuat: node.quaternion.clone() });
+      let spinAxis = new THREE.Vector3(0, 1, 0);  // default: Y (standard Blender cylinder)
+      node.traverse(o => {
+        if (o.isMesh && o.geometry) {
+          o.geometry.computeBoundingBox();
+          const b = o.geometry.boundingBox;
+          const sx = b.max.x - b.min.x;
+          const sy = b.max.y - b.min.y;
+          const sz = b.max.z - b.min.z;
+          const minV = Math.min(sx, sy, sz);
+          if (minV === sx) spinAxis = new THREE.Vector3(1, 0, 0);
+          else if (minV === sy) spinAxis = new THREE.Vector3(0, 1, 0);
+          else spinAxis = new THREE.Vector3(0, 0, 1);
+          console.log(`[carrosa] wheel ${node.name}: ${sx.toFixed(2)}x${sy.toFixed(2)}x${sz.toFixed(2)} → spinAxis`, spinAxis.toArray());
+        }
+      });
+      this._wheelData.push({ node, restQuat: node.quaternion.clone(), spinAxis });
     }
 
     console.log('[carrosa] ruedas:', wheelCandidates.map(w => w.name));
@@ -248,31 +260,26 @@ export class CarrosaSystem {
 
     const moving = this._moveDist > 0.001;
 
-    // ── Hitched horses ────────────────────────────────────────────────────
+    // ── Hitched horses — full animation via HorseManager (bob, head nod, all) ──
     for (const h of this._hitchedHorses) {
-      // Position at LUGAR CABALLO world pos, face carriage direction
-      const wp = h.node.getWorldPosition(new THREE.Vector3());
-      h.horse.mesh.position.set(wp.x, 0, wp.z);
-      h.horse.mesh.rotation.y = this._ry + Math.PI;
-      h.horse.x = wp.x; h.horse.z = wp.z;
-
-      // Animate legs — identical to HorseManager._animateLegs (simplified: no strafe)
       if (moving) h.walkTime += dt;
       else        h.walkTime  = 0;
-      _animateLegs(h.horse.legs, h.walkTime, moving);
+      const wp = h.node.getWorldPosition(new THREE.Vector3());
+      this._horseManager.driveHitchedHorse(
+        h.horse, wp.x, wp.z, this._ry + Math.PI, h.walkTime, moving
+      );
     }
 
-    // ── Wheels — absolute quaternion: spinQuat(localZ, totalAngle) * restQuat ──
-    // The parent's local +Z = car's lateral axis = world lateral at any ry.
-    // Using absolute rotation avoids incremental drift and first-frame spikes.
+    // ── Wheels ────────────────────────────────────────────────────────────
+    // Absolute quaternion: restQuat * spinQuat(detectedAxis, angle)
+    // restQuat * spinQuat = spin around the wheel's OWN geometry-space axle axis.
+    // Using absolute angle avoids incremental drift and first-frame teleport spikes.
     if (this._wheelData.length) {
-      // Cap moveDist to avoid teleport spike on first syncPosition
-      const dist = Math.min(this._moveDist, 0.3);
+      const dist = Math.min(this._moveDist, 0.3);  // cap to avoid teleport spike
       this._wheelAngle += dist / WHEEL_RADIUS;
-
-      const spinQuat = new THREE.Quaternion().setFromAxisAngle(_SPIN_AXIS, this._wheelAngle);
       for (const wd of this._wheelData) {
-        wd.node.quaternion.multiplyQuaternions(spinQuat, wd.restQuat);
+        const spinQuat = new THREE.Quaternion().setFromAxisAngle(wd.spinAxis, this._wheelAngle);
+        wd.node.quaternion.multiplyQuaternions(wd.restQuat, spinQuat);
       }
     }
     this._moveDist = 0;
@@ -295,29 +302,6 @@ export class CarrosaSystem {
     this.group.position.set(x, 0, z);
     this.group.rotation.y = ry;
     this.group.updateWorldMatrix(false, true);
-  }
-}
-
-// ── Horse leg animation — identical to HorseManager._animateLegs (straight walk) ──
-function _animateLegs(legs, walkTime, moving) {
-  if (!moving) {
-    for (const leg of legs) {
-      leg.pivot.rotation.x *= 0.85;
-      leg.pivot.rotation.z *= 0.85;
-      if (leg.legObj) leg.legObj.rotation.x *= 0.85;
-    }
-    return;
-  }
-  const t = walkTime;
-  for (const leg of legs) {
-    const s = Math.sin(WALK_FREQ * t + leg.phase);
-    const swing = s > 0 ? s * WALK_AMP : s * WALK_AMP * 0.65;
-    leg.pivot.rotation.x = swing;
-    leg.pivot.rotation.z = 0;
-    if (leg.legObj) {
-      const kneeFlex = Math.max(0, Math.sin(WALK_FREQ * t + leg.phase + 0.55)) * WALK_AMP * 0.55;
-      leg.legObj.rotation.x = -kneeFlex;
-    }
   }
 }
 

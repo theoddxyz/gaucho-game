@@ -274,6 +274,19 @@ export class HorseManager {
     return horse;
   }
 
+  /**
+   * Called each frame by CarrosaSystem for a hitched horse.
+   * Full animation (legs, body bob, head nod) + position/rotation update.
+   */
+  driveHitchedHorse(horse, worldX, worldZ, rotY, walkTime, moving) {
+    horse.mesh.position.set(worldX, 0, worldZ);
+    horse.mesh.rotation.y = rotY;
+    horse.x = worldX; horse.z = worldZ;
+    horse.walkTime = walkTime;
+    this._animateLegs(horse, moving, false, moving ? 6.0 : 0);
+    horse.mesh.position.y = horse._baseY + horse._bobY;
+  }
+
   /** Release a hitched horse back to the world. */
   unhitchHorse(horseId) {
     const horse = this.horses.get(horseId);
