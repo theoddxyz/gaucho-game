@@ -1,6 +1,7 @@
 // --- Player rendering (remote + local players) ---
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 const loader = new GLTFLoader();
 let playerTemplate    = null;
@@ -275,12 +276,10 @@ export class PlayerModel {
     const _applyGLBTemplate = (gltfOrScene) => {
       const isFullGLTF = gltfOrScene.scene !== undefined;
       const clips      = isFullGLTF ? (gltfOrScene.animations || []) : [];
-      // SkinnedMesh con esqueleto NO se puede clonar con .clone(true) en Three.js
-      // — las referencias de los huesos quedan rotas y el mesh es invisible.
-      // Usamos la scene directamente cuando hay animaciones.
-      const model = (clips.length > 0)
-        ? (isFullGLTF ? gltfOrScene.scene : gltfOrScene)
-        : (isFullGLTF ? gltfOrScene.scene : gltfOrScene).clone(true);
+      const source     = isFullGLTF ? gltfOrScene.scene : gltfOrScene;
+      // SkeletonUtils.clone() clona correctamente SkinnedMesh manteniendo referencias
+      // de huesos válidas — soluciona el bug de jugadores remotos compartiendo el mismo objeto.
+      const model = SkeletonUtils.clone(source);
       model.visible = true;
       // First pass: make everything visible, replace materials, detect special nodes
       const gunNodes = [];
