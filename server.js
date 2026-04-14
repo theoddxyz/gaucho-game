@@ -635,6 +635,11 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('playerDismountedHorse', { playerId: socket.id, horseId });
   });
 
+  socket.on('carrosaMoved', ({ x, z, ry } = {}) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).volatile.emit('carrosaMoved', { x, z, ry });
+  });
+
   socket.on('horseMoved', (data) => {
     if (!currentRoom) return;
     socket.to(currentRoom).volatile.emit('horsePositionUpdate', { ...data, riderId: socket.id });

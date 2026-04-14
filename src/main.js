@@ -8,6 +8,7 @@ import { createWorld }  from './world.js';
 import { ChunkManager } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
+import { CarrosaSystem } from './carrosa.js';
 import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
@@ -275,6 +276,7 @@ UI.initCoords();
 // --- State ---
 let localPlayerModel  = null;
 let horseManager      = null;
+let carrossaSystem    = null;
 const remotePlayers   = new Map();
 let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
@@ -365,6 +367,9 @@ Network.onJoined((data) => {
   horseManager = new HorseManager(scene, Network);
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   horseManager.initMyHorse(myId);
+
+  carrossaSystem = new CarrosaSystem(scene);
+  Network.onCarrosaMoved(({ x, z, ry }) => carrossaSystem?.onRemoteMove(x, z, ry));
   _monturaCnt = 0;  // arranca sin montura en inventario (ya está en el caballo)
   _updateMonturaHUD();
 
@@ -411,7 +416,14 @@ Network.onJoined((data) => {
       return;
     }
 
-    // ── 2. Montar/desmontar caballo ───────────────────────────────────────────
+    // ── 2a. Subir/bajar carrosa ───────────────────────────────────────────────
+    if (carrossaSystem?._nearCarrosa || carrossaSystem?.isConducting()) {
+      const land = carrossaSystem.tryMount(myId, pos.x, pos.z);
+      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); }
+      return;
+    }
+
+    // ── 2b. Montar/desmontar caballo ──────────────────────────────────────────
     const nearHorse = horseManager?._nearestHorseId !== null;
     const mounted   = horseManager?.isMounted();
     if (nearHorse || mounted) {
@@ -1095,9 +1107,14 @@ function gameLoop() {
   const dt = Math.min(clock.getDelta(), 0.1);
 
   let pos = null;
+  let _onCarrosa = false;  // scope: visible to whole gameLoop frame
   if (!isDead && myId) {
     const _onHorse = horseManager?.isMounted() ?? false;
-    controls.update(dt, colliders, horseManager?.speedMultiplier(controls.isSprinting()) ?? (controls.isSprinting() ? 1.9 : 1.0), _onHorse);
+    _onCarrosa = carrossaSystem?.isOnBoard() ?? false;
+    const _speedMult = _onHorse   ? (horseManager?.speedMultiplier(controls.isSprinting()) ?? 1.0)
+                     : _onCarrosa ? (carrossaSystem?.speedMultiplier(controls.isSprinting()) ?? 1.0)
+                     : (controls.isSprinting() ? 1.9 : 1.0);
+    controls.update(dt, colliders, _speedMult, _onHorse || _onCarrosa);
 
     pos = controls.getPosition();
     const rot = controls.getRotation();
@@ -1142,6 +1159,19 @@ function gameLoop() {
 
     }
 
+    // ── Carrosa ───────────────────────────────────────────────────────────────
+    if (carrossaSystem) {
+      carrossaSystem.update(pos, dt);
+      const carLand = carrossaSystem.consumeMountLand();
+      if (carLand) controls.setPosition(carLand.x, 0, carLand.z);
+      if (_onCarrosa && !carrossaSystem.isMountAnimating()) {
+        const moveAngle = controls.getMovementAngle();
+        const speed     = Math.hypot(controls._velX ?? 0, controls._velZ ?? 0);
+        carrossaSystem.syncPosition(pos.x, pos.z, moveAngle, speed);
+        Network.sendCarrosaMoved(pos.x, pos.z, moveAngle);
+      }
+    }
+
     // Local player model — smooth rotation (snaps when aiming so gun always tracks mouse)
     const rawFacing = controls.isAiming() ? rot.y : controls.getMovementAngle();
     if (controls.isAiming()) {
@@ -1156,18 +1186,20 @@ function gameLoop() {
     localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
       // Y: mount/dismount anim → lomo world-space (localToWorld) → salto → suelo
-      const animY   = horseManager?.getAnimY();
+      const animY   = horseManager?.getAnimY() ?? carrossaSystem?.getAnimY();
       const mounted = horseManager?.isMounted() ?? false;
       const saddlePos = mounted ? horseManager.getSaddleWorldPos() : null;
       const riderY  = animY != null
         ? animY
         : saddlePos != null
-          ? saddlePos.y + pos.y    // lomo real (roll + bob incluidos) + salto sobre caballo
-          : pos.y;                 // salto normal en suelo
+          ? saddlePos.y + pos.y
+          : _onCarrosa
+            ? carrossaSystem.getRiderY()
+            : pos.y;
 
-      // XZ: arc from player pos → horse on mount, horse → landing on dismount
-      const mountXZ    = horseManager?.getMountModelPos();
-      const dismountXZ = horseManager?.getDismountModelPos(pos);
+      // XZ: arc from player pos → horse/carrosa seat on mount, and back on dismount
+      const mountXZ    = horseManager?.getMountModelPos()       ?? carrossaSystem?.getMountModelPos();
+      const dismountXZ = horseManager?.getDismountModelPos(pos) ?? carrossaSystem?.getDismountModelPos(pos);
       const overrideXZ = mountXZ ?? dismountXZ;
       const modelX = overrideXZ ? overrideXZ.x : pos.x;
       const modelZ = overrideXZ ? overrideXZ.z : pos.z;
@@ -1208,7 +1240,7 @@ function gameLoop() {
   }
 
   for (const [, pm] of remotePlayers) pm.update(dt);
-  localPlayerModel?.setRiding(horseManager?.isMounted() ?? false);
+  localPlayerModel?.setRiding((horseManager?.isMounted() ?? false) || _onCarrosa);
   if (localPlayerModel && pos) {
     const _vx = controls._velX ?? 0, _vz = controls._velZ ?? 0;
     const spd  = Math.hypot(_vx, _vz);

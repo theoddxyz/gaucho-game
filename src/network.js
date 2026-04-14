@@ -73,6 +73,9 @@ export function onAldeanoQAReady(cb)          { socket.on('aldeanoQAReady', cb);
 export function sendAldeanoChat(payload)      { socket.emit('aldeanoChat', payload); }
 export function onAldeanoChatResponse(cb)     { socket.on('aldeanoChatResponse', cb); }
 
+export function sendCarrosaMoved(x, z, ry) { socket.volatile.emit('carrosaMoved', { x, z, ry }); }
+export function onCarrosaMoved(cb)         { socket.on('carrosaMoved', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;
