@@ -399,62 +399,66 @@ export class CarrosaSystem {
 
   /**
    * Newtonian drive — F_horse - drag = ma, bicycle model for yaw.
-   * desiredVelX/Z: raw WASD from controls.getDesiredVelocity() (one spring, here).
+   * desiredVelX/Z: raw WASD from controls.getDesiredVelocity().
    * Returns new world position {x, z, ry}.
    */
   drive(desiredVelX, desiredVelZ, moveAngle, dt) {
     const isMoving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.25;
 
-    // ── Heading & steering (bicycle model) ───────────────────────────────────
+    // ── Lateral constraint ────────────────────────────────────────────────────
+    // Wheels can't slide sideways — project velocity onto current heading.
+    // This is what makes a vehicle feel like a vehicle (not ice).
+    const fwdX = Math.sin(this._ry), fwdZ = Math.cos(this._ry);
+    let forwardSpeed = this._physVelX * fwdX + this._physVelZ * fwdZ;
+    this._physVelX = fwdX * forwardSpeed;
+    this._physVelZ = fwdZ * forwardSpeed;
+
+    // ── Steering ──────────────────────────────────────────────────────────────
     let steeringAngle = 0;
+    let wantsForward  = false;
     if (isMoving) {
       const desiredAngle = Math.atan2(desiredVelX, desiredVelZ);
       let diff = desiredAngle - this._ry;
       while (diff >  Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      steeringAngle = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
+      // If desired direction is more than ~100° from heading → player wants to stop/reverse
+      wantsForward  = Math.abs(diff) < Math.PI * 0.55;
+      if (wantsForward) steeringAngle = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
     }
 
-    // Forward speed component along current heading
-    const fwdX = Math.sin(this._ry), fwdZ = Math.cos(this._ry);
-    const forwardSpeed = this._physVelX * fwdX + this._physVelZ * fwdZ;
+    // Bicycle model: ω = (v / L) * tan(δ)
+    // Use a small minimum speed so the carriage can start turning before it's moving fast
+    const turnSpeed = Math.max(Math.abs(forwardSpeed), 1.2);
+    this._ry += (turnSpeed / this._wheelbase) * Math.tan(steeringAngle) * dt;
 
-    // ω = (v_fwd / L) * tan(δ) — classic bicycle model
-    this._ry += (forwardSpeed / this._wheelbase) * Math.tan(steeringAngle) * dt;
+    // ── Forces ────────────────────────────────────────────────────────────────
+    let forwardAccel = 0;
 
-    // ── Forces: horse pull along heading, drag opposing velocity ─────────────
-    const spd = Math.sqrt(this._physVelX * this._physVelX + this._physVelZ * this._physVelZ);
-
-    let ax = 0, az = 0;
-    if (isMoving) {
-      const ds          = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
-      const sprintMult  = ds > 13 ? SPRINT_FORCE_MULT : 1.0;
-      const pullF       = HORSE_FORCE * sprintMult * Math.max(Math.cos(steeringAngle), 0.15);
-      ax += fwdX * pullF / CARRIAGE_MASS;
-      az += fwdZ * pullF / CARRIAGE_MASS;
-    }
-    // Drag: proportional to speed (rolling resistance)
-    if (spd > 0.01) {
-      const dragA = (DRAG_COEFF * spd) / CARRIAGE_MASS;
-      ax -= (this._physVelX / spd) * dragA;
-      az -= (this._physVelZ / spd) * dragA;
+    if (isMoving && wantsForward) {
+      const ds         = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
+      const sprintMult = ds > 13 ? SPRINT_FORCE_MULT : 1.0;
+      const pullF      = HORSE_FORCE * sprintMult * Math.max(Math.cos(steeringAngle), 0.15);
+      forwardAccel    += pullF / CARRIAGE_MASS;
     }
 
-    // Integrate velocity
-    this._physVelX += ax * dt;
-    this._physVelZ += az * dt;
-
-    // Hard speed cap
-    const newSpd = Math.sqrt(this._physVelX * this._physVelX + this._physVelZ * this._physVelZ);
-    if (newSpd > MAX_SPEED) {
-      const inv = MAX_SPEED / newSpd;
-      this._physVelX *= inv;
-      this._physVelZ *= inv;
+    // Rolling drag — opposes current motion direction
+    const absSpd = Math.abs(forwardSpeed);
+    if (absSpd > 0.01) {
+      forwardAccel -= Math.sign(forwardSpeed) * (DRAG_COEFF * absSpd) / CARRIAGE_MASS;
     }
+
+    // Integrate forward speed (velocity is always along heading after lateral constraint)
+    forwardSpeed += forwardAccel * dt;
+    forwardSpeed  = Math.max(-MAX_SPEED * 0.25, Math.min(MAX_SPEED, forwardSpeed));
+
+    // Rebuild world velocity along the (possibly updated) heading
+    const newFwdX = Math.sin(this._ry), newFwdZ = Math.cos(this._ry);
+    this._physVelX = newFwdX * forwardSpeed;
+    this._physVelZ = newFwdZ * forwardSpeed;
 
     // Integrate position
-    const nx = this._x + this._physVelX * dt;
-    const nz = this._z + this._physVelZ * dt;
+    const nx  = this._x + this._physVelX * dt;
+    const nz  = this._z + this._physVelZ * dt;
     const ddx = nx - this._x, ddz = nz - this._z;
     this._moveDist = Math.sqrt(ddx * ddx + ddz * ddz);
     this._x = nx; this._z = nz;
