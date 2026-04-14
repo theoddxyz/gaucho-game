@@ -83,10 +83,11 @@ export class CarrosaSystem {
 
     // ── Debug visualisation ───────────────────────────────────────────────────
     this._debugMode    = false;
-    this._debugGroup   = null;
-    this._dbgChassis   = null;
-    this._dbgWheels    = [];
-    this._dbgArrow     = null;
+    this._debugGroup       = null;
+    this._dbgChassis       = null;
+    this._dbgChassisOffsetZ = 0;
+    this._dbgWheels        = [];
+    this._dbgArrow         = null;
     this._initDebug(scene);
     window.addEventListener('keydown', e => { if (e.key === 'V' || e.key === 'v') this.toggleDebug(); });
 
@@ -204,21 +205,13 @@ export class CarrosaSystem {
   }
 
   _rebuildDebugWheels(fwdZ, bwdZ, trackHalf) {
-    // Place the 4 debug cylinders at the correct chassis-local positions.
-    // They'll be world-updated in _updateDebug each frame.
-    const positions = [
-      [-trackHalf, fwdZ], [trackHalf, fwdZ],
-      [-trackHalf, bwdZ], [trackHalf, bwdZ],
-    ];
-    for (let i = 0; i < 4; i++) {
-      // Store local offsets for _updateDebug to use
-      this._dbgWheels[i].userData.localX = positions[i][0];
-      this._dbgWheels[i].userData.localZ = positions[i][1];
-    }
-    // Also update chassis debug box size to match the body between axles
-    const halfLen = (Math.abs(fwdZ) + Math.abs(bwdZ)) / 2;
+    // Debug chassis box: centered between axles (carriage body only, not the tongue)
+    this._dbgChassisOffsetZ = (fwdZ + bwdZ) / 2;  // stored, applied in _updateDebug
+    const axleSpan = Math.abs(fwdZ - bwdZ);
+
     this._dbgChassis.geometry.dispose();
-    this._dbgChassis.geometry = new THREE.BoxGeometry(2.6, 1.2, halfLen * 2);
+    // Taller box (1.8) so it matches the carriage body height better
+    this._dbgChassis.geometry = new THREE.BoxGeometry(2.6, 1.8, Math.max(axleSpan, 3.0));
   }
 
   toggleDebug() {
@@ -233,7 +226,14 @@ export class CarrosaSystem {
     // Chassis position and rotation from cannon (Y is real physics Y, not 0)
     const cp = this._chassisBody.position;
     const cq = this._chassisBody.quaternion;
-    this._dbgChassis.position.set(cp.x, cp.y, cp.z);
+    // Offset the box along the local Z axis so it centers on the carriage body (not the tongue)
+    const offZ = this._dbgChassisOffsetZ || 0;
+    const cosY = Math.cos(this._ry), sinY = Math.sin(this._ry);
+    this._dbgChassis.position.set(
+      cp.x + offZ * sinY,
+      cp.y,
+      cp.z + offZ * cosY
+    );
     this._dbgChassis.quaternion.set(cq.x, cq.y, cq.z, cq.w);
 
     // Heading arrow
