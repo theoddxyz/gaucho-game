@@ -105,6 +105,21 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Tecla 9: toggle música
+let _musicPaused = false;
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Digit9') return;
+  if (!_musicPlayer) return;
+  if (_musicPaused) {
+    _musicPlayer.start();
+    _musicPlayer.fadeIn(1.0);
+    _musicPaused = false;
+  } else {
+    _musicPlayer.stop(true);
+    _musicPaused = true;
+  }
+});
+
 // Tecla Q: abrir/cerrar puerta del corral más cercano
 // Q — sacar montura del caballo más cercano (sin importar si es propio o ajeno)
 document.addEventListener('keydown', (e) => {
@@ -1408,7 +1423,7 @@ function gameLoop() {
     const spd  = Math.hypot(_vx, _vz);
     const extMoving    = spd > 0.15;
     // Fracción real de velocidad (0-1) para ease-out suave de animación
-    const speedFrac    = Math.min(1, spd / 10.0);
+    const speedFrac    = Math.min(1, spd / 7.0);
     // Backward: dot entre dir movimiento y dir facing (forward = +Z local)
     const ry   = localPlayerModel.group.rotation.y;
     const fwdX = Math.sin(ry), fwdZ = Math.cos(ry);
