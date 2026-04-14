@@ -267,7 +267,7 @@ window.addEventListener('resize', () => {
 // --- World setup ---
 // colliders is a shared mutable array — buildings added now, chunks add/remove theirs at runtime
 const colliders = [];
-const { colliders: worldColliders, sun, moon, ambient } = createWorld(scene);
+const { colliders: worldColliders, sun, moon, ambient, wallMeshes } = createWorld(scene);
 worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
@@ -943,6 +943,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     allHitboxes.push(hb);
     infoMap.set(hb.uuid, { id: hb._treeRef, type: 'tree' });
   }
+  for (const wm of wallMeshes) {
+    allHitboxes.push(wm);
+    infoMap.set(wm.uuid, { id: wm, type: 'wall' });
+  }
 
   const scanHit = hitscan(ray, allHitboxes, infoMap);
 
@@ -1030,6 +1034,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       else if (scanHit.target.type === 'tree') {
         chunkManager.hitTree(scanHit.point.x, scanHit.point.z);
         Audio.bulletImpactDirt();
+      }
+      else if (scanHit.target.type === 'wall') {
+        Audio.bulletImpactWood();
       }
     }, travelMs);
   } else {

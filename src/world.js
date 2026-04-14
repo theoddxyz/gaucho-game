@@ -46,9 +46,9 @@ export function createWorld(scene) {
   // (edificios grises de debug removidos)
 
   // ─── Establo (1000, 0, 1000) ───────────────────────────────────────────────
-  _buildStable(scene, colliders);
+  const wallMeshes = _buildStable(scene, colliders);
 
-  return { colliders, sun, moon, ambient };
+  return { colliders, sun, moon, ambient, wallMeshes };
 }
 
 function _buildStable(scene, colliders) {
@@ -60,47 +60,49 @@ function _buildStable(scene, colliders) {
   const matDirt  = new THREE.MeshStandardMaterial({ color: 0x7a5a20, roughness: 1.00 });
   const matSign  = new THREE.MeshStandardMaterial({ color: 0xc8a050, roughness: 0.80 });
 
-  const sb = (mat, w, h, d, lx, ly, lz) => {
+  const _wallMeshes = [];
+  const sb = (mat, w, h, d, lx, ly, lz, isWall = false) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     m.position.set(SX + lx, ly, SZ + lz);
     m.castShadow = m.receiveShadow = true;
     scene.add(m);
+    if (isWall) _wallMeshes.push(m);
   };
 
   // Ground pen
   sb(matDirt,  34,  0.18, 34,  0,    0.09,  0);
 
   // Main barn walls
-  sb(matWood,  14,   6,  10,  0,    3.0,   0);
+  sb(matWood,  14,   6,  10,  0,    3.0,   0, true);
   // Roof base (wider)
-  sb(matRoof,  15,   2,  11,  0,    6.0,   0);
+  sb(matRoof,  15,   2,  11,  0,    6.0,   0, true);
   // Roof cap
-  sb(matRoof,  13,   1,   9,  0,    7.5,   0);
+  sb(matRoof,  13,   1,   9,  0,    7.5,   0, true);
 
   // Barn door frame pillars (north face)
-  sb(matWood,   0.4,  6, 0.4, -3,   3.0,  -5.3);
-  sb(matWood,   0.4,  6, 0.4,  3,   3.0,  -5.3);
+  sb(matWood,   0.4,  6, 0.4, -3,   3.0,  -5.3, true);
+  sb(matWood,   0.4,  6, 0.4,  3,   3.0,  -5.3, true);
 
   // Decorative sign above door
-  sb(matSign,   4,  0.5, 0.2,  0,   6.3,  -5.2);
+  sb(matSign,   4,  0.5, 0.2,  0,   6.3,  -5.2, true);
 
   // Flag pole (tall, visible from afar)
-  sb(matWood,   0.2, 10, 0.2,  0,   5.0,  -5.4);
+  sb(matWood,   0.2, 10, 0.2,  0,   5.0,  -5.4, true);
 
   // ── Corral fence ───────────────────────────────────────────────────────────
   // North fence (cows approach from -z): gap 8u in the middle = gate
-  sb(matFence, 12,  1.6, 0.2, -11,  0.8, -17);   // west half
-  sb(matFence, 12,  1.6, 0.2,  11,  0.8, -17);   // east half
+  sb(matFence, 12,  1.6, 0.2, -11,  0.8, -17, true);
+  sb(matFence, 12,  1.6, 0.2,  11,  0.8, -17, true);
   // Gate posts flanking the 10u opening
-  sb(matFence,  0.4, 2.0, 0.4, -5,  1.0, -17);
-  sb(matFence,  0.4, 2.0, 0.4,  5,  1.0, -17);
+  sb(matFence,  0.4, 2.0, 0.4, -5,  1.0, -17, true);
+  sb(matFence,  0.4, 2.0, 0.4,  5,  1.0, -17, true);
 
   // South fence (solid)
-  sb(matFence, 36,  1.6, 0.2,  0,   0.8,  18);
+  sb(matFence, 36,  1.6, 0.2,  0,   0.8,  18, true);
   // East fence
-  sb(matFence,  0.2, 1.6, 36, 18,   0.8,   0);
+  sb(matFence,  0.2, 1.6, 36, 18,   0.8,   0, true);
   // West fence
-  sb(matFence,  0.2, 1.6, 36, -18,  0.8,   0);
+  sb(matFence,  0.2, 1.6, 36, -18,  0.8,   0, true);
 
   // Corner posts
   for (const [px, pz] of [[-18, -17], [18, -17], [18, 18], [-18, 18]]) {
@@ -135,4 +137,5 @@ function _buildStable(scene, colliders) {
     // West fence
     colliders.push({ x: SX - 18, z: SZ,       sx: 0.3, sy: 1.6, sz: 36  });
   }
+  return _wallMeshes;
 }
