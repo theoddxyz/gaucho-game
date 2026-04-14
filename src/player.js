@@ -291,20 +291,22 @@ export class PlayerModel {
       const clips      = isFullGLTF ? (gltfOrScene.animations || []) : [];
       const source     = isFullGLTF ? gltfOrScene.scene : gltfOrScene;
 
-      // Clonar PRIMERO, luego escalar el clon (no el source compartido)
+      // Escalar source UNA SOLA VEZ (flag _scaled evita re-escalar en llamadas posteriores)
       const TARGET_H = 2.8;
-      const model = SkeletonUtils.clone(source);
-      model.updateWorldMatrix(true, true);
-      {
-        const bbox = new THREE.Box3().setFromObject(model);
+      if (!source._scaled) {
+        source.updateWorldMatrix(true, true);
+        const bbox = new THREE.Box3().setFromObject(source);
         const h = bbox.max.y - bbox.min.y;
         if (h > 0.01) {
-          model.scale.setScalar(TARGET_H / h);
-          model.updateWorldMatrix(true, true);
-          const bb2 = new THREE.Box3().setFromObject(model);
-          if (bb2.max.y - bb2.min.y > 0.1) model.position.y -= bb2.min.y;
+          source.scale.setScalar(TARGET_H / h);
+          source.updateWorldMatrix(true, true);
+          const bb2 = new THREE.Box3().setFromObject(source);
+          if (bb2.max.y - bb2.min.y > 0.1) source.position.y -= bb2.min.y;
         }
+        source._scaled = true;
       }
+
+      const model = SkeletonUtils.clone(source);
       model.visible = true;
       // First pass: make everything visible, replace materials, detect special nodes
       const gunNodes = [];
