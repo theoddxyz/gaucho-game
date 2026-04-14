@@ -206,21 +206,26 @@ export class CarrosaSystem {
     this._dbgChassis.add(label);
   }
 
-  _rebuildDebugWheels(fwdZ, bwdZ, trackHalf) {
-    // Center the box between the two axles
-    this._dbgChassisOffsetZ = (fwdZ + bwdZ) / 2;
-    this._dbgChassisOffsetY = 1.5;  // visual carriage body sits ~1.5m above ground
-    const axleSpan = Math.abs(fwdZ - bwdZ);
-    // Body is narrower than track so wheels are clearly outside
-    const bodyW = Math.max((trackHalf - 0.7) * 2, 1.6);
-    this._dbgChassis.geometry.dispose();
-    this._dbgChassis.geometry = new THREE.BoxGeometry(bodyW, 2.0, Math.max(axleSpan, 3.0));
+  _rebuildDebugWheels(fwdZ, bwdZ, trackHalf, bodyCenter, bodySize) {
+    // Green box: exact bounding box of carriage body mesh (group-local space)
+    if (bodyCenter && bodySize) {
+      this._dbgChassisOffsetZ = bodyCenter.z;
+      this._dbgChassisOffsetY = bodyCenter.y;
+      this._dbgChassis.geometry.dispose();
+      this._dbgChassis.geometry = new THREE.BoxGeometry(bodySize.x, bodySize.y, bodySize.z);
+    } else {
+      // Fallback if body box not available
+      this._dbgChassisOffsetZ = (fwdZ + bwdZ) / 2;
+      this._dbgChassisOffsetY = 1.5;
+      this._dbgChassis.geometry.dispose();
+      this._dbgChassis.geometry = new THREE.BoxGeometry(
+        Math.max((trackHalf - 0.7) * 2, 1.6), 2.0, Math.abs(fwdZ - bwdZ) + 0.5);
+    }
 
-    // Store wheel local positions: trackHalf + half wheel width (0.15) for visual separation
-    const wt = trackHalf + 0.15;
+    // Wheel debug cylinders at exact wheel node local XZ positions
     this._dbgWheelPositions = [
-      [-wt, fwdZ], [wt, fwdZ],   // front left, front right
-      [-wt, bwdZ], [wt, bwdZ],   // rear  left, rear  right
+      [-trackHalf, fwdZ], [trackHalf, fwdZ],
+      [-trackHalf, bwdZ], [trackHalf, bwdZ],
     ];
   }
 
@@ -286,36 +291,7 @@ export class CarrosaSystem {
     this.group.add(car);
     this.group.updateWorldMatrix(false, true);
 
-    // ── Measure axles and finalise cannon wheel positions ────────────────────
-    {
-      const toLocal = (wp) => {
-        // Convert world pos → chassis-local XZ (group faces +Z when _ry=0)
-        const dx = wp.x - this._x, dz = wp.z - this._z;
-        const c = Math.cos(-this._ry), s = Math.sin(-this._ry);
-        return { x: dx * c - dz * s, z: dx * s + dz * c };
-      };
-
-      let fwdZ = -1.0, bwdZ = -5.5, trackHalf = TRACK_W; // sensible fallback
-
-      if (this._axles.length >= 2) {
-        const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
-        this._axles[0].getWorldPosition(p0);
-        this._axles[1].getWorldPosition(p1);
-        this._wheelbase = p0.distanceTo(p1);
-        const l0 = toLocal(p0), l1 = toLocal(p1);
-        console.log(`[carrosa] axle0 local xz=(${l0.x.toFixed(2)}, ${l0.z.toFixed(2)})`);
-        console.log(`[carrosa] axle1 local xz=(${l1.x.toFixed(2)}, ${l1.z.toFixed(2)})`);
-        fwdZ      = Math.max(l0.z, l1.z);
-        bwdZ      = Math.min(l0.z, l1.z);
-        trackHalf = Math.max(Math.abs(l0.x), Math.abs(l1.x), TRACK_W);
-      }
-
-      this._finalizeCannonWheels(fwdZ, bwdZ, trackHalf);
-      // Rebuild debug cylinders with correct wheel positions now that we know them
-      this._rebuildDebugWheels(fwdZ, bwdZ, trackHalf);
-    }
-
-    // ── Collect wheel nodes ──────────────────────────────────────────────────
+    // ── Collect wheel nodes (RUEDAS meshes) ─────────────────────────────────
     const wheelCandidates = [];
     car.traverse(o => { if (/rueda|wheel/i.test(o.name)) wheelCandidates.push(o); });
     if (!wheelCandidates.length)
@@ -337,6 +313,59 @@ export class CarrosaSystem {
         }
       });
       this._wheelData.push({ node, restQuat: node.quaternion.clone(), spinAxis });
+    }
+
+    // ── Derive cannon wheel positions from actual RUEDAS world positions ─────
+    {
+      // toLocal: world XZ → chassis-local XZ (group at _x,_z facing +Z when ry=0)
+      const toLocal = (wp) => {
+        const dx = wp.x - this._x, dz = wp.z - this._z;
+        const c = Math.cos(-this._ry), s = Math.sin(-this._ry);
+        return { x: dx * c - dz * s, z: dx * s + dz * c };
+      };
+
+      // Use world positions of the wheel NODES (not axle empties) for exact cannon placement
+      const wp = new THREE.Vector3();
+      const wheelLocalPos = wheelCandidates.map(n => { n.getWorldPosition(wp); return toLocal(wp.clone()); });
+
+      let fwdZ = -1.0, bwdZ = -5.5, trackHalf = TRACK_W; // fallback
+
+      if (wheelLocalPos.length >= 4) {
+        // Sort by Z descending: front two = higher Z, rear two = lower Z
+        wheelLocalPos.sort((a, b) => b.z - a.z);
+        fwdZ      = (wheelLocalPos[0].z + wheelLocalPos[1].z) / 2;
+        bwdZ      = (wheelLocalPos[2].z + wheelLocalPos[3].z) / 2;
+        trackHalf = Math.max(...wheelLocalPos.map(p => Math.abs(p.x)));
+        console.log(`[carrosa] wheel locals: ${wheelLocalPos.map(p=>`(${p.x.toFixed(2)},${p.z.toFixed(2)})`).join(' ')}`);
+      } else if (this._axles.length >= 2) {
+        // Fallback: use axle empties
+        const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
+        this._axles[0].getWorldPosition(p0); this._axles[1].getWorldPosition(p1);
+        const l0 = toLocal(p0), l1 = toLocal(p1);
+        fwdZ = Math.max(l0.z, l1.z); bwdZ = Math.min(l0.z, l1.z);
+        trackHalf = Math.max(Math.abs(l0.x), Math.abs(l1.x), TRACK_W);
+      }
+
+      this._finalizeCannonWheels(fwdZ, bwdZ, trackHalf);
+
+      // ── Green box: bounding box of carriage BODY (exclude wheel nodes) ──────
+      const bodyBox = new THREE.Box3();
+      const wheelSet = new Set(wheelCandidates.flatMap(n => { const arr=[]; n.traverse(c=>arr.push(c)); return arr; }));
+      car.traverse(o => {
+        if (o.isMesh && o.geometry && !wheelSet.has(o)) {
+          o.geometry.computeBoundingBox();
+          const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+          bodyBox.union(b);
+        }
+      });
+      // Convert bodyBox to group-local space
+      const groupInv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
+      bodyBox.applyMatrix4(groupInv);
+      const bSize   = new THREE.Vector3(); bodyBox.getSize(bSize);
+      const bCenter = new THREE.Vector3(); bodyBox.getCenter(bCenter);
+      console.log(`[carrosa] body box local center=(${bCenter.x.toFixed(2)},${bCenter.y.toFixed(2)},${bCenter.z.toFixed(2)}) size=(${bSize.x.toFixed(2)},${bSize.y.toFixed(2)},${bSize.z.toFixed(2)})`);
+
+      this._rebuildDebugWheels(fwdZ, bwdZ, trackHalf, bCenter, bSize);
     }
 
     if (!this._conductorNode)   console.warn('[carrosa] no encontré CONDUCTOR');
