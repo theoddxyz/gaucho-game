@@ -707,27 +707,29 @@ export class CarrosaSystem {
     for (let i = 0; i < 4; i++) this._vehicle.setBrake(brakeF, i);
 
     if (pullF > 0) {
-      const pullAngle = heading + steerV;
       this._lastPullF     = pullF;
-      this._lastPullAngle = pullAngle;
-      const fx = Math.sin(pullAngle) * pullF;
-      const fz = Math.cos(pullAngle) * pullF;
-
-      // Apply at tongue position (world space) — off-center force creates natural rotation
-      const tongueZ = this._tongueZ || 2.0;
+      this._lastPullAngle = heading;
+      // Linear force applied at CENTER OF MASS → pure forward movement, no torque
       const cp = this._chassisBody.position;
-      const tx = cp.x + tongueZ * Math.sin(heading);
-      const tz = cp.z + tongueZ * Math.cos(heading);
       this._chassisBody.applyForce(
-        new CANNON.Vec3(fx, 0, fz),
-        new CANNON.Vec3(tx, cp.y, tz)
+        new CANNON.Vec3(Math.sin(heading) * pullF, 0, Math.cos(heading) * pullF),
+        cp
       );
+      // Steering: separate yaw torque so it doesn't fight the linear force
+      if (Math.abs(steerV) > 0.01) {
+        const vel = this._chassisBody.velocity;
+        const spd = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        const yawT = steerV * Math.max(spd, 1.5) * 420;
+        this._chassisBody.applyTorque(new CANNON.Vec3(0, yawT, 0));
+      }
+    } else {
+      this._lastPullF = 0;
     }
 
-    // Drag — simulate wheel rolling resistance and air drag
+    // Drag — rolling resistance + extra when no input
     const vel  = this._chassisBody.velocity;
     const spd  = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-    const drag = spd * 45 + (isMoving ? 0 : spd * 120); // more drag when no input
+    const drag = spd * 40 + (isMoving ? 0 : spd * 100);
     if (spd > 0.01) {
       this._chassisBody.applyForce(
         new CANNON.Vec3(-vel.x / spd * drag, 0, -vel.z / spd * drag),
@@ -742,9 +744,10 @@ export class CarrosaSystem {
       this._chassisBody.velocity.z *= MAX_SPD / spd;
     }
 
-    // Lock pitch/roll — ground vehicle, prevent tipping
+    // Lock pitch/roll; damp yaw so it doesn't spin out
     this._chassisBody.angularVelocity.x = 0;
     this._chassisBody.angularVelocity.z = 0;
+    this._chassisBody.angularVelocity.y *= 0.80;
 
     this._cannonWorld.step(1 / 60, dt, 3);
 
