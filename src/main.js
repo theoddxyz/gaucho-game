@@ -1175,7 +1175,7 @@ function gameLoop() {
     const _onHorse = horseManager?.isMounted() ?? false;
     _onCarrosa = carrossaSystem?.isOnBoard() ?? false;
     const _speedMult = _onHorse   ? (horseManager?.speedMultiplier(controls.isSprinting()) ?? 1.0)
-                     : _onCarrosa ? (carrossaSystem?.speedMultiplier(controls.isSprinting()) ?? 1.0)
+                     : _onCarrosa ? 0   // carriage physics handles movement — suppress controls spring
                      : (controls.isSprinting() ? 1.9 : 1.0);
     controls.update(dt, colliders, _speedMult, _onHorse || _onCarrosa);
 
@@ -1232,10 +1232,12 @@ function gameLoop() {
       if (carPassLand) controls.setPosition(carPassLand.x, 0, carPassLand.z);
       // Only the conductor drives the carriage (physics-based)
       if (carrossaSystem.isConducting() && !carrossaSystem.isMountAnimating()) {
-        // Capture desired velocity from WASD (controls already applied speed mult)
-        const desiredVelX = controls._velX ?? 0;
-        const desiredVelZ = controls._velZ ?? 0;
+        // Raw WASD velocity — no spring from controls, single spring in drive()
+        const speedMult   = carrossaSystem.speedMultiplier(controls.isSprinting());
+        const desired     = controls.getDesiredVelocity(speedMult, controls.isSprinting());
         const moveAngle   = controls.getMovementAngle();
+        const desiredVelX = desired.x;
+        const desiredVelZ = desired.z;
 
         // Physics: horses pull carriage with inertia
         const carPos = carrossaSystem.drive(desiredVelX, desiredVelZ, moveAngle, dt);

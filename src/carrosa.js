@@ -16,9 +16,9 @@ const CONDUCTOR_Y    = -0.5;
 const PASSENGER_Y    = -0.5;
 
 // ── Carriage physics ──────────────────────────────────────────────────────────
-const PULL_TAU    = 1.1;   // seconds to reach full horse speed (heavy start)
-const BRAKE_TAU   = 0.55;  // seconds to stop (momentum on release)
-const ROT_SPEED   = 2.4;   // max yaw rate of carriage body (rad/s)
+const PULL_TAU    = 0.65;  // seconds to reach full horse speed (single spring — feels heavy but responsive)
+const BRAKE_TAU   = 0.35;  // seconds to coast to a stop
+const ROT_SPEED   = 2.8;   // max yaw rate of carriage body (rad/s)
 const MAX_SPEED   = 18;    // units/s hard cap
 
 function loadGLB(path) {

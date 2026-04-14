@@ -103,6 +103,25 @@ export class IsoControls {
   /** Trigger gun recoil — call once per shot. */
   applyRecoil() { this._recoil = 1; }
 
+  /**
+   * Returns the raw desired velocity from current WASD state — NO spring, NO position advance.
+   * Use this as the target for vehicle physics (single spring in the vehicle, not double).
+   */
+  getDesiredVelocity(speedMult = 1.0, sprinting = false) {
+    const dir = new THREE.Vector3();
+    if (this.keys.w) dir.z -= 1;
+    if (this.keys.s) dir.z += 1;
+    if (this.keys.a) dir.x -= 1;
+    if (this.keys.d) dir.x += 1;
+    if (dir.length() === 0) return { x: 0, z: 0 };
+    dir.normalize();
+    const C = 0.7071067811865476;
+    const rx = dir.x * C + dir.z * C;
+    const rz = -dir.x * C + dir.z * C;
+    const sprint = sprinting ? SPRINT_MULT : 1.0;
+    return { x: rx * SPEED * speedMult * sprint, z: rz * SPEED * speedMult * sprint };
+  }
+
   update(dt, colliders, speedMult = 1.0, onHorse = false) {
     const sprint = this._sprinting ? SPRINT_MULT : 1.0;
 
