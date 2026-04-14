@@ -214,6 +214,7 @@ const _westernShader = {
   uniforms: {
     tDiffuse:   { value: null },
     aberration: { value: 0.0 },
+    nightMix:   { value: 0.0 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -222,7 +223,32 @@ const _westernShader = {
   fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform float aberration;
+    uniform float nightMix;
     varying vec2 vUv;
+
+    // Day-for-night: remap luminance through navy blue tint (#000080)
+    vec3 dayForNight(vec3 c) {
+      float lum = dot(c, vec3(0.299, 0.587, 0.114));
+      // Shadows: very dark navy
+      vec3 shadowTint = vec3(0.0, 0.0, 0.18);
+      // Midtones: navy blue (#000080)
+      vec3 midTint    = vec3(0.0, 0.0, 0.50);
+      // Highlights: lighter steel blue
+      vec3 highTint   = vec3(0.25, 0.35, 0.75);
+      // Three-way blend based on luminance
+      vec3 nightCol;
+      if (lum < 0.5) {
+        nightCol = mix(shadowTint, midTint, lum * 2.0);
+      } else {
+        nightCol = mix(midTint, highTint, (lum - 0.5) * 2.0);
+      }
+      // Preserve some original color detail in highlights
+      nightCol = mix(nightCol, nightCol * (c / max(vec3(lum), vec3(0.05))), 0.15);
+      // Overall brightness: darker than day
+      nightCol *= 0.7 + lum * 0.4;
+      return nightCol;
+    }
+
     vec3 colorGrade(vec3 c) {
       // Lift shadows warm brown
       c += vec3(0.04, 0.02, -0.02) * smoothstep(0.0, 0.3, 1.0 - dot(c, vec3(0.299,0.587,0.114)));
@@ -231,9 +257,14 @@ const _westernShader = {
       c = mix(c, c * vec3(1.06, 1.02, 0.88), smoothstep(0.5, 1.0, lum));
       // Slight desaturation midtones (dusty)
       c = mix(vec3(lum), c, mix(1.0, 0.82, smoothstep(0.25, 0.75, lum) * 0.4));
-      // Vignette
+      // Day-for-night blend
+      if (nightMix > 0.01) {
+        c = mix(c, dayForNight(c), nightMix);
+      }
+      // Vignette (stronger at night)
       vec2 u = vUv * (1.0 - vUv.yx);
-      c *= mix(1.0, pow(u.x * u.y * 18.0, 0.35), 0.45);
+      float vigStr = mix(0.45, 0.65, nightMix);
+      c *= mix(1.0, pow(u.x * u.y * 18.0, 0.35), vigStr);
       return c;
     }
     void main() {
@@ -1783,6 +1814,12 @@ function gameLoop() {
 
   _aberration = Math.max(0, _aberration - dt * 3.5);
   _fxPass.uniforms.aberration.value = _aberration;
+  // Day-for-night: smooth transition based on day progress
+  const _dp = getDayProgress();
+  const _nightFrac = _dp < 0.25
+    ? Math.max(0, 1 - _dp / 0.22)
+    : _dp > 0.78 ? Math.min(1, (_dp - 0.78) / 0.10) : 0;
+  _fxPass.uniforms.nightMix.value = _nightFrac;
   _composer.render();
   soulMap.draw();
 }
