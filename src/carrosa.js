@@ -17,27 +17,23 @@ const CONDUCTOR_Y    = -0.5;
 const PASSENGER_Y    = -0.5;
 
 // ── Cannon-es RaycastVehicle constants ────────────────────────────────────────
-const CARRIAGE_MASS    = 600;           // kg
-const ENGINE_FORCE     = 3500;          // N per driven wheel (front)
-const REAR_FORCE_RATIO = 0.7;           // rear wheels get 70% of front force
-const BRAKE_FORCE      = 28;            // N braking
-const MAX_STEER        = Math.PI / 6;   // 30°
+const CARRIAGE_MASS    = 600;
+const ENGINE_FORCE     = 3500;
+const REAR_FORCE_RATIO = 0.7;
+const BRAKE_FORCE      = 28;
+const MAX_STEER        = Math.PI / 6;
 const SPRINT_F_MULT    = 1.55;
 
-// Wheel geometry (world units — same scale as game)
-const WHL_R      = 0.8;    // physics wheel radius
-const TRACK_W    = 1.3;    // half track-width (wheel X offset from center)
-const AXLE_FWD   = 2.2;    // front axle Z from chassis center
-const AXLE_BWD   = -2.2;   // rear axle Z
-const CONN_Y     = -0.4;   // wheel connection point Y from chassis center
+// Wheel physics — radius close to visual rear wheel size
+const WHL_R      = 1.2;
+const TRACK_W    = 1.3;   // fallback half-track if no axle nodes found
+const CONN_Y     = -1.6;  // wheels hang 1.6 below chassis centre
+const SUSP_REST  = 0.2;
+const SUSP_STIFF = 220;
+const SUSP_DAMP  = 22;
 
-// Suspension — stiff so it barely bounces on flat terrain
-const SUSP_REST  = 0.25;
-const SUSP_STIFF = 180;
-const SUSP_DAMP  = 18;
-
-// Chassis rests at this Y so wheels just touch y=0
-const CHASSIS_REST_Y = WHL_R + SUSP_REST + Math.abs(CONN_Y); // ≈ 1.45
+// Chassis rests here: wheel_bottom(0) + whl_r + susp_rest + |conn_y| = 3.0
+const CHASSIS_REST_Y = WHL_R + SUSP_REST + Math.abs(CONN_Y); // 1.2+0.2+1.6 = 3.0
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -106,75 +102,58 @@ export class CarrosaSystem {
 
   _initCannon(x, z) {
     try {
-      // World — real gravity so wheel raycasts hit the ground plane
       this._cannonWorld = new CANNON.World();
       this._cannonWorld.gravity.set(0, -9.82, 0);
       this._cannonWorld.broadphase = new CANNON.SAPBroadphase(this._cannonWorld);
       this._cannonWorld.allowSleep = false;
 
-      // Static flat ground
       const ground = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC });
       ground.addShape(new CANNON.Plane());
       ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
       this._cannonWorld.addBody(ground);
 
-      // Chassis — low center of mass, high angular damping to prevent tipping
       this._chassisBody = new CANNON.Body({ mass: CARRIAGE_MASS });
-      this._chassisBody.addShape(new CANNON.Box(new CANNON.Vec3(1.3, 0.4, 2.8)));
+      this._chassisBody.addShape(new CANNON.Box(new CANNON.Vec3(1.3, 0.6, 2.5)));
       this._chassisBody.position.set(x, CHASSIS_REST_Y, z);
       this._chassisBody.linearDamping  = 0.05;
-      this._chassisBody.angularDamping = 0.95;  // resists tipping hard
+      this._chassisBody.angularDamping = 0.95;
 
-      // RaycastVehicle — X right, Y up, Z forward
       this._vehicle = new CANNON.RaycastVehicle({
-        chassisBody:      this._chassisBody,
-        indexRightAxis:   0,
-        indexUpAxis:      1,
-        indexForwardAxis: 2,
+        chassisBody: this._chassisBody, indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2,
       });
 
-      // Shared wheel options
-      const base = {
-        radius:               WHL_R,
-        directionLocal:       new CANNON.Vec3(0, -1, 0),
-        axleLocal:            new CANNON.Vec3(-1, 0, 0),
-        suspensionRestLength: SUSP_REST,
-        suspensionStiffness:  SUSP_STIFF,
-        dampingRelaxation:    SUSP_DAMP,
-        dampingCompression:   SUSP_DAMP * 1.3,
-        maxSuspensionForce:   500000,
-        maxSuspensionTravel:  0.3,
-        frictionSlip:         2.5,
-        rollInfluence:        0.01,
-        customSlidingRotationalSpeed:    -30,
-        useCustomSlidingRotationalSpeed: true,
-      };
-
-      // 4 wheels: [frontLeft, frontRight, rearLeft, rearRight]
-      const wheelPos = [
-        [-TRACK_W, AXLE_FWD],
-        [ TRACK_W, AXLE_FWD],
-        [-TRACK_W, AXLE_BWD],
-        [ TRACK_W, AXLE_BWD],
-      ];
-      for (const [tx, tz] of wheelPos) {
-        this._vehicle.addWheel({
-          ...base,
-          chassisConnectionPointLocal: new CANNON.Vec3(tx, CONN_Y, tz),
-        });
-      }
-
-      this._vehicle.addToWorld(this._cannonWorld);
-
-        // Pre-alloc vectors for heading extraction (avoid GC each frame)
+      // Wheels added later in _finalizeCannonWheels() once _load() has real axle positions
       this._fwdLocal = new CANNON.Vec3(0, 0, 1);
       this._fwdWorld = new CANNON.Vec3();
 
     } catch (err) {
-      console.error('[carrosa] cannon init failed — fallback to manual physics:', err);
-      this._vehicle     = null;
-      this._chassisBody = null;
-      this._cannonWorld = null;
+      console.error('[carrosa] cannon init failed:', err);
+      this._vehicle = null; this._chassisBody = null; this._cannonWorld = null;
+    }
+  }
+
+  // Called from _load() with axle Z offsets measured from the GLB model.
+  // fwdZ / bwdZ: chassis-local Z of front/rear axles (relative to group origin).
+  _finalizeCannonWheels(fwdZ, bwdZ, trackHalf) {
+    if (!this._vehicle) return;
+    try {
+      const base = {
+        radius: WHL_R, directionLocal: new CANNON.Vec3(0, -1, 0),
+        axleLocal: new CANNON.Vec3(-1, 0, 0),
+        suspensionRestLength: SUSP_REST, suspensionStiffness: SUSP_STIFF,
+        dampingRelaxation: SUSP_DAMP,   dampingCompression:  SUSP_DAMP * 1.3,
+        maxSuspensionForce: 500000,     maxSuspensionTravel: 0.3,
+        frictionSlip: 2.5,              rollInfluence:       0.01,
+        customSlidingRotationalSpeed: -30, useCustomSlidingRotationalSpeed: true,
+      };
+      for (const [tx, tz] of [[-trackHalf, fwdZ], [trackHalf, fwdZ], [-trackHalf, bwdZ], [trackHalf, bwdZ]]) {
+        this._vehicle.addWheel({ ...base, chassisConnectionPointLocal: new CANNON.Vec3(tx, CONN_Y, tz) });
+      }
+      this._vehicle.addToWorld(this._cannonWorld);
+      console.log(`[carrosa] wheels OK — fwdZ=${fwdZ.toFixed(2)} bwdZ=${bwdZ.toFixed(2)} track=±${trackHalf.toFixed(2)} chassis_y=${CHASSIS_REST_Y}`);
+    } catch (err) {
+      console.error('[carrosa] wheel setup failed:', err);
+      this._vehicle = null;
     }
   }
 
@@ -188,15 +167,17 @@ export class CarrosaSystem {
     // Chassis wireframe box (green) — shown at cannon physics position (y ≈ 1.45)
     const chassisMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
     this._dbgChassis = new THREE.Mesh(
-      new THREE.BoxGeometry(2.6, 0.8, 5.6),  // full extents: 2×half-extents
+      new THREE.BoxGeometry(2.6, 1.2, 5.0),  // updated in _rebuildDebugWheels
       chassisMat
     );
     this._debugGroup.add(this._dbgChassis);
 
-    // 4 wheel spheres (cyan)
+    // 4 wheel cylinders (cyan) — thin like real carriage wheels, rotated 90° around Z
+    // Rebuilt with correct sizes in _rebuildDebugWheels() once model is loaded
     const whlMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
     for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(WHL_R, 8, 6), whlMat);
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(WHL_R, WHL_R, 0.25, 12), whlMat);
+      m.rotation.z = Math.PI / 2; // lay cylinder on its side (axle along X)
       this._dbgWheels.push(m);
       this._debugGroup.add(m);
     }
@@ -222,6 +203,24 @@ export class CarrosaSystem {
     this._dbgChassis.add(label);
   }
 
+  _rebuildDebugWheels(fwdZ, bwdZ, trackHalf) {
+    // Place the 4 debug cylinders at the correct chassis-local positions.
+    // They'll be world-updated in _updateDebug each frame.
+    const positions = [
+      [-trackHalf, fwdZ], [trackHalf, fwdZ],
+      [-trackHalf, bwdZ], [trackHalf, bwdZ],
+    ];
+    for (let i = 0; i < 4; i++) {
+      // Store local offsets for _updateDebug to use
+      this._dbgWheels[i].userData.localX = positions[i][0];
+      this._dbgWheels[i].userData.localZ = positions[i][1];
+    }
+    // Also update chassis debug box size to match the body between axles
+    const halfLen = (Math.abs(fwdZ) + Math.abs(bwdZ)) / 2;
+    this._dbgChassis.geometry.dispose();
+    this._dbgChassis.geometry = new THREE.BoxGeometry(2.6, 1.2, halfLen * 2);
+  }
+
   toggleDebug() {
     this._debugMode = !this._debugMode;
     this._debugGroup.visible = this._debugMode;
@@ -244,13 +243,17 @@ export class CarrosaSystem {
     const spd = Math.sqrt(this._chassisBody.velocity.x ** 2 + this._chassisBody.velocity.z ** 2);
     this._dbgArrow.setLength(Math.max(2, spd * 0.5), 0.8, 0.4);
 
-    // Wheel positions from cannon
-    if (this._vehicle) {
+    // Wheel positions from cannon RaycastVehicle world transforms
+    if (this._vehicle && this._vehicle.wheelInfos.length === 4) {
       for (let i = 0; i < 4; i++) {
         this._vehicle.updateWheelTransform(i);
         const wt = this._vehicle.wheelInfos[i].worldTransform;
-        this._dbgWheels[i].position.set(wt.position.x, wt.position.y, wt.position.z);
-        this._dbgWheels[i].quaternion.set(wt.quaternion.x, wt.quaternion.y, wt.quaternion.z, wt.quaternion.w);
+        const w  = this._dbgWheels[i];
+        w.position.set(wt.position.x, wt.position.y, wt.position.z);
+        // Cylinder is along Y by default — rotate so it lies along axle (X axis)
+        const q = new THREE.Quaternion(wt.quaternion.x, wt.quaternion.y, wt.quaternion.z, wt.quaternion.w);
+        q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2));
+        w.quaternion.copy(q);
       }
     }
   }
@@ -277,6 +280,35 @@ export class CarrosaSystem {
 
     this.group.add(car);
     this.group.updateWorldMatrix(false, true);
+
+    // ── Measure axles and finalise cannon wheel positions ────────────────────
+    {
+      const toLocal = (wp) => {
+        // Convert world pos → chassis-local XZ (group faces +Z when _ry=0)
+        const dx = wp.x - this._x, dz = wp.z - this._z;
+        const c = Math.cos(-this._ry), s = Math.sin(-this._ry);
+        return { x: dx * c - dz * s, z: dx * s + dz * c };
+      };
+
+      let fwdZ = -1.0, bwdZ = -5.5, trackHalf = TRACK_W; // sensible fallback
+
+      if (this._axles.length >= 2) {
+        const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
+        this._axles[0].getWorldPosition(p0);
+        this._axles[1].getWorldPosition(p1);
+        this._wheelbase = p0.distanceTo(p1);
+        const l0 = toLocal(p0), l1 = toLocal(p1);
+        console.log(`[carrosa] axle0 local xz=(${l0.x.toFixed(2)}, ${l0.z.toFixed(2)})`);
+        console.log(`[carrosa] axle1 local xz=(${l1.x.toFixed(2)}, ${l1.z.toFixed(2)})`);
+        fwdZ      = Math.max(l0.z, l1.z);
+        bwdZ      = Math.min(l0.z, l1.z);
+        trackHalf = Math.max(Math.abs(l0.x), Math.abs(l1.x), TRACK_W);
+      }
+
+      this._finalizeCannonWheels(fwdZ, bwdZ, trackHalf);
+      // Rebuild debug cylinders with correct wheel positions now that we know them
+      this._rebuildDebugWheels(fwdZ, bwdZ, trackHalf);
+    }
 
     // ── Collect wheel nodes ──────────────────────────────────────────────────
     const wheelCandidates = [];
