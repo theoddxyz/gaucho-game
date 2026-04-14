@@ -277,8 +277,23 @@ export class PlayerModel {
       const isFullGLTF = gltfOrScene.scene !== undefined;
       const clips      = isFullGLTF ? (gltfOrScene.animations || []) : [];
       const source     = isFullGLTF ? gltfOrScene.scene : gltfOrScene;
-      // SkeletonUtils.clone() clona correctamente SkinnedMesh manteniendo referencias
-      // de huesos válidas — soluciona el bug de jugadores remotos compartiendo el mismo objeto.
+
+      // Escalar el SOURCE a TARGET_H una sola vez (idempotente: la segunda vez h≈2.8 → scale=1).
+      // Hacerlo ANTES de clonar para que cada clone herede la escala ya correcta.
+      const TARGET_H = 2.8;
+      source.updateWorldMatrix(true, true);
+      {
+        const bbox = new THREE.Box3().setFromObject(source);
+        const h = bbox.max.y - bbox.min.y;
+        if (h > 0.01) {
+          source.scale.setScalar(TARGET_H / h);
+          source.updateWorldMatrix(true, true);
+          const bb2 = new THREE.Box3().setFromObject(source);
+          if (bb2.max.y - bb2.min.y > 0.1) source.position.y -= bb2.min.y;
+        }
+      }
+
+      // SkeletonUtils.clone() clona correctamente SkinnedMesh — cada jugador tiene su propia copia.
       const model = SkeletonUtils.clone(source);
       model.visible = true;
       // First pass: make everything visible, replace materials, detect special nodes
@@ -313,21 +328,6 @@ export class PlayerModel {
       for (const gn of gunNodes) {
         gn.visible = false;
         gn.traverse(c => { c.visible = false; });
-      }
-      // Now that all nodes are visible, compute bbox, auto-scale y align base to y=0
-      model.updateWorldMatrix(true, true);
-      {
-        const bbox = new THREE.Box3();
-        bbox.setFromObject(model);
-        const h = bbox.max.y - bbox.min.y;
-        // Auto-escalar SIEMPRE a TARGET_H (sin importar si ya está a escala "razonable")
-        const TARGET_H = 2.8;
-        if (h > 0.01) {
-          model.scale.setScalar(TARGET_H / h);
-          model.updateWorldMatrix(true, true);
-          bbox.setFromObject(model);
-        }
-        if (bbox.max.y - bbox.min.y > 0.1) model.position.y -= bbox.min.y;
       }
       // ── Walk animation: collect limb mesh refs (direct rotation) ────────────
       // El origen del mesh 'leg left/right' está en la parte SUPERIOR de la pierna
