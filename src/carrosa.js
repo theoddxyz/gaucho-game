@@ -85,8 +85,9 @@ export class CarrosaSystem {
     this._debugMode    = false;
     this._debugGroup       = null;
     this._dbgChassis       = null;
-    this._dbgChassisOffsetZ = 0;
-    this._dbgChassisOffsetY = 0;
+    this._dbgChassisOffsetZ  = 0;
+    this._dbgChassisOffsetY  = 1.5;
+    this._dbgWheelPositions  = null;
     this._dbgWheels        = [];
     this._dbgArrow         = null;
     this._initDebug(scene);
@@ -206,15 +207,21 @@ export class CarrosaSystem {
   }
 
   _rebuildDebugWheels(fwdZ, bwdZ, trackHalf) {
-    // Debug chassis box: centered between axles (carriage body only, not the tongue)
-    this._dbgChassisOffsetZ = (fwdZ + bwdZ) / 2;  // stored, applied in _updateDebug
+    // Center the box between the two axles
+    this._dbgChassisOffsetZ = (fwdZ + bwdZ) / 2;
+    this._dbgChassisOffsetY = 1.5;  // visual carriage body sits ~1.5m above ground
     const axleSpan = Math.abs(fwdZ - bwdZ);
-
+    // Body is narrower than track so wheels are clearly outside
+    const bodyW = Math.max((trackHalf - 0.7) * 2, 1.6);
     this._dbgChassis.geometry.dispose();
-    // Taller box (1.8) so it matches the carriage body height better
-    const bodyW = (trackHalf - 0.8) * 2;   // clear gap between carriage body and wheels
-    this._dbgChassisOffsetY = 1.2;           // raise box so it sits above the axle, not around it
-    this._dbgChassis.geometry = new THREE.BoxGeometry(Math.max(bodyW, 1.8), 2.2, Math.max(axleSpan, 3.0));
+    this._dbgChassis.geometry = new THREE.BoxGeometry(bodyW, 2.0, Math.max(axleSpan, 3.0));
+
+    // Store wheel local positions: trackHalf + half wheel width (0.15) for visual separation
+    const wt = trackHalf + 0.15;
+    this._dbgWheelPositions = [
+      [-wt, fwdZ], [wt, fwdZ],   // front left, front right
+      [-wt, bwdZ], [wt, bwdZ],   // rear  left, rear  right
+    ];
   }
 
   toggleDebug() {
@@ -224,40 +231,34 @@ export class CarrosaSystem {
   }
 
   _updateDebug() {
-    if (!this._debugMode || !this._chassisBody) return;
+    if (!this._debugMode) return;
 
-    // Chassis position and rotation from cannon (Y is real physics Y, not 0)
-    const cp = this._chassisBody.position;
-    const cq = this._chassisBody.quaternion;
-    // Offset the box along the local Z axis so it centers on the carriage body (not the tongue)
+    // Use the visual group's world position — that's what the player sees
+    const cx = this._x, cz = this._z;
+    const ry = this._ry;
+    const cosY = Math.cos(ry), sinY = Math.sin(ry);
+
+    // Chassis box: offset along local Z to center on carriage body, Y at seat height
     const offZ = this._dbgChassisOffsetZ || 0;
-    const cosY = Math.cos(this._ry), sinY = Math.sin(this._ry);
-    const offY = this._dbgChassisOffsetY || 0;
-    this._dbgChassis.position.set(
-      cp.x + offZ * sinY,
-      cp.y + offY,
-      cp.z + offZ * cosY
-    );
-    this._dbgChassis.quaternion.set(cq.x, cq.y, cq.z, cq.w);
+    const offY = this._dbgChassisOffsetY || 1.5;
+    this._dbgChassis.position.set(cx + offZ * sinY, offY, cz + offZ * cosY);
+    this._dbgChassis.rotation.set(0, ry, 0);
 
-    // Heading arrow
-    this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
-    this._dbgArrow.position.set(cp.x, cp.y, cp.z);
-    this._dbgArrow.setDirection(new THREE.Vector3(this._fwdWorld.x, this._fwdWorld.y, this._fwdWorld.z).normalize());
-    const spd = Math.sqrt(this._chassisBody.velocity.x ** 2 + this._chassisBody.velocity.z ** 2);
+    // Heading arrow at axle mid height
+    this._dbgArrow.position.set(cx, offY, cz);
+    this._dbgArrow.setDirection(new THREE.Vector3(sinY, 0, cosY));
+    const spd = Math.sqrt(this._physVelX ** 2 + this._physVelZ ** 2);
     this._dbgArrow.setLength(Math.max(2, spd * 0.5), 0.8, 0.4);
 
-    // Wheel positions from cannon RaycastVehicle world transforms
-    if (this._vehicle && this._vehicle.wheelInfos.length === 4) {
+    // Wheel cylinders: placed at the visual axle positions (ground level + wheel radius)
+    if (this._dbgWheelPositions && this._dbgWheels.length === 4) {
       for (let i = 0; i < 4; i++) {
-        this._vehicle.updateWheelTransform(i);
-        const wt = this._vehicle.wheelInfos[i].worldTransform;
-        const w  = this._dbgWheels[i];
-        w.position.set(wt.position.x, wt.position.y, wt.position.z);
-        // Cylinder is along Y by default — rotate so it lies along axle (X axis)
-        const q = new THREE.Quaternion(wt.quaternion.x, wt.quaternion.y, wt.quaternion.z, wt.quaternion.w);
-        q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2));
-        w.quaternion.copy(q);
+        const [lx, lz] = this._dbgWheelPositions[i]; // local XZ relative to group origin
+        // Rotate local offset to world space
+        const wx = cx + lx * cosY + lz * sinY;
+        const wz = cz - lx * sinY + lz * cosY;
+        this._dbgWheels[i].position.set(wx, WHL_R, wz);
+        this._dbgWheels[i].rotation.set(0, ry, Math.PI / 2);
       }
     }
   }
@@ -561,6 +562,9 @@ export class CarrosaSystem {
       this._prompt.style.display = 'none';
     }
 
+    // Always update debug overlay so it tracks the carriage even when not driving
+    this._updateDebug();
+
     const moving = this._moveDist > 0.001;
 
     for (const h of this._hitchedHorses) {
@@ -652,8 +656,6 @@ export class CarrosaSystem {
     // Pin chassis to rest height — kill all vertical movement (no bouncing)
     this._chassisBody.position.y = CHASSIS_REST_Y;
     this._chassisBody.velocity.y = 0;
-
-    this._updateDebug();
 
     // Sync _physVelX/_physVelZ so main.js can read carriage speed
     this._physVelX = this._chassisBody.velocity.x;
