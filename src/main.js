@@ -1230,12 +1230,27 @@ function gameLoop() {
       if (carLand) controls.setPosition(carLand.x, 0, carLand.z);
       const carPassLand = carrossaSystem.consumePassengerLand();
       if (carPassLand) controls.setPosition(carPassLand.x, 0, carPassLand.z);
-      // Only the conductor drives the carriage
+      // Only the conductor drives the carriage (physics-based)
       if (carrossaSystem.isConducting() && !carrossaSystem.isMountAnimating()) {
-        const moveAngle = controls.getMovementAngle();
-        const speed     = Math.hypot(controls._velX ?? 0, controls._velZ ?? 0);
-        carrossaSystem.syncPosition(pos.x, pos.z, moveAngle, speed);
-        Network.sendCarrosaMoved(pos.x, pos.z, moveAngle);
+        // Capture desired velocity from WASD (controls already applied speed mult)
+        const desiredVelX = controls._velX ?? 0;
+        const desiredVelZ = controls._velZ ?? 0;
+        const moveAngle   = controls.getMovementAngle();
+
+        // Physics: horses pull carriage with inertia
+        const carPos = carrossaSystem.drive(desiredVelX, desiredVelZ, moveAngle, dt);
+
+        // Snap player/camera to carriage (override where controls moved us this frame)
+        controls.position.x = carPos.x;
+        controls.position.z = carPos.z;
+        // Sync controls velocity to carriage so camera is stable and next frame's
+        // desired velocity starts from current carriage speed (not player speed)
+        controls._velX = carrossaSystem._physVelX;
+        controls._velZ = carrossaSystem._physVelZ;
+        // Update pos so shadow/model/NPC checks use carriage position this frame
+        pos = controls.getPosition();
+
+        Network.sendCarrosaMoved(carPos.x, carPos.z, carPos.ry);
       }
     }
 

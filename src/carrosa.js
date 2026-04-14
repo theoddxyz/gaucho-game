@@ -15,6 +15,12 @@ const CONDUCTOR_FWD  = 0.5;
 const CONDUCTOR_Y    = -0.5;
 const PASSENGER_Y    = -0.5;
 
+// ── Carriage physics ──────────────────────────────────────────────────────────
+const PULL_TAU    = 1.1;   // seconds to reach full horse speed (heavy start)
+const BRAKE_TAU   = 0.55;  // seconds to stop (momentum on release)
+const ROT_SPEED   = 2.4;   // max yaw rate of carriage body (rad/s)
+const MAX_SPEED   = 18;    // units/s hard cap
+
 function loadGLB(path) {
   return new Promise(r =>
     loader.load(path, g => r(g), undefined, () => { console.warn('[carrosa] no cargó:', path); r(null); })
@@ -44,6 +50,10 @@ export class CarrosaSystem {
     this._driverId    = null;    // socket.id of driver (local or remote)
     this._anim        = null;    // mount/dismount anim for conductor
     this._mountLandPos = null;
+
+    // ── Carriage physics ──────────────────────────────────────────────────────
+    this._physVelX = 0;
+    this._physVelZ = 0;
 
     // ── Passenger state ───────────────────────────────────────────────────────
     this._isPassenger       = false;   // local player is passenger
@@ -379,6 +389,50 @@ export class CarrosaSystem {
       }
     }
     this._moveDist = 0;
+  }
+
+  /**
+   * Physics-based drive — call each frame when local player is conducting.
+   * desiredVelX/Z come from controls._velX/_velZ (already scaled by speed multiplier).
+   * Returns the new carriage world position {x, z}.
+   */
+  drive(desiredVelX, desiredVelZ, moveAngle, dt) {
+    const moving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.5;
+    const tau    = moving ? PULL_TAU : BRAKE_TAU;
+    const alpha  = 1 - Math.exp(-dt / tau);
+
+    // Spring toward desired velocity (horses pulling)
+    this._physVelX += (desiredVelX - this._physVelX) * alpha;
+    this._physVelZ += (desiredVelZ - this._physVelZ) * alpha;
+
+    // Hard speed cap
+    const spd = Math.sqrt(this._physVelX * this._physVelX + this._physVelZ * this._physVelZ);
+    if (spd > MAX_SPEED) {
+      const inv = MAX_SPEED / spd;
+      this._physVelX *= inv;
+      this._physVelZ *= inv;
+    }
+
+    // Smooth rotation — carriage yaw lags behind desired direction
+    if (moving) {
+      let dRY = moveAngle - this._ry;
+      while (dRY >  Math.PI) dRY -= Math.PI * 2;
+      while (dRY < -Math.PI) dRY += Math.PI * 2;
+      this._ry += dRY * Math.min(1, ROT_SPEED * dt);
+    }
+
+    // Integrate position
+    const nx = this._x + this._physVelX * dt;
+    const nz = this._z + this._physVelZ * dt;
+    const dx = nx - this._x, dz = nz - this._z;
+    this._moveDist = Math.sqrt(dx * dx + dz * dz);
+    this._x = nx; this._z = nz;
+
+    this.group.position.set(this._x, 0, this._z);
+    this.group.rotation.y = this._ry;
+    this.group.updateWorldMatrix(false, true);
+
+    return { x: this._x, z: this._z, ry: this._ry };
   }
 
   syncPosition(x, z, moveAngle, speed) {
