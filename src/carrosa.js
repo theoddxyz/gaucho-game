@@ -41,6 +41,7 @@ export class CarrosaSystem {
     this._nearCarrosa = false;
     this._anim        = null;
     this._mountLandPos = null;
+    this._driverId    = null;   // socket.id of whoever is currently driving
     this._prompt      = this._mkPrompt();
 
     this.group.position.set(spawnX, 0, spawnZ);
@@ -165,6 +166,9 @@ export class CarrosaSystem {
   isOnBoard()        { return this._conducting; }
   isMountAnimating() { return this._anim?.type === 'mount'; }
   speedMultiplier(sprinting) { return sprinting ? SPEED_MULT * SPRINT_MULT : SPEED_MULT; }
+  getDriverId()      { return this._driverId; }
+  /** Called by remote carrossaDriver event to lock/unlock the carriage */
+  setRemoteDriver(id) { if (!this._conducting) this._driverId = id; }
 
   getRiderY() {
     if (!this._conductorNode) return 3.0;
@@ -210,9 +214,10 @@ export class CarrosaSystem {
 
   // ── Mount / dismount ──────────────────────────────────────────────────────
 
-  tryMount(_playerId, fromX, fromZ) {
+  tryMount(playerId, fromX, fromZ) {
     if (this._conducting) {
       this._conducting = false;
+      this._driverId = null;
       this._speed = 0;
       const cx = this._conductorNode
         ? this._conductorNode.getWorldPosition(new THREE.Vector3()).x : this._x;
@@ -225,9 +230,12 @@ export class CarrosaSystem {
         toZ: this._z + Math.cos(sideAngle) * 3 };
       return null;
     }
+    // Lock: someone else is already driving
+    if (this._driverId && this._driverId !== playerId) return null;
     if (!this._nearCarrosa) return null;
 
     this._conducting = true;
+    this._driverId = playerId;
     const wp = this._conductorNode
       ? this._conductorNode.getWorldPosition(new THREE.Vector3())
       : new THREE.Vector3(this._x, 0, this._z);

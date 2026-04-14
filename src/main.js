@@ -276,7 +276,8 @@ UI.initCoords();
 // --- State ---
 let localPlayerModel  = null;
 let horseManager      = null;
-let carrossaSystem    = null;
+let carrossaSystem        = null;
+let _remoteCarrosaDriver  = null;  // socket.id of whoever is remotely driving the carriage
 const remotePlayers   = new Map();
 let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
@@ -369,7 +370,30 @@ Network.onJoined((data) => {
   horseManager.initMyHorse(myId);
 
   carrossaSystem = new CarrosaSystem(scene, 14, -56, horseManager);
-  Network.onCarrosaMoved(({ x, z, ry }) => carrossaSystem?.onRemoteMove(x, z, ry));
+  Network.onCarrosaMoved(({ x, z, ry, driverId }) => {
+    carrossaSystem?.onRemoteMove(x, z, ry);
+    // Track driver changes (volatile — may arrive before/after mount events)
+    if (driverId && driverId !== _remoteCarrosaDriver) {
+      if (_remoteCarrosaDriver) remotePlayers.get(_remoteCarrosaDriver)?.setRiding(false);
+      _remoteCarrosaDriver = driverId;
+      remotePlayers.get(_remoteCarrosaDriver)?.setRiding(true);
+      carrossaSystem?.setRemoteDriver(_remoteCarrosaDriver);
+    }
+  });
+  Network.onCarrossaMount(({ driverId }) => {
+    if (_remoteCarrosaDriver && _remoteCarrosaDriver !== driverId)
+      remotePlayers.get(_remoteCarrosaDriver)?.setRiding(false);
+    _remoteCarrosaDriver = driverId;
+    remotePlayers.get(_remoteCarrosaDriver)?.setRiding(true);
+    carrossaSystem?.setRemoteDriver(_remoteCarrosaDriver);
+  });
+  Network.onCarrossaDismount(({ driverId }) => {
+    if (_remoteCarrosaDriver === driverId) {
+      remotePlayers.get(_remoteCarrosaDriver)?.setRiding(false);
+      _remoteCarrosaDriver = null;
+      carrossaSystem?.setRemoteDriver(null);
+    }
+  });
   _monturaCnt = 0;  // arranca sin montura en inventario (ya está en el caballo)
   _updateMonturaHUD();
 
@@ -418,8 +442,15 @@ Network.onJoined((data) => {
 
     // ── 2a. Subir/bajar carrosa ───────────────────────────────────────────────
     if (carrossaSystem?._nearCarrosa || carrossaSystem?.isConducting()) {
+      const wasConducting = carrossaSystem.isConducting();
       const land = carrossaSystem.tryMount(myId, pos.x, pos.z);
-      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); }
+      if (land) {
+        controls.setPosition(land.x, 0, land.z);
+        Audio.mountSound();
+        Network.sendCarrossaMount();   // reliable: tell others I'm driving
+      } else if (wasConducting) {
+        Network.sendCarrossaDismount(); // reliable: tell others I dismounted
+      }
       return;
     }
 
@@ -526,8 +557,9 @@ Network.onPlayerLeft((id) => {
 });
 
 Network.onPlayerMoved((data) => {
-  // Skip position update for mounted players — horse position is authoritative
+  // Skip position update for mounted/carriage players — vehicle position is authoritative
   if (horseManager?.isPlayerMounted(data.id)) return;
+  if (data.id === _remoteCarrosaDriver) return;
   remotePlayers.get(data.id)?.setTarget(data.x, data.y, data.z, data.ry);
 });
 
@@ -1242,6 +1274,20 @@ function gameLoop() {
   }
 
   for (const [, pm] of remotePlayers) pm.update(dt);
+
+  // ── Pin remote carriage driver to conductor seat ──────────────────────────
+  if (_remoteCarrosaDriver && carrossaSystem) {
+    const pm = remotePlayers.get(_remoteCarrosaDriver);
+    if (pm) {
+      const seat = carrossaSystem.getRiderWorldPos();
+      if (seat) {
+        pm.group.position.x = seat.x;
+        pm.group.position.z = seat.z;
+        pm.group.position.y = carrossaSystem.getRiderY();
+      }
+    }
+  }
+
   localPlayerModel?.setRiding((horseManager?.isMounted() ?? false) || _onCarrosa);
   if (localPlayerModel && pos) {
     const _vx = controls._velX ?? 0, _vz = controls._velZ ?? 0;

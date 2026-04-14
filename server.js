@@ -637,7 +637,18 @@ io.on('connection', (socket) => {
 
   socket.on('carrosaMoved', ({ x, z, ry } = {}) => {
     if (!currentRoom) return;
-    socket.to(currentRoom).volatile.emit('carrosaMoved', { x, z, ry });
+    // Stamp driverId = socket.id so remote clients know who is driving
+    socket.to(currentRoom).volatile.emit('carrosaMoved', { x, z, ry, driverId: socket.id });
+  });
+
+  socket.on('carrossaMount', () => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('carrossaMount', { driverId: socket.id });
+  });
+
+  socket.on('carrossaDismount', () => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('carrossaDismount', { driverId: socket.id });
   });
 
   socket.on('horseMoved', (data) => {
