@@ -1288,9 +1288,7 @@ function gameLoop() {
       _facingAngle += _fd * Math.min(1, 12 * dt); // smooth turn when walking
     }
     const facingAngle = _facingAngle;
-    const _movingKeys = controls.keys;
-    const _isMovingNow = _movingKeys && (_movingKeys.w || _movingKeys.a || _movingKeys.s || _movingKeys.d);
-    localPlayerModel?.setAiming(currentWeapon === 'shotgun' && !!_isMovingNow);
+    localPlayerModel?.setAiming(controls.isAiming());
     if (localPlayerModel) {
       // Y: mount/dismount anim → lomo world-space (localToWorld) → salto → suelo
       const animY   = horseManager?.getAnimY() ?? carrossaSystem?.getAnimY();
