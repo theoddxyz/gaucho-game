@@ -27,6 +27,7 @@ import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
 import { BirdSystem } from './birds.js';
+import { BloodSystem } from './blood.js';
 import { MusicPlayer } from './music.js';
 import { stepPhysics } from './physics.js';
 import { speakNpc, speakGm, stopSpeech } from './speech.js';
@@ -334,6 +335,7 @@ const radialMenu  = new RadialMenu();
 const lassoSystem = new LassoSystem(scene);
 const windParticles = new WindParticles(scene);
 const birdSystem = new BirdSystem(scene);
+const bloodSystem = new BloodSystem(scene);
 
 // Vacas
 let cowSystem = null;
@@ -1025,9 +1027,11 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
 
     setTimeout(() => {
-      // Sonido de impacto en carne para cualquier entidad viva
+      // Sonido de impacto + sangre para cualquier entidad viva
       if (['player','cow','ostrich','chicken','bird'].includes(scanHit.target.type)) {
         Audio.bulletImpactFlesh();
+        bloodSystem.spawn(scanHit.point, result.direction.x, result.direction.z,
+          scanHit.target.type === 'chicken' ? 5 : 10);
       }
 
       if (scanHit.target.type === 'player') {
@@ -1602,6 +1606,7 @@ function gameLoop() {
 
   // ── Wind particles ─────────────────────────────────────────────────────
   windParticles.update(dt, pos);
+  bloodSystem.update(dt);
 
   // ── Bird flocks ────────────────────────────────────────────────────────
   birdSystem.update(dt, pos);

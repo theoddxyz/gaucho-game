@@ -346,10 +346,14 @@ export function bulletImpactDirt() {
   });
 }
 export function bulletImpactFlesh() {
-  _playFile('weapons/impact_flesh.mp3', { volume: 0.55, reverb: 0.06 }, () => {
+  _playFile('weapons/impact_flesh.mp3', { volume: 0.80, reverb: 0.06, pitch: 1.1 + Math.random() * 0.2 }, () => {
     const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.09, 320, 1.0);
-    if (n) { _env(n.gain,0.001,0.012,0.0,0.07,0.26); _toOut(n.gain,0.07); n.src.start(t); }
+    // Thump grave
+    const n = _noise(0.12, 400, 1.2);
+    if (n) { _env(n.gain,0.001,0.010,0.0,0.08,0.20); _toOut(n.gain,0.10); n.src.start(t); }
+    // Crack agudo
+    const n2 = _noise(0.06, 2800, 2.5);
+    if (n2) { _env(n2.gain,0.001,0.005,0.0,0.04,0.10); _toOut(n2.gain,0.08); n2.src.start(t); }
   });
 }
 export function bulletImpactWood() {
