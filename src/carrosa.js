@@ -189,28 +189,9 @@ export class CarrosaSystem {
       this._debugGroup.add(m);
     }
 
-    // Heading arrow (yellow) — shows cannon heading direction
-    this._dbgArrow = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3(0, 0, 0),
-      4, 0xffff00, 0.8, 0.4
-    );
-    this._debugGroup.add(this._dbgArrow);
-
-    // Force origin sphere (red) — where horse pull force is applied
-    this._dbgTongue = new THREE.Mesh(
-      new THREE.SphereGeometry(0.35, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0xff0000 })
-    );
-    this._debugGroup.add(this._dbgTongue);
-
-    // Force arrow (red) — direction and magnitude of current pull force
-    this._dbgForceArrow = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3(0, 0, 0),
-      1, 0xff2200, 0.6, 0.3
-    );
-    this._debugGroup.add(this._dbgForceArrow);
+    this._dbgArrow      = null;
+    this._dbgTongue     = null;
+    this._dbgForceArrow = null;
 
     // Label
     const canvas = document.createElement('canvas');
@@ -287,29 +268,6 @@ export class CarrosaSystem {
       }
     }
 
-    // Red sphere: tongue / force application point
-    if (this._dbgTongue) {
-      const tz = this._tongueZ || 2.0;
-      const tx = cx + tz * sinY;
-      const tzw = cz + tz * cosY;
-      this._dbgTongue.position.set(tx, WHL_R, tzw);
-    }
-
-    // Red arrow: pull force direction and magnitude
-    if (this._dbgForceArrow) {
-      const tz = this._tongueZ || 2.0;
-      const tx = cx + tz * sinY;
-      const tzw = cz + tz * cosY;
-      this._dbgForceArrow.position.set(tx, WHL_R, tzw);
-      if (this._lastPullF > 0) {
-        const pa = this._lastPullAngle;
-        this._dbgForceArrow.setDirection(new THREE.Vector3(Math.sin(pa), 0, Math.cos(pa)));
-        this._dbgForceArrow.setLength(Math.min(this._lastPullF / 600, 6), 0.6, 0.3);
-        this._dbgForceArrow.visible = true;
-      } else {
-        this._dbgForceArrow.visible = false;
-      }
-    }
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -611,6 +569,29 @@ export class CarrosaSystem {
   }
 
   // ── Per-frame update ──────────────────────────────────────────────────────
+
+  // Called from main.js every frame when player is NOT mounted.
+  // If player overlaps the carriage AABB, push the cannon body.
+  pushFromPlayer(px, pz, velX, velZ) {
+    if (!this._chassisBody) return;
+    const dx = px - this._x, dz = pz - this._z;
+    // Rotate to carriage local space
+    const c = Math.cos(-this._ry), s = Math.sin(-this._ry);
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    // Carriage half-extents (rough AABB in local space)
+    const hw = 1.8, hl = 3.0, playerR = 0.5;
+    if (Math.abs(lx) < hw + playerR && Math.abs(lz) < hl + playerR) {
+      // Player is touching — apply impulse in player velocity direction
+      const spd = Math.sqrt(velX * velX + velZ * velZ);
+      if (spd > 0.5) {
+        const imp = spd * 80;
+        this._chassisBody.applyImpulse(
+          new CANNON.Vec3(velX / spd * imp, 0, velZ / spd * imp),
+          this._chassisBody.position
+        );
+      }
+    }
+  }
 
   update(playerPos, dt) {
     if (this._anim) {

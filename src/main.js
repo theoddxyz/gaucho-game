@@ -1221,6 +1221,10 @@ function gameLoop() {
     // ── Carrosa ───────────────────────────────────────────────────────────────
     if (carrossaSystem) {
       carrossaSystem.update(pos, dt);
+      // Player pushes carriage when not mounted
+      if (!carrossaSystem.isOnBoard()) {
+        carrossaSystem.pushFromPlayer(pos.x, pos.z, controls._velX || 0, controls._velZ || 0);
+      }
       // Snap controls when mount animation finishes (conductor or passenger)
       const carLand = carrossaSystem.consumeMountLand();
       if (carLand) controls.setPosition(carLand.x, 0, carLand.z);
