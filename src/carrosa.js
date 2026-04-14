@@ -1,49 +1,32 @@
 // ─── Carrosa (carriage) system ───────────────────────────────────────────────
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { findLegs } from './horses.js';
 
 const loader      = new GLTFLoader();
 const SCALE       = 8.0;
 const MOUNT_R     = 5.0;
 const MOUNT_DUR   = 0.45;
-const SADDLE_H    = 3.28;   // conductor seat Y: model.y(0.41) * SCALE(8)
-const WALK_FREQ   = 4.5;
-const WALK_AMP    = 0.38;
+const WALK_FREQ   = 6.0;
+const WALK_AMP    = 0.45;
 const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
 
-// Precomputed group-local offsets after SCALE=8 + car.rotation.y=-π/2:
-//   group.x = -model.z * S,  group.z = model.x * S,  group.y = model.y * S
-const OFF_CONDUCTOR   = new THREE.Vector3( 0.96, 3.28, -3.04);  // LUGAR CONDUCTOR
-const OFF_ACOMPANANTE = new THREE.Vector3(-0.96, 3.28, -3.04);  // LUGAR ACOMPAÑANTE
-// Horses: LUGAR CABALLO z_group = 0.30*8 = 2.4, but add +2 so they're IN FRONT of the carriage
-const OFF_HORSE_IZQ   = new THREE.Vector3( 0.96, 0.0,   4.4);  // LUGAR CABALLO IZQUIERDA
-const OFF_HORSE_DER   = new THREE.Vector3(-0.96, 0.0,   4.4);  // LUGAR CABALLO DERECHA
+// Group-local offsets after SCALE=8 + car.rotation.y = -π/2
+// Transform: x_group = -z_model*S,  z_group = x_model*S,  y_group = y_model*S
+// LUGAR CONDUCTOR   model(-0.38, 0.41, -0.12) → group( 0.96, 3.28, -3.04)
+// LUGAR ACOMPAÑANTE model(-0.38, 0.41,  0.12) → group(-0.96, 3.28, -3.04)
+// LUGAR CABALLO IZQ model( 0.30, 0.33, -0.12) → group( 0.96, 0,     2.40) + fwd offset
+// LUGAR CABALLO DER model( 0.30, 0.33,  0.12) → group(-0.96, 0,     2.40) + fwd offset
+const OFF_CONDUCTOR   = new THREE.Vector3( 0.96, 3.28, -3.04);
+const OFF_ACOMPANANTE = new THREE.Vector3(-0.96, 3.28, -3.04);
+const OFF_HORSE_IZQ   = new THREE.Vector3( 0.96, 0.0,   4.5);   // +~2 forward from yoke
+const OFF_HORSE_DER   = new THREE.Vector3(-0.96, 0.0,   4.5);
 
 function loadGLB(path) {
   return new Promise(r =>
     loader.load(path, g => r(g), undefined, () => { console.warn('[carrosa] no cargó:', path); r(null); })
   );
-}
-
-const LEG_PAT  = /leg|pata|pierna|hoof|pezuña/i;
-const SKIP_PAT = /torso|body|head|neck|mane|tail|saddle|ear|eye|nose|crin|cola/i;
-
-function findLegs(mesh) {
-  const found = [];
-  mesh.traverse(o => {
-    if (o.isMesh && LEG_PAT.test(o.name) && !SKIP_PAT.test(o.name)) found.push(o);
-  });
-  if (found.length >= 2) return found.slice(0, 4).map((obj, i) => ({ obj, phase: (i / found.length) * Math.PI * 2 }));
-  // fallback: lowest meshes
-  const all = [];
-  mesh.traverse(o => { if (o.isMesh && !SKIP_PAT.test(o.name)) all.push(o); });
-  all.sort((a, b) => {
-    const ya = new THREE.Box3().setFromObject(a).getCenter(new THREE.Vector3()).y;
-    const yb = new THREE.Box3().setFromObject(b).getCenter(new THREE.Vector3()).y;
-    return ya - yb;
-  });
-  return all.slice(0, 4).map((obj, i) => ({ obj, phase: (i / 4) * Math.PI * 2 }));
 }
 
 export class CarrosaSystem {
@@ -55,18 +38,17 @@ export class CarrosaSystem {
     this._ry       = 0;
     this._speed    = 0;
     this._walkTime = 0;
-    this._wheels   = [];      // mesh objects for wheel spin
-    this._horseLegs = [];     // [{obj, phase}] for leg animation
+    this._wheels   = [];       // mesh objects (RUEDA nodes)
+    this._horseLegs = [];      // [{pivot, legObj, phase}] — same format as HorseManager
     this._conducting = false;
     this._nearCarrosa = false;
-    this._anim        = null; // {type, t, dur, fromX, fromZ, toX, toZ}
+    this._anim         = null;
     this._mountLandPos = null;
-    this._prompt      = this._mkPrompt();
+    this._prompt       = this._mkPrompt();
 
     this.group.position.set(spawnX, 0, spawnZ);
     scene.add(this.group);
-    // Load async — errors are caught, never block game init
-    this._load().catch(e => console.warn('[carrosa] error en _load:', e));
+    this._load().catch(e => console.warn('[carrosa] error en carga:', e));
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -80,11 +62,9 @@ export class CarrosaSystem {
 
     const car = carGLTF.scene;
     car.scale.setScalar(SCALE);
-    // Rotate so horse-side (model +X) faces Three.js +Z (forward).
-    // -π/2: model +X → world +Z  (positive = counterclockwise from above, so -π/2 = clockwise)
+    // -π/2: model +X (horse side / front) → world +Z (Three.js forward)
     car.rotation.y = -Math.PI / 2;
 
-    // Find wheels — the GLB already has ruedas, ejes, etc. we just spin them
     car.traverse(o => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
       if (/RUEDA/i.test(o.name)) this._wheels.push(o);
@@ -93,26 +73,27 @@ export class CarrosaSystem {
     this.group.add(car);
     car.updateWorldMatrix(true, true);
 
-    // Override offsets from actual node world positions (robust to model changes)
-    // NOTE: horse positions get +2 forward offset so they appear IN FRONT of the carriage
+    // Override seat offsets from actual node world positions
     car.traverse(o => {
-      if (/LUGAR CONDUCTOR$/i.test(o.name)) {
+      const n = o.name;
+      if (/LUGAR CONDUCTOR$/i.test(n)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
         OFF_CONDUCTOR.set(wp.x - this._x, wp.y, wp.z - this._z);
-      } else if (/LUGAR ACOMPA/i.test(o.name)) {
+      } else if (/LUGAR ACOMPA/i.test(n)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
         OFF_ACOMPANANTE.set(wp.x - this._x, wp.y, wp.z - this._z);
-      } else if (/LUGAR CABALLO IZQ/i.test(o.name)) {
+      }
+      // Horse positions: use node x/z but add forward offset so horses are visually in front
+      else if (/LUGAR CABALLO IZQ/i.test(n)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
-        // +2 forward (z) so horse body is in front, not inside the carriage
         OFF_HORSE_IZQ.set(wp.x - this._x, 0, wp.z - this._z + 2.0);
-      } else if (/LUGAR CABALLO DER/i.test(o.name)) {
+      } else if (/LUGAR CABALLO DER/i.test(n)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
         OFF_HORSE_DER.set(wp.x - this._x, 0, wp.z - this._z + 2.0);
       }
     });
 
-    // Attach horse models at LUGAR CABALLO positions
+    // Attach horse models
     if (horseGLTF) {
       for (const off of [OFF_HORSE_IZQ, OFF_HORSE_DER]) {
         const horseMesh = horseGLTF.scene.clone(true);
@@ -120,27 +101,31 @@ export class CarrosaSystem {
           if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
         });
 
-        // Scale horse ~2.2 units tall
+        // Scale to same height as world horses (≈ 2.8 units)
         horseMesh.updateWorldMatrix(true, true);
         const bbox = new THREE.Box3().setFromObject(horseMesh);
         const h = bbox.max.y - bbox.min.y;
-        if (h > 0.01) horseMesh.scale.setScalar(2.2 / h);
+        if (h > 0.01) horseMesh.scale.setScalar(2.8 / h);
 
-        // Position: x/z from attachment node, y grounded
-        horseMesh.position.set(off.x, 0, off.z);
+        // Ground the horse
         horseMesh.updateWorldMatrix(true, true);
         const bb2 = new THREE.Box3().setFromObject(horseMesh);
-        if (bb2.min.y < 0) horseMesh.position.y -= bb2.min.y;
+        horseMesh.position.set(off.x, -bb2.min.y, off.z);
 
-        // Horses face forward (same direction as carrosa)
-        horseMesh.rotation.y = 0;
+        // Horses face forward (+Z = same direction as carriage front)
+        // The horse GLB faces -Z natively, so π rotation makes it face +Z
+        horseMesh.rotation.y = Math.PI;
 
         this.group.add(horseMesh);
-        this._horseLegs.push(...findLegs(horseMesh));
+
+        // Use the same leg-finding logic as HorseManager for identical animation
+        horseMesh.updateWorldMatrix(true, true);
+        const legs = findLegs(horseMesh);
+        for (const leg of legs) this._horseLegs.push(leg);
       }
     }
 
-    console.log('[carrosa] lista. Conductor offset:', OFF_CONDUCTOR.toArray().map(v => v.toFixed(2)));
+    console.log('[carrosa] lista. Conductor seat:', OFF_CONDUCTOR.toArray().map(v => v.toFixed(2)));
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────
@@ -158,13 +143,24 @@ export class CarrosaSystem {
     return el;
   }
 
-  // ── Public API (mirrors HorseManager interface for easy integration) ──────
+  // ── Public API ────────────────────────────────────────────────────────────
 
   isConducting()     { return this._conducting; }
   isOnBoard()        { return this._conducting; }
   isMountAnimating() { return this._anim?.type === 'mount'; }
-  getRiderY()        { return SADDLE_H; }
   speedMultiplier(sprinting) { return sprinting ? SPEED_MULT * SPRINT_MULT : SPEED_MULT; }
+
+  /** Y of conductor seat (for player model height) */
+  getRiderY() { return OFF_CONDUCTOR.y; }
+
+  /** World XZ of conductor seat — use this to position player model while riding */
+  getRiderWorldPos() {
+    if (!this._conducting) return null;
+    return {
+      x: this._seatWorldX(OFF_CONDUCTOR),
+      z: this._seatWorldZ(OFF_CONDUCTOR),
+    };
+  }
 
   consumeMountLand() {
     const p = this._mountLandPos;
@@ -192,17 +188,15 @@ export class CarrosaSystem {
 
   getAnimY() {
     if (!this._anim) return null;
-    const t = this._anim.t;
-    const ease = _ease(t);
-    if (this._anim.type === 'mount')    return ease * SADDLE_H + Math.sin(t * Math.PI) * 0.3;
-    return (1 - ease) * SADDLE_H + Math.sin(t * Math.PI) * 0.5;
+    const t = this._anim.t, ease = _ease(t);
+    if (this._anim.type === 'mount') return ease * OFF_CONDUCTOR.y + Math.sin(t * Math.PI) * 0.3;
+    return (1 - ease) * OFF_CONDUCTOR.y + Math.sin(t * Math.PI) * 0.5;
   }
 
   // ── Mount / dismount ──────────────────────────────────────────────────────
 
   tryMount(_playerId, fromX, fromZ) {
     if (this._conducting) {
-      // Dismount — jump off to the side
       this._conducting = false;
       this._speed = 0;
       const sideAngle = this._ry + Math.PI * 0.5;
@@ -215,7 +209,6 @@ export class CarrosaSystem {
       return null;
     }
     if (!this._nearCarrosa) return null;
-    // Mount as conductor
     this._conducting = true;
     const cx = this._seatWorldX(OFF_CONDUCTOR);
     const cz = this._seatWorldZ(OFF_CONDUCTOR);
@@ -227,7 +220,7 @@ export class CarrosaSystem {
   // ── Per-frame update ──────────────────────────────────────────────────────
 
   update(playerPos, dt) {
-    // Tick mount animation
+    // Mount animation tick
     if (this._anim) {
       this._anim.t += dt / this._anim.dur;
       if (this._anim.t >= 1) {
@@ -237,10 +230,9 @@ export class CarrosaSystem {
       }
     }
 
-    // Proximity prompt (only when not conducting)
+    // Proximity prompt
     if (!this._conducting) {
-      const dx = this._x - playerPos.x;
-      const dz = this._z - playerPos.z;
+      const dx = this._x - playerPos.x, dz = this._z - playerPos.z;
       this._nearCarrosa = (dx * dx + dz * dz) < MOUNT_R * MOUNT_R;
       this._prompt.style.display = this._nearCarrosa ? 'block' : 'none';
     } else {
@@ -248,34 +240,44 @@ export class CarrosaSystem {
       this._prompt.style.display = 'none';
     }
 
-    // Horse leg animation
     const moving = this._speed > 0.5;
     if (moving) this._walkTime += dt;
     else        this._walkTime  = 0;
 
-    for (const { obj, phase } of this._horseLegs) {
-      const target = moving ? Math.sin(this._walkTime * WALK_FREQ + phase) * WALK_AMP : 0;
-      obj.rotation.x += (target - obj.rotation.x) * Math.min(1, 12 * dt);
+    // ── Horse legs — identical to HorseManager._animateLegs ──────────────
+    if (!moving) {
+      for (const leg of this._horseLegs) {
+        leg.pivot.rotation.x *= 0.85;
+        leg.pivot.rotation.z *= 0.85;
+        if (leg.legObj) leg.legObj.rotation.x *= 0.85;
+      }
+    } else {
+      const t = this._walkTime;
+      for (const leg of this._horseLegs) {
+        const s = Math.sin(WALK_FREQ * t + leg.phase);
+        const swing = s > 0 ? s * WALK_AMP : s * WALK_AMP * 0.65;
+        leg.pivot.rotation.x = swing;
+        if (leg.legObj) {
+          const kneeFlex = Math.max(0, Math.sin(WALK_FREQ * t + leg.phase + 0.55)) * WALK_AMP * 0.55;
+          leg.legObj.rotation.x = kneeFlex;
+        }
+      }
     }
 
-    // Wheel spin (wheels already have the right axes from the GLB)
+    // ── Wheels — rotate around the carriage's world-space axle (X axis) ──
     if (moving && this._wheels.length) {
-      const spin = this._speed * dt * 0.22;
-      for (const w of this._wheels) w.rotation.x -= spin;
+      const spin = this._speed * dt * 0.25;
+      // Axle direction = group's local X axis in world space
+      const axle = new THREE.Vector3(1, 0, 0).applyQuaternion(this.group.quaternion);
+      for (const w of this._wheels) w.rotateOnWorldAxis(axle, -spin);
     }
   }
 
-  /** Move the carrosa group to follow the conductor's controls position. */
   syncPosition(x, z, moveAngle, speed) {
-    this._x     = x;
-    this._z     = z;
-    this._ry    = moveAngle;
-    this._speed = speed;
+    this._x = x; this._z = z; this._ry = moveAngle; this._speed = speed;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = moveAngle;
   }
-
-  // ── Multiplayer ───────────────────────────────────────────────────────────
 
   onRemoteMove(x, z, ry) {
     if (this._conducting) return;
@@ -283,8 +285,6 @@ export class CarrosaSystem {
     this.group.position.set(x, 0, z);
     this.group.rotation.y = ry;
   }
-
-  // ── Private helpers ───────────────────────────────────────────────────────
 
   _seatWorldX(off) { return this._x + off.x * Math.cos(this._ry) - off.z * Math.sin(this._ry); }
   _seatWorldZ(off) { return this._z + off.x * Math.sin(this._ry) + off.z * Math.cos(this._ry); }

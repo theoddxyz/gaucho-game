@@ -1201,8 +1201,10 @@ function gameLoop() {
       const mountXZ    = horseManager?.getMountModelPos()       ?? carrossaSystem?.getMountModelPos();
       const dismountXZ = horseManager?.getDismountModelPos(pos) ?? carrossaSystem?.getDismountModelPos(pos);
       const overrideXZ = mountXZ ?? dismountXZ;
-      const modelX = overrideXZ ? overrideXZ.x : pos.x;
-      const modelZ = overrideXZ ? overrideXZ.z : pos.z;
+      // While riding carrosa (no animation), place model at actual seat world position
+      const seatXZ     = (!overrideXZ && _onCarrosa) ? carrossaSystem.getRiderWorldPos() : null;
+      const modelX = overrideXZ ? overrideXZ.x : (seatXZ?.x ?? pos.x);
+      const modelZ = overrideXZ ? overrideXZ.z : (seatXZ?.z ?? pos.z);
 
       localPlayerModel.group.position.set(modelX, riderY, modelZ);
       localPlayerModel.group.rotation.y = facingAngle;

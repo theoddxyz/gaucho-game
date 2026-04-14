@@ -52,7 +52,7 @@ function loadTemplate() {
 }
 
 // ─── Pivot group at top of leg (hip joint) ───────────────────────────────────
-function wrapInPivot(legObj) {
+export function wrapInPivot(legObj) {
   const parent = legObj.parent;
   if (!parent) return legObj;
 
@@ -84,7 +84,7 @@ function wrapInPivot(legObj) {
 // ─── Find & wrap leg objects, assign anatomically correct walk phases ─────────
 // Natural 4-beat lateral walk sequence:
 //   BL=0, FL=π/2, BR=π, FR=3π/2  (each leg offset by ¼ cycle from the next)
-function findLegs(horseMesh) {
+export function findLegs(horseMesh) {
   const all = [];
   horseMesh.traverse(o => { if (o !== horseMesh) all.push(o); });
 
