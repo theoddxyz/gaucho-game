@@ -1,17 +1,17 @@
 // ─── Carrosa (carriage) system ───────────────────────────────────────────────
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { findLegs } from './horses.js';
 
 const loader      = new GLTFLoader();
-const CAR_SCALE   = 7.14;   // 6.8 * 1.05
+const CAR_SCALE   = 7.14;
 const MOUNT_R     = 5.0;
 const MOUNT_DUR   = 0.45;
 const WALK_FREQ   = 6.0;
 const WALK_AMP    = 0.45;
 const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
-const WHEEL_SPIN  = 4.0;    // rad per world-unit traveled
+const WHEEL_SPIN  = 4.0;      // rad per world-unit traveled
+const CONDUCTOR_FWD = 0.5;    // small forward nudge on conductor seat
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -20,17 +20,25 @@ function loadGLB(path) {
 }
 
 export class CarrosaSystem {
-  constructor(scene, spawnX = 14, spawnZ = -56) {
-    this.scene     = scene;
-    this.group     = new THREE.Group();
-    this._x        = spawnX;
-    this._z        = spawnZ;
-    this._ry       = 0;
-    this._speed    = 0;
-    this._moveDist = 0;      // world-units moved this frame (for wheel spin)
-    this._walkTime = 0;
-    this._axles      = [];
-    this._horseLegs  = [];
+  /**
+   * @param {THREE.Scene}   scene
+   * @param {number}        spawnX
+   * @param {number}        spawnZ
+   * @param {HorseManager}  horseManager  — required to hitch real horses
+   */
+  constructor(scene, spawnX = 14, spawnZ = -56, horseManager = null) {
+    this.scene        = scene;
+    this._horseManager = horseManager;
+    this.group        = new THREE.Group();
+    this._x           = spawnX;
+    this._z           = spawnZ;
+    this._ry          = 0;
+    this._speed       = 0;
+    this._moveDist    = 0;
+    this._walkTime    = 0;
+    this._axles       = [];    // eje nodes — fallback for wheel spin
+    this._wheelNodes  = [];    // RUEDA nodes — rotated for wheel spin
+    this._hitchedHorses = [];  // [{ horse, node }]  — real horse objects from HorseManager
     this._conductorNode    = null;
     this._acompananteNode  = null;
     this._conducting  = false;
@@ -47,64 +55,76 @@ export class CarrosaSystem {
   // ── Loading ───────────────────────────────────────────────────────────────
 
   async _load() {
-    const [carGLTF, horseGLTF] = await Promise.all([
-      loadGLB('/models/CARROSA.glb'),
-      loadGLB('/models/horse.glb'),
-    ]);
+    const carGLTF = await loadGLB('/models/CARROSA.glb');
     if (!carGLTF) return;
 
     const car = carGLTF.scene;
     car.scale.setScalar(CAR_SCALE);
-    car.rotation.y = -Math.PI / 2;   // model +X (horse side = front) → world +Z
+    car.rotation.y = -Math.PI / 2;   // model +X (horse side) → world +Z
 
+    // Collect nodes
+    const horseNodes = [];
     car.traverse(o => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
       const n = o.name;
-      if (/eje/i.test(n))       this._axles.push(o);
-      if (/conductor/i.test(n)) this._conductorNode   = o;
-      if (/acompa/i.test(n))    this._acompananteNode = o;
+      if (/eje/i.test(n))          this._axles.push(o);
+      if (/rueda|wheel/i.test(n))  this._wheelNodes.push(o);
+      if (/conductor/i.test(n))    this._conductorNode   = o;
+      if (/acompa/i.test(n))       this._acompananteNode = o;
+      if (/caballo/i.test(n))      horseNodes.push(o);
     });
+
+    // Prefer wheel nodes; fall back to children of axle nodes
+    if (!this._wheelNodes.length && this._axles.length) {
+      for (const axle of this._axles)
+        axle.children.forEach(c => this._wheelNodes.push(c));
+    }
 
     this.group.add(car);
     this.group.updateWorldMatrix(false, true);
 
-    // ── Debug: log node structure ────────────────────────────────────────────
-    console.log('[carrosa] ejes encontrados:', this._axles.length,
-      this._axles.map(a => `${a.name}(hijos:${a.children.map(c=>c.name).join(',')})`));
-    if (!this._conductorNode)   console.warn('[carrosa] ¡no encontré CONDUCTOR!');
-    if (!this._acompananteNode) console.warn('[carrosa] ¡no encontré ACOMPAÑANTE!');
+    console.log('[carrosa] ejes:', this._axles.map(a =>
+      `${a.name}[${a.children.map(c => c.name).join(',')}]`));
+    console.log('[carrosa] ruedas:', this._wheelNodes.map(w => w.name));
+    console.log('[carrosa] nodos caballo:', horseNodes.map(n => n.name));
+    if (!this._conductorNode)   console.warn('[carrosa] no encontré CONDUCTOR');
+    if (!this._acompananteNode) console.warn('[carrosa] no encontré ACOMPAÑANTE');
 
-    // ── Attach horse models ──────────────────────────────────────────────────
-    if (horseGLTF) {
-      const horseNodes = [];
-      car.traverse(o => { if (/caballo/i.test(o.name)) horseNodes.push(o); });
-      console.log('[carrosa] nodos caballo:', horseNodes.map(n => n.name));
+    // ── Hitch real horses from HorseManager ─────────────────────────────────
+    if (this._horseManager && horseNodes.length) {
+      // Wait up to 5 s for HorseManager to finish loading its horses
+      let retries = 0;
+      while (this._horseManager.horses.size === 0 && retries < 50) {
+        await new Promise(r => setTimeout(r, 100));
+        retries++;
+      }
 
+      // Pick the first N available horses (IDs 0, 1, …)
+      let idx = 0;
       for (const node of horseNodes) {
-        // Clone at native GLB scale — same as HorseManager does
-        const horseMesh = horseGLTF.scene.clone(true);
-        horseMesh.traverse(o => {
-          if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
-        });
+        let horse = null;
+        while (horse === null && idx < 10) {
+          horse = this._horseManager.hitchHorse(idx++);
+        }
+        if (!horse) { console.warn('[carrosa] no hay caballo disponible para enganchar'); continue; }
 
-        // Place at LUGAR CABALLO world position, feet on ground (y=0)
         const wp = node.getWorldPosition(new THREE.Vector3());
-        horseMesh.position.set(wp.x - this._x, 0, wp.z - this._z);
-        horseMesh.rotation.y = Math.PI;   // face forward (+Z)
+        horse.mesh.position.set(wp.x, 0, wp.z);
+        horse.mesh.rotation.y = this._ry + Math.PI;
+        // Update x/z so HorseManager's proximity checks are in the right place
+        horse.x = wp.x;
+        horse.z = wp.z;
+        horse._prevX = wp.x;
+        horse._prevZ = wp.z;
 
-        this.group.add(horseMesh);
-        horseMesh.updateWorldMatrix(true, true);
-
-        const legs = findLegs(horseMesh);
-        console.log('[carrosa] patas en caballo:', legs.length);
-        for (const leg of legs) this._horseLegs.push(leg);
+        this._hitchedHorses.push({ horse, node });
+        console.log('[carrosa] caballo enganchado, id:', idx - 1, '| patas:', horse.legs.length);
       }
     }
 
     console.log('[carrosa] lista. Conductor:', this._conductorNode ? 'OK' : 'NO',
-      '| Acompañante:', this._acompananteNode ? 'OK' : 'NO',
-      '| Ejes:', this._axles.length,
-      '| Patas:', this._horseLegs.length);
+      '| Ruedas:', this._wheelNodes.length,
+      '| Caballos enganchados:', this._hitchedHorses.length);
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────
@@ -137,13 +157,14 @@ export class CarrosaSystem {
   getRiderWorldPos() {
     if (!this._conductorNode || !this._conducting) return null;
     const wp = this._conductorNode.getWorldPosition(new THREE.Vector3());
-    return { x: wp.x, z: wp.z };
+    return {
+      x: wp.x + Math.sin(this._ry) * CONDUCTOR_FWD,
+      z: wp.z + Math.cos(this._ry) * CONDUCTOR_FWD,
+    };
   }
 
   consumeMountLand() {
-    const p = this._mountLandPos;
-    this._mountLandPos = null;
-    return p;
+    const p = this._mountLandPos; this._mountLandPos = null; return p;
   }
 
   getMountModelPos() {
@@ -222,40 +243,55 @@ export class CarrosaSystem {
       this._prompt.style.display = 'none';
     }
 
-    const moving = this._speed > 0.1;
+    const moving = this._moveDist > 0.001;
     if (moving) this._walkTime += dt;
     else        this._walkTime  = 0;
 
-    // ── Horse legs ────────────────────────────────────────────────────────
-    if (!moving) {
-      for (const leg of this._horseLegs) {
-        leg.pivot.rotation.x *= 0.85;
-        if (leg.legObj) leg.legObj.rotation.x *= 0.85;
-      }
-    } else {
-      for (const leg of this._horseLegs) {
-        const s = Math.sin(WALK_FREQ * this._walkTime + leg.phase);
-        leg.pivot.rotation.x = (s > 0 ? s : s * 0.65) * WALK_AMP;
-        if (leg.legObj) {
-          leg.legObj.rotation.x = Math.max(0,
-            Math.sin(WALK_FREQ * this._walkTime + leg.phase + 0.55)) * WALK_AMP * 0.55;
+    // ── Hitched horses: update world position + animate legs ─────────────
+    for (const { horse, node } of this._hitchedHorses) {
+      const wp = node.getWorldPosition(new THREE.Vector3());
+      horse.mesh.position.set(wp.x, 0, wp.z);
+      horse.mesh.rotation.y = this._ry + Math.PI;
+      horse.x = wp.x;
+      horse.z = wp.z;
+
+      // Animate legs — same logic as HorseManager._animateLegs
+      if (!moving) {
+        for (const leg of horse.legs) {
+          leg.pivot.rotation.x *= 0.85;
+          leg.pivot.rotation.z *= 0.85;
+          if (leg.legObj) leg.legObj.rotation.x *= 0.85;
+        }
+      } else {
+        const t = this._walkTime;
+        for (const leg of horse.legs) {
+          const s = Math.sin(WALK_FREQ * t + leg.phase);
+          const swing = s > 0 ? s * WALK_AMP : s * WALK_AMP * 0.65;
+          leg.pivot.rotation.x = swing;
+          leg.pivot.rotation.z = 0;
+          if (leg.legObj) {
+            const kneeFlex = Math.max(0,
+              Math.sin(WALK_FREQ * t + leg.phase + 0.55)) * WALK_AMP * 0.55;
+            leg.legObj.rotation.x = -kneeFlex;
+          }
         }
       }
     }
 
-    // ── Wheels: spin axle nodes on local Z by actual distance moved ───────
-    if (this._moveDist > 0.0005 && this._axles.length) {
+    // ── Wheels — rotateOnWorldAxis with lateral direction (like Rapier example) ──
+    if (this._moveDist > 0.0005 && this._wheelNodes.length) {
+      const lateral = new THREE.Vector3(Math.cos(this._ry), 0, -Math.sin(this._ry));
       const spin = this._moveDist * WHEEL_SPIN;
-      for (const axle of this._axles) axle.rotation.z -= spin;
+      for (const wheel of this._wheelNodes) {
+        wheel.rotateOnWorldAxis(lateral, -spin);
+      }
     }
     this._moveDist = 0;
   }
 
   syncPosition(x, z, moveAngle, speed) {
-    // Compute actual distance moved (used for wheel spin — doesn't depend on velocity)
     const dx = x - this._x, dz = z - this._z;
     this._moveDist = Math.sqrt(dx * dx + dz * dz);
-
     this._x = x; this._z = z; this._ry = moveAngle; this._speed = speed;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = moveAngle;

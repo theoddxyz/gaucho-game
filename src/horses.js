@@ -225,6 +225,7 @@ export class HorseManager {
       this.horses.set(spawn.id, {
         mesh, legs, riderId: null, saddleNodes, isWild,
         saddled: true,  // todos los caballos arrancan con montura (isWild es solo color)
+        hitched: false,  // true when attached to carrosa
         x: spawn.x, z: spawn.z,
         walkTime: 0, _prevX: spawn.x, _prevZ: spawn.z, _vx: 0, _vz: 0,
         _sprinting: false,
@@ -263,6 +264,26 @@ export class HorseManager {
 
   isMountAnimating() { return this._anim?.type === 'mount'; }
 
+  // ── Hitching to carrosa ──────────────────────────────────────────────────
+
+  /** Mark horse as hitched to carriage. Returns horse object or null if unavailable. */
+  hitchHorse(horseId) {
+    const horse = this.horses.get(horseId);
+    if (!horse || horse.riderId !== null || horse.hitched) return null;
+    horse.hitched = true;
+    return horse;
+  }
+
+  /** Release a hitched horse back to the world. */
+  unhitchHorse(horseId) {
+    const horse = this.horses.get(horseId);
+    if (!horse) return;
+    horse.hitched = false;
+    // Reset prev position so speed doesn't spike on re-release
+    horse._prevX = horse.x;
+    horse._prevZ = horse.z;
+  }
+
   /** Returns { x, z } once when mount animation just finished so controls can snap there. */
   consumeMountLand() {
     const p = this._mountLandPos;
@@ -285,6 +306,7 @@ export class HorseManager {
     }
 
     for (const [id, horse] of this.horses) {
+      if (horse.hitched) continue;   // position/animation driven by CarrosaSystem
       const dx = horse.x - horse._prevX;
       const dz = horse.z - horse._prevZ;
       const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);

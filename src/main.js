@@ -368,7 +368,7 @@ Network.onJoined((data) => {
   horseManager.onHoofTouch = (speed, sprint) => Audio.playHoofTouch(speed, sprint);
   horseManager.initMyHorse(myId);
 
-  carrossaSystem = new CarrosaSystem(scene);
+  carrossaSystem = new CarrosaSystem(scene, 14, -56, horseManager);
   Network.onCarrosaMoved(({ x, z, ry }) => carrossaSystem?.onRemoteMove(x, z, ry));
   _monturaCnt = 0;  // arranca sin montura en inventario (ya está en el caballo)
   _updateMonturaHUD();
