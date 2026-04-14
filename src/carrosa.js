@@ -83,13 +83,17 @@ export class CarrosaSystem {
 
     // ── Debug visualisation ───────────────────────────────────────────────────
     this._debugMode    = false;
-    this._debugGroup       = null;
-    this._dbgChassis       = null;
-    this._dbgChassisOffsetZ  = 0;
-    this._dbgChassisOffsetY  = 1.5;
-    this._dbgWheelPositions  = null;
-    this._dbgWheels        = [];
-    this._dbgArrow         = null;
+    this._debugGroup        = null;
+    this._dbgChassis        = null;
+    this._dbgChassisOffsetZ = 0;
+    this._dbgChassisOffsetY = 1.5;
+    this._dbgWheelPositions = null;
+    this._dbgWheels         = [];
+    this._dbgArrow          = null;
+    this._dbgTongue         = null;
+    this._dbgForceArrow     = null;
+    this._lastPullF         = 0;
+    this._lastPullAngle     = 0;
     this._initDebug(scene);
     window.addEventListener('keydown', e => { if (e.key === 'V' || e.key === 'v') this.toggleDebug(); });
 
@@ -193,6 +197,21 @@ export class CarrosaSystem {
     );
     this._debugGroup.add(this._dbgArrow);
 
+    // Force origin sphere (red) — where horse pull force is applied
+    this._dbgTongue = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    );
+    this._debugGroup.add(this._dbgTongue);
+
+    // Force arrow (red) — direction and magnitude of current pull force
+    this._dbgForceArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0, 0, 0),
+      1, 0xff2200, 0.6, 0.3
+    );
+    this._debugGroup.add(this._dbgForceArrow);
+
     // Label
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 64;
@@ -265,6 +284,30 @@ export class CarrosaSystem {
         const wz = cz - lx * sinY + lz * cosY;
         this._dbgWheels[i].position.set(wx, WHL_R, wz);
         this._dbgWheels[i].rotation.set(0, ry, Math.PI / 2);
+      }
+    }
+
+    // Red sphere: tongue / force application point
+    if (this._dbgTongue) {
+      const tz = this._tongueZ || 2.0;
+      const tx = cx + tz * sinY;
+      const tzw = cz + tz * cosY;
+      this._dbgTongue.position.set(tx, WHL_R, tzw);
+    }
+
+    // Red arrow: pull force direction and magnitude
+    if (this._dbgForceArrow) {
+      const tz = this._tongueZ || 2.0;
+      const tx = cx + tz * sinY;
+      const tzw = cz + tz * cosY;
+      this._dbgForceArrow.position.set(tx, WHL_R, tzw);
+      if (this._lastPullF > 0) {
+        const pa = this._lastPullAngle;
+        this._dbgForceArrow.setDirection(new THREE.Vector3(Math.sin(pa), 0, Math.cos(pa)));
+        this._dbgForceArrow.setLength(Math.min(this._lastPullF / 600, 6), 0.6, 0.3);
+        this._dbgForceArrow.visible = true;
+      } else {
+        this._dbgForceArrow.visible = false;
       }
     }
   }
@@ -596,8 +639,8 @@ export class CarrosaSystem {
       this._prompt.style.display = 'none';
     }
 
-    // Always update debug overlay so it tracks the carriage even when not driving
-    this._updateDebug();
+    // Always update debug overlay — tracks carriage even when not driving
+    if (this._debugMode) this._updateDebug();
 
     const moving = this._moveDist > 0.001;
 
@@ -664,8 +707,9 @@ export class CarrosaSystem {
     for (let i = 0; i < 4; i++) this._vehicle.setBrake(brakeF, i);
 
     if (pullF > 0) {
-      // Pull direction: current heading rotated by steer angle (horses have turned)
       const pullAngle = heading + steerV;
+      this._lastPullF     = pullF;
+      this._lastPullAngle = pullAngle;
       const fx = Math.sin(pullAngle) * pullF;
       const fz = Math.cos(pullAngle) * pullF;
 
