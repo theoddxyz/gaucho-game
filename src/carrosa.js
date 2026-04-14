@@ -1,20 +1,17 @@
 // ─── Carrosa (carriage) system ───────────────────────────────────────────────
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { findLegs } from './horses.js';
 
 const loader      = new GLTFLoader();
-const CAR_SCALE   = 7.14;   // 6.8 * 1.05  (+5%)
+const CAR_SCALE   = 7.14;   // 6.8 * 1.05
 const MOUNT_R     = 5.0;
 const MOUNT_DUR   = 0.45;
 const WALK_FREQ   = 6.0;
 const WALK_AMP    = 0.45;
 const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
-
-// How many units to shift conductor toward the rear of the carriage
-const CONDUCTOR_BACK = 1.0;
+const WHEEL_SPIN  = 4.0;    // rad per world-unit traveled
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -30,11 +27,12 @@ export class CarrosaSystem {
     this._z        = spawnZ;
     this._ry       = 0;
     this._speed    = 0;
+    this._moveDist = 0;      // world-units moved this frame (for wheel spin)
     this._walkTime = 0;
-    this._axles      = [];     // "eje" nodes — rotate on local Z to spin their child wheels
-    this._horseLegs  = [];     // [{pivot, legObj, phase}]
-    this._conductorNode    = null;   // LUGAR CONDUCTOR empty — world pos = exact rider position
-    this._acompananteNode  = null;   // LUGAR ACOMPAÑANTE empty
+    this._axles      = [];
+    this._horseLegs  = [];
+    this._conductorNode    = null;
+    this._acompananteNode  = null;
     this._conducting  = false;
     this._nearCarrosa = false;
     this._anim        = null;
@@ -57,93 +55,56 @@ export class CarrosaSystem {
 
     const car = carGLTF.scene;
     car.scale.setScalar(CAR_SCALE);
-    // -π/2: model +X (horse side = front) → world +Z
-    car.rotation.y = -Math.PI / 2;
-
-    // ── Log all node names (debug — remove once happy) ──────────────────────
-    console.log('[carrosa] nodos en GLB:');
-    car.traverse(o => { if (o.name) console.log(' •', o.name); });
+    car.rotation.y = -Math.PI / 2;   // model +X (horse side = front) → world +Z
 
     car.traverse(o => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
-
       const n = o.name;
-      // Axle nodes: rotate on their local Z (longest dimension) to spin child wheels
-      if (/eje/i.test(n)) this._axles.push(o);
-
-      // Conductor & acompañante — permissive match (handles .001 suffixes, etc.)
-      if (/conductor/i.test(n))  this._conductorNode   = o;
-      if (/acompa/i.test(n))     this._acompananteNode = o;
+      if (/eje/i.test(n))       this._axles.push(o);
+      if (/conductor/i.test(n)) this._conductorNode   = o;
+      if (/acompa/i.test(n))    this._acompananteNode = o;
     });
 
     this.group.add(car);
-
-    // Flush world matrices so getWorldPosition() is accurate immediately
     this.group.updateWorldMatrix(false, true);
 
-    if (!this._conductorNode)   console.warn('[carrosa] no encontré LUGAR CONDUCTOR');
-    if (!this._acompananteNode) console.warn('[carrosa] no encontré LUGAR ACOMPAÑANTE');
-    console.log('[carrosa] ejes encontrados:', this._axles.map(a => a.name));
+    // ── Debug: log node structure ────────────────────────────────────────────
+    console.log('[carrosa] ejes encontrados:', this._axles.length,
+      this._axles.map(a => `${a.name}(hijos:${a.children.map(c=>c.name).join(',')})`));
+    if (!this._conductorNode)   console.warn('[carrosa] ¡no encontré CONDUCTOR!');
+    if (!this._acompananteNode) console.warn('[carrosa] ¡no encontré ACOMPAÑANTE!');
 
     // ── Attach horse models ──────────────────────────────────────────────────
     if (horseGLTF) {
-      // Find horse attachment positions from GLB nodes
       const horseNodes = [];
-      car.traverse(o => {
-        if (/caballo/i.test(o.name)) horseNodes.push(o);
-      });
-      console.log('[carrosa] nodos CABALLO:', horseNodes.map(n => n.name));
-
-      // Scale horse template once before cloning (same pattern as player.js)
-      const horseSource = horseGLTF.scene;
-      {
-        horseSource.updateWorldMatrix(true, true);
-        const bbox = new THREE.Box3().setFromObject(horseSource);
-        const h = bbox.max.y - bbox.min.y;
-        if (h > 0.01) {
-          horseSource.scale.setScalar(2.8 / h);
-          horseSource.updateWorldMatrix(true, true);
-          const bb2 = new THREE.Box3().setFromObject(horseSource);
-          if (bb2.min.y < 0) horseSource.position.y -= bb2.min.y;
-        }
-      }
+      car.traverse(o => { if (/caballo/i.test(o.name)) horseNodes.push(o); });
+      console.log('[carrosa] nodos caballo:', horseNodes.map(n => n.name));
 
       for (const node of horseNodes) {
-        const horseMesh = SkeletonUtils.clone(horseSource);
+        // Clone at native GLB scale — same as HorseManager does
+        const horseMesh = horseGLTF.scene.clone(true);
         horseMesh.traverse(o => {
           if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
         });
 
-        // Position: directly at LUGAR CABALLO world position, y=0 (feet on ground)
+        // Place at LUGAR CABALLO world position, feet on ground (y=0)
         const wp = node.getWorldPosition(new THREE.Vector3());
-        horseMesh.position.set(
-          wp.x - this._x,
-          0,
-          wp.z - this._z
-        );
-
-        // Ground the horse
-        horseMesh.updateWorldMatrix(true, true);
-        const bb2 = new THREE.Box3().setFromObject(horseMesh);
-        if (bb2.min.y < 0) horseMesh.position.y -= bb2.min.y;
-
-        // Face same direction as carriage (horses face +Z = forward)
-        horseMesh.rotation.y = Math.PI;
+        horseMesh.position.set(wp.x - this._x, 0, wp.z - this._z);
+        horseMesh.rotation.y = Math.PI;   // face forward (+Z)
 
         this.group.add(horseMesh);
-
         horseMesh.updateWorldMatrix(true, true);
+
         const legs = findLegs(horseMesh);
+        console.log('[carrosa] patas en caballo:', legs.length);
         for (const leg of legs) this._horseLegs.push(leg);
       }
     }
 
-    console.log('[carrosa] lista.',
-      'Conductor:', this._conductorNode ? 'OK' : 'NO ENCONTRADO',
-      'Acompañante:', this._acompananteNode ? 'OK' : 'NO ENCONTRADO',
-      'Ejes:', this._axles.length,
-      'Patas caballo:', this._horseLegs.length
-    );
+    console.log('[carrosa] lista. Conductor:', this._conductorNode ? 'OK' : 'NO',
+      '| Acompañante:', this._acompananteNode ? 'OK' : 'NO',
+      '| Ejes:', this._axles.length,
+      '| Patas:', this._horseLegs.length);
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────
@@ -168,21 +129,15 @@ export class CarrosaSystem {
   isMountAnimating() { return this._anim?.type === 'mount'; }
   speedMultiplier(sprinting) { return sprinting ? SPEED_MULT * SPRINT_MULT : SPEED_MULT; }
 
-  /** Exact world Y of conductor seat from the empty node */
   getRiderY() {
     if (!this._conductorNode) return 3.0;
     return this._conductorNode.getWorldPosition(new THREE.Vector3()).y;
   }
 
-  /** Exact world XZ of conductor seat, shifted 1 unit toward the rear */
   getRiderWorldPos() {
     if (!this._conductorNode || !this._conducting) return null;
     const wp = this._conductorNode.getWorldPosition(new THREE.Vector3());
-    // Shift backward (opposite to movement direction)
-    return {
-      x: wp.x - Math.sin(this._ry) * CONDUCTOR_BACK,
-      z: wp.z - Math.cos(this._ry) * CONDUCTOR_BACK,
-    };
+    return { x: wp.x, z: wp.z };
   }
 
   consumeMountLand() {
@@ -221,7 +176,6 @@ export class CarrosaSystem {
 
   tryMount(_playerId, fromX, fromZ) {
     if (this._conducting) {
-      // Dismount
       this._conducting = false;
       this._speed = 0;
       const cx = this._conductorNode
@@ -237,7 +191,6 @@ export class CarrosaSystem {
     }
     if (!this._nearCarrosa) return null;
 
-    // Mount — land at conductor seat world position
     this._conducting = true;
     const wp = this._conductorNode
       ? this._conductorNode.getWorldPosition(new THREE.Vector3())
@@ -273,7 +226,7 @@ export class CarrosaSystem {
     if (moving) this._walkTime += dt;
     else        this._walkTime  = 0;
 
-    // ── Horse legs (same logic as HorseManager) ──────────────────────────
+    // ── Horse legs ────────────────────────────────────────────────────────
     if (!moving) {
       for (const leg of this._horseLegs) {
         leg.pivot.rotation.x *= 0.85;
@@ -290,23 +243,29 @@ export class CarrosaSystem {
       }
     }
 
-    // ── Wheels: rotate axle nodes around their local Z (longest axis) ────
-    if (moving && this._axles.length) {
-      const spin = this._speed * dt * 1.5;
+    // ── Wheels: spin axle nodes on local Z by actual distance moved ───────
+    if (this._moveDist > 0.0005 && this._axles.length) {
+      const spin = this._moveDist * WHEEL_SPIN;
       for (const axle of this._axles) axle.rotation.z -= spin;
     }
+    this._moveDist = 0;
   }
 
   syncPosition(x, z, moveAngle, speed) {
+    // Compute actual distance moved (used for wheel spin — doesn't depend on velocity)
+    const dx = x - this._x, dz = z - this._z;
+    this._moveDist = Math.sqrt(dx * dx + dz * dz);
+
     this._x = x; this._z = z; this._ry = moveAngle; this._speed = speed;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = moveAngle;
-    // Flush world matrices so getWorldPosition() reads correct values this frame
     this.group.updateWorldMatrix(false, true);
   }
 
   onRemoteMove(x, z, ry) {
     if (this._conducting) return;
+    const dx = x - this._x, dz = z - this._z;
+    this._moveDist = Math.sqrt(dx * dx + dz * dz);
     this._x = x; this._z = z; this._ry = ry;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = ry;
