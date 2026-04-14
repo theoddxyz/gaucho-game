@@ -948,10 +948,28 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     infoMap.set(wm.uuid, { id: wm, type: 'wall' });
   }
 
-  const scanHit = hitscan(ray, allHitboxes, infoMap);
+  let scanHit = hitscan(ray, allHitboxes, infoMap);
+
+  // ── Wall occlusion: raycast from GUN to hit point — walls block bullets ────
+  const gunVec = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
+  if (scanHit && scanHit.target.type !== 'wall' && wallMeshes.length > 0) {
+    const toHit = new THREE.Vector3().subVectors(scanHit.point, gunVec);
+    const hitDist = toHit.length();
+    toHit.normalize();
+    const wallRay = new THREE.Raycaster(gunVec, toHit, 0, hitDist);
+    const wallHits = wallRay.intersectObjects(wallMeshes, false);
+    if (wallHits.length > 0) {
+      // Pared más cerca que el target → bala se detiene en la pared
+      scanHit = {
+        target:    { id: wallHits[0].object, type: 'wall' },
+        point:     wallHits[0].point.clone(),
+        dist:      wallHits[0].distance,
+        hitObject: wallHits[0].object,
+      };
+    }
+  }
 
   // ── Visual bullet — travels toward hit point (or in flat aim dir if miss) ──
-  const gunVec = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
   let bulletDir3D, bulletMaxDist;
   if (scanHit) {
     bulletDir3D   = new THREE.Vector3().subVectors(scanHit.point, gunVec).normalize();
@@ -961,6 +979,21 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   } else {
     bulletDir3D   = new THREE.Vector3(result.direction.x, -gunY * 0.04, result.direction.z).normalize();
     bulletMaxDist = BULLET_RANGE;
+    // Check if a wall blocks the miss path
+    if (wallMeshes.length > 0) {
+      const missRay = new THREE.Raycaster(gunVec, bulletDir3D, 0, BULLET_RANGE);
+      const missWallHits = missRay.intersectObjects(wallMeshes, false);
+      if (missWallHits.length > 0) {
+        bulletMaxDist = missWallHits[0].distance + 0.1;
+        // Convert miss → wall hit
+        scanHit = {
+          target:    { id: missWallHits[0].object, type: 'wall' },
+          point:     missWallHits[0].point.clone(),
+          dist:      missWallHits[0].distance,
+          hitObject: missWallHits[0].object,
+        };
+      }
+    }
   }
   spawnBullet(scene, result.origin, bulletDir3D, 0xffff00, bulletMaxDist);
 
