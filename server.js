@@ -184,7 +184,7 @@ const npcSessions = new Map();
 // ─── Gemini Game Master ───────────────────────────────────────────────────────
 const _geminiKey = process.env.GEMINI_API_KEY || '';
 const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
-const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }) : null;
+const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }) : null;
 console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO key=...'+_geminiKey.slice(-4) : 'INACTIVO (sin API key)'}`);
 
 // ── Story Bible — persistent narrative state per room ────────────────────────
@@ -779,7 +779,7 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
       socket.emit('aldeanoChatResponse', { response: r.response.text().trim() });
     } catch(e) {
       console.warn('[aldeanoChat] FALLO:', e.message, e.status ?? '', e.statusText ?? '');
-      socket.emit('aldeanoChatResponse', { response: `[DEBUG] ${e.message || e.toString()}` });
+      socket.emit('aldeanoChatResponse', { response: 'No tengo ganas de hablar ahora.' });
     }
   });
 
