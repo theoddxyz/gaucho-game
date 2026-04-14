@@ -15,11 +15,16 @@ const CONDUCTOR_FWD  = 0.5;
 const CONDUCTOR_Y    = -0.5;
 const PASSENGER_Y    = -0.5;
 
-// ── Carriage physics ──────────────────────────────────────────────────────────
-const PULL_TAU    = 0.65;  // seconds to reach full horse speed (single spring — feels heavy but responsive)
-const BRAKE_TAU   = 0.35;  // seconds to coast to a stop
-const ROT_SPEED   = 2.8;   // max yaw rate of carriage body (rad/s)
-const MAX_SPEED   = 18;    // units/s hard cap
+// ── Carriage physics (Newtonian — no external library) ───────────────────────
+// F_net = F_horse - drag*|v| * v_dir   →   a = F_net / mass
+// Bicycle model for yaw: ω = (v_fwd / wheelbase) * tan(δ)
+const CARRIAGE_MASS    = 600;         // kg  — heavy wagon
+const HORSE_FORCE      = 4200;        // N   — combined pull force
+const DRAG_COEFF       = 18;          // N·s/m  — rolling resistance (terminal ~14 m/s at trot)
+const SPRINT_FORCE_MULT = 1.55;       // extra force when sprinting
+const MAX_STEER        = Math.PI / 5; // 36° — max front-axle angle
+const DEFAULT_WHEELBASE = 4.5;        // fallback if axles not in model
+const MAX_SPEED        = 22;          // hard cap m/s
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -51,8 +56,9 @@ export class CarrosaSystem {
     this._mountLandPos = null;
 
     // ── Carriage physics ──────────────────────────────────────────────────────
-    this._physVelX = 0;
-    this._physVelZ = 0;
+    this._physVelX   = 0;   // world-space velocity m/s
+    this._physVelZ   = 0;
+    this._wheelbase  = DEFAULT_WHEELBASE;
 
     // ── Passenger state ───────────────────────────────────────────────────────
     this._isPassenger       = false;   // local player is passenger
@@ -90,6 +96,14 @@ export class CarrosaSystem {
 
     this.group.add(car);
     this.group.updateWorldMatrix(false, true);
+
+    // ── Measure real wheelbase from axle nodes ───────────────────────────────
+    if (this._axles.length >= 2) {
+      const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
+      this._axles[0].getWorldPosition(p0);
+      this._axles[1].getWorldPosition(p1);
+      this._wheelbase = p0.distanceTo(p1);
+    }
 
     // ── Collect wheel nodes ──────────────────────────────────────────────────
     const wheelCandidates = [];
@@ -264,6 +278,8 @@ export class CarrosaSystem {
     if (this._conducting) {
       this._conducting = false;
       this._driverId   = null;
+      this._physVelX   = 0;
+      this._physVelZ   = 0;
       const cx = this._conductorNode
         ? this._conductorNode.getWorldPosition(new THREE.Vector3()).x : this._x;
       const cz = this._conductorNode
@@ -382,40 +398,65 @@ export class CarrosaSystem {
   }
 
   /**
-   * Physics-based drive — call each frame when local player is conducting.
-   * desiredVelX/Z come from controls._velX/_velZ (already scaled by speed multiplier).
-   * Returns the new carriage world position {x, z}.
+   * Newtonian drive — F_horse - drag = ma, bicycle model for yaw.
+   * desiredVelX/Z: raw WASD from controls.getDesiredVelocity() (one spring, here).
+   * Returns new world position {x, z, ry}.
    */
   drive(desiredVelX, desiredVelZ, moveAngle, dt) {
-    const moving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.5;
-    const tau    = moving ? PULL_TAU : BRAKE_TAU;
-    const alpha  = 1 - Math.exp(-dt / tau);
+    const isMoving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.25;
 
-    // Spring toward desired velocity (horses pulling)
-    this._physVelX += (desiredVelX - this._physVelX) * alpha;
-    this._physVelZ += (desiredVelZ - this._physVelZ) * alpha;
-
-    // Hard speed cap
-    const spd = Math.sqrt(this._physVelX * this._physVelX + this._physVelZ * this._physVelZ);
-    if (spd > MAX_SPEED) {
-      const inv = MAX_SPEED / spd;
-      this._physVelX *= inv;
-      this._physVelZ *= inv;
+    // ── Heading & steering (bicycle model) ───────────────────────────────────
+    let steeringAngle = 0;
+    if (isMoving) {
+      const desiredAngle = Math.atan2(desiredVelX, desiredVelZ);
+      let diff = desiredAngle - this._ry;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      steeringAngle = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
     }
 
-    // Smooth rotation — carriage yaw lags behind desired direction
-    if (moving) {
-      let dRY = moveAngle - this._ry;
-      while (dRY >  Math.PI) dRY -= Math.PI * 2;
-      while (dRY < -Math.PI) dRY += Math.PI * 2;
-      this._ry += dRY * Math.min(1, ROT_SPEED * dt);
+    // Forward speed component along current heading
+    const fwdX = Math.sin(this._ry), fwdZ = Math.cos(this._ry);
+    const forwardSpeed = this._physVelX * fwdX + this._physVelZ * fwdZ;
+
+    // ω = (v_fwd / L) * tan(δ) — classic bicycle model
+    this._ry += (forwardSpeed / this._wheelbase) * Math.tan(steeringAngle) * dt;
+
+    // ── Forces: horse pull along heading, drag opposing velocity ─────────────
+    const spd = Math.sqrt(this._physVelX * this._physVelX + this._physVelZ * this._physVelZ);
+
+    let ax = 0, az = 0;
+    if (isMoving) {
+      const ds          = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
+      const sprintMult  = ds > 13 ? SPRINT_FORCE_MULT : 1.0;
+      const pullF       = HORSE_FORCE * sprintMult * Math.max(Math.cos(steeringAngle), 0.15);
+      ax += fwdX * pullF / CARRIAGE_MASS;
+      az += fwdZ * pullF / CARRIAGE_MASS;
+    }
+    // Drag: proportional to speed (rolling resistance)
+    if (spd > 0.01) {
+      const dragA = (DRAG_COEFF * spd) / CARRIAGE_MASS;
+      ax -= (this._physVelX / spd) * dragA;
+      az -= (this._physVelZ / spd) * dragA;
+    }
+
+    // Integrate velocity
+    this._physVelX += ax * dt;
+    this._physVelZ += az * dt;
+
+    // Hard speed cap
+    const newSpd = Math.sqrt(this._physVelX * this._physVelX + this._physVelZ * this._physVelZ);
+    if (newSpd > MAX_SPEED) {
+      const inv = MAX_SPEED / newSpd;
+      this._physVelX *= inv;
+      this._physVelZ *= inv;
     }
 
     // Integrate position
     const nx = this._x + this._physVelX * dt;
     const nz = this._z + this._physVelZ * dt;
-    const dx = nx - this._x, dz = nz - this._z;
-    this._moveDist = Math.sqrt(dx * dx + dz * dz);
+    const ddx = nx - this._x, ddz = nz - this._z;
+    this._moveDist = Math.sqrt(ddx * ddx + ddz * ddz);
     this._x = nx; this._z = nz;
 
     this.group.position.set(this._x, 0, this._z);
