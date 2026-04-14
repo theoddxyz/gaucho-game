@@ -1,16 +1,20 @@
 // ─── Carrosa (carriage) system ───────────────────────────────────────────────
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { findLegs } from './horses.js';
 
 const loader      = new GLTFLoader();
-const CAR_SCALE   = 6.8;   // 8 * 0.85
+const CAR_SCALE   = 7.14;   // 6.8 * 1.05  (+5%)
 const MOUNT_R     = 5.0;
 const MOUNT_DUR   = 0.45;
 const WALK_FREQ   = 6.0;
 const WALK_AMP    = 0.45;
 const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
+
+// How many units to shift conductor toward the rear of the carriage
+const CONDUCTOR_BACK = 1.0;
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -56,43 +60,59 @@ export class CarrosaSystem {
     // -π/2: model +X (horse side = front) → world +Z
     car.rotation.y = -Math.PI / 2;
 
+    // ── Log all node names (debug — remove once happy) ──────────────────────
+    console.log('[carrosa] nodos en GLB:');
+    car.traverse(o => { if (o.name) console.log(' •', o.name); });
+
     car.traverse(o => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
 
       const n = o.name;
       // Axle nodes: rotate on their local Z (longest dimension) to spin child wheels
-      if (/^eje\b/i.test(n)) this._axles.push(o);
+      if (/eje/i.test(n)) this._axles.push(o);
 
-      // Conductor & acompañante: keep direct node reference for world pos each frame
-      if (/LUGAR CONDUCTOR$/i.test(n))  this._conductorNode   = o;
-      if (/LUGAR ACOMPA/i.test(n))      this._acompananteNode = o;
+      // Conductor & acompañante — permissive match (handles .001 suffixes, etc.)
+      if (/conductor/i.test(n))  this._conductorNode   = o;
+      if (/acompa/i.test(n))     this._acompananteNode = o;
     });
 
     this.group.add(car);
-    car.updateWorldMatrix(true, true);
+
+    // Flush world matrices so getWorldPosition() is accurate immediately
+    this.group.updateWorldMatrix(false, true);
 
     if (!this._conductorNode)   console.warn('[carrosa] no encontré LUGAR CONDUCTOR');
     if (!this._acompananteNode) console.warn('[carrosa] no encontré LUGAR ACOMPAÑANTE');
+    console.log('[carrosa] ejes encontrados:', this._axles.map(a => a.name));
 
     // ── Attach horse models ──────────────────────────────────────────────────
     if (horseGLTF) {
       // Find horse attachment positions from GLB nodes
       const horseNodes = [];
       car.traverse(o => {
-        if (/LUGAR CABALLO/i.test(o.name)) horseNodes.push(o);
+        if (/caballo/i.test(o.name)) horseNodes.push(o);
       });
+      console.log('[carrosa] nodos CABALLO:', horseNodes.map(n => n.name));
+
+      // Scale horse template once before cloning (same pattern as player.js)
+      const horseSource = horseGLTF.scene;
+      {
+        horseSource.updateWorldMatrix(true, true);
+        const bbox = new THREE.Box3().setFromObject(horseSource);
+        const h = bbox.max.y - bbox.min.y;
+        if (h > 0.01) {
+          horseSource.scale.setScalar(2.8 / h);
+          horseSource.updateWorldMatrix(true, true);
+          const bb2 = new THREE.Box3().setFromObject(horseSource);
+          if (bb2.min.y < 0) horseSource.position.y -= bb2.min.y;
+        }
+      }
 
       for (const node of horseNodes) {
-        const horseMesh = horseGLTF.scene.clone(true);
+        const horseMesh = SkeletonUtils.clone(horseSource);
         horseMesh.traverse(o => {
           if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
         });
-
-        // Scale to same height as world horses (~2.8 units)
-        horseMesh.updateWorldMatrix(true, true);
-        const bbox = new THREE.Box3().setFromObject(horseMesh);
-        const h = bbox.max.y - bbox.min.y;
-        if (h > 0.01) horseMesh.scale.setScalar(2.8 / h);
 
         // Position: directly at LUGAR CABALLO world position, y=0 (feet on ground)
         const wp = node.getWorldPosition(new THREE.Vector3());
@@ -101,6 +121,7 @@ export class CarrosaSystem {
           0,
           wp.z - this._z
         );
+
         // Ground the horse
         horseMesh.updateWorldMatrix(true, true);
         const bb2 = new THREE.Box3().setFromObject(horseMesh);
@@ -121,7 +142,7 @@ export class CarrosaSystem {
       'Conductor:', this._conductorNode ? 'OK' : 'NO ENCONTRADO',
       'Acompañante:', this._acompananteNode ? 'OK' : 'NO ENCONTRADO',
       'Ejes:', this._axles.length,
-      'Caballos:', this._horseLegs.length > 0 ? 'OK' : 'SIN PATAS'
+      'Patas caballo:', this._horseLegs.length
     );
   }
 
@@ -153,11 +174,15 @@ export class CarrosaSystem {
     return this._conductorNode.getWorldPosition(new THREE.Vector3()).y;
   }
 
-  /** Exact world XZ of conductor seat from the empty node */
+  /** Exact world XZ of conductor seat, shifted 1 unit toward the rear */
   getRiderWorldPos() {
     if (!this._conductorNode || !this._conducting) return null;
     const wp = this._conductorNode.getWorldPosition(new THREE.Vector3());
-    return { x: wp.x, z: wp.z };
+    // Shift backward (opposite to movement direction)
+    return {
+      x: wp.x - Math.sin(this._ry) * CONDUCTOR_BACK,
+      z: wp.z - Math.cos(this._ry) * CONDUCTOR_BACK,
+    };
   }
 
   consumeMountLand() {
@@ -244,7 +269,7 @@ export class CarrosaSystem {
       this._prompt.style.display = 'none';
     }
 
-    const moving = this._speed > 0.5;
+    const moving = this._speed > 0.1;
     if (moving) this._walkTime += dt;
     else        this._walkTime  = 0;
 
@@ -267,7 +292,7 @@ export class CarrosaSystem {
 
     // ── Wheels: rotate axle nodes around their local Z (longest axis) ────
     if (moving && this._axles.length) {
-      const spin = this._speed * dt * 0.3;
+      const spin = this._speed * dt * 1.5;
       for (const axle of this._axles) axle.rotation.z -= spin;
     }
   }
@@ -276,6 +301,8 @@ export class CarrosaSystem {
     this._x = x; this._z = z; this._ry = moveAngle; this._speed = speed;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = moveAngle;
+    // Flush world matrices so getWorldPosition() reads correct values this frame
+    this.group.updateWorldMatrix(false, true);
   }
 
   onRemoteMove(x, z, ry) {
@@ -283,6 +310,7 @@ export class CarrosaSystem {
     this._x = x; this._z = z; this._ry = ry;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = ry;
+    this.group.updateWorldMatrix(false, true);
   }
 }
 
