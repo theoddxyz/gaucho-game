@@ -46,7 +46,8 @@ export class RadialMenu {
     this._hudEl = document.createElement('div');
     this._hudEl.id = 'weapon-hud';
     this._hudEl.style.cssText = [
-      'position:fixed', 'bottom:80px', 'left:20px',
+      'position:fixed', 'bottom:18px', 'left:120px',
+      'z-index:100',
       'color:#fff', 'font:bold 16px sans-serif',
       'text-shadow:0 0 6px #000', 'background:rgba(0,0,0,0.45)',
       'padding:6px 14px', 'border-radius:8px',

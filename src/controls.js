@@ -1,8 +1,8 @@
 // --- Isometric Controls: WASD movement + Mouse aiming ---
 import * as THREE from 'three';
 
-const SPEED       = 10;
-const SPRINT_MULT = 1.9;   // extra speed when Shift held
+const SPEED       = 7;
+const SPRINT_MULT = 1.6;   // extra speed when Shift held
 const JUMP_VEL    = 9;     // m/s upward on jump
 const GRAVITY     = 24;    // m/s² downward
 const BOUND       = 9900;
@@ -27,6 +27,7 @@ export class IsoControls {
     this._velX       = 0;       // current horizontal velocity for smooth accel
     this._velZ       = 0;
     this._recoil     = 0;       // 0=idle, 1=full kick, decays to 0
+    this._stunned    = false;   // true while hit-stun prevents movement
 
     this._aimRMB  = false;
     this._aimCtrl = false;
@@ -127,10 +128,12 @@ export class IsoControls {
 
     // --- Horizontal movement with smooth acceleration ---
     const dir = new THREE.Vector3();
-    if (this.keys.w) dir.z -= 1;
-    if (this.keys.s) dir.z += 1;
-    if (this.keys.a) dir.x -= 1;
-    if (this.keys.d) dir.x += 1;
+    if (!this._stunned) {
+      if (this.keys.w) dir.z -= 1;
+      if (this.keys.s) dir.z += 1;
+      if (this.keys.a) dir.x -= 1;
+      if (this.keys.d) dir.x += 1;
+    }
 
     if (dir.length() > 0) {
       dir.normalize();

@@ -254,6 +254,7 @@ export class PlayerModel {
     this._hurtAction      = null;
     this._hunger          = 100;   // 0-100, actualizado desde main.js
     this._hp              = 200;   // 0-200, actualizado desde main.js
+    this._hurtTimer       = 0;     // seconds remaining of forced hurt animation
     this._extSpeedFrac    = 0;     // fracción de velocidad real (0-1)
     this._walkSpd         = 0;
     this._rootBone        = null;
@@ -844,7 +845,8 @@ export class PlayerModel {
     const useHorseModel  = this._isRiding && !!this._horseRideModel;
     // Idle: basado en walkSpd real (no boolean) → transición suave
     const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
-    const isHurt         = this._hunger <= 50 || this._hp <= 100;
+    const isHurt         = this._hurtTimer > 0 || this._hunger <= 50 || this._hp <= 100;
+    if (this._hurtTimer > 0) this._hurtTimer -= dt;
     const useHurtModel   = isIdleOnFoot && isHurt && !!this._hurtModel;
     const useTranquiModel= isIdleOnFoot && !useHurtModel && !!this._tranquiModel;
     if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel;
@@ -1093,6 +1095,12 @@ export class PlayerModel {
    * @param {'head'|'leg'|'body'} hitZone
    * @param {THREE.Vector3} hitPoint  — world position of impact
    */
+  // Trigger HERIDO animation + stagger for hit-stun duration
+  startHurt(duration = 1.5) {
+    this._hurtTimer  = duration;
+    this._staggerVel = 4.0 * (Math.random() < 0.5 ? 1 : -1);
+  }
+
   applyImpact(hitZone, hitPoint) {
     if (hitZone === 'head') {
       // Determine world position of head

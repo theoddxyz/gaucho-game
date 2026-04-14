@@ -3,14 +3,26 @@ import * as THREE from 'three';
 
 export const BULLET_SPEED = 65;   // units/sec (visual travel)
 export const BULLET_RANGE = 90;   // max range units
-const COOLDOWN     = 0.28;
-const CONE_ANGLE   = 20 * Math.PI / 180;
+const COOLDOWN      = 0.28;
+const CONE_ANGLE    = 20 * Math.PI / 180;
 const SNAP_STRENGTH = 0.38;
 const BASE_SPREAD   = 0.005;
 const SPREAD_REF    = 12;
+const MAGAZINE      = 6;
+const RELOAD_TIME   = 1.8;   // seconds
 
-let lastShot = 0;
+let lastShot    = 0;
+let shotCount   = 0;
+let reloadEnd   = 0;          // performance.now()/1000 when reload finishes
 const activeBullets = [];
+
+export function isReloading(now) { return now < reloadEnd; }
+export function reloadProgress(now) {
+  if (now >= reloadEnd) return 1;
+  const reloadStart = reloadEnd - RELOAD_TIME;
+  return Math.max(0, (now - reloadStart) / RELOAD_TIME);
+}
+export function shotsLeft() { return MAGAZINE - shotCount; }
 
 /**
  * Compute shot origin + XZ direction with cone soft-snap.
@@ -18,8 +30,11 @@ const activeBullets = [];
  * Returns { origin, direction } or null if on cooldown.
  */
 export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55, explicitOrigin = null) {
+  if (now < reloadEnd) return null;                      // reloading
   if (now - lastShot < COOLDOWN) return null;
   lastShot = now;
+  shotCount++;
+  if (shotCount >= MAGAZINE) { reloadEnd = now + RELOAD_TIME; shotCount = 0; }
 
   const origin = explicitOrigin || {
     x: playerPos.x + aimDirection.x * 0.8,

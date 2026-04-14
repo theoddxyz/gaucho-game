@@ -46,12 +46,12 @@ export function createWorld(scene) {
   // (edificios grises de debug removidos)
 
   // ─── Establo (1000, 0, 1000) ───────────────────────────────────────────────
-  _buildStable(scene);
+  _buildStable(scene, colliders);
 
   return { colliders, sun, moon, ambient };
 }
 
-function _buildStable(scene) {
+function _buildStable(scene, colliders) {
   const SX = 1000, SZ = 1000;
 
   const matWood  = new THREE.MeshStandardMaterial({ color: 0x5c2e0a, roughness: 0.95 });
@@ -120,4 +120,19 @@ function _buildStable(scene) {
   const torch = new THREE.PointLight(0xff9933, 4, 40);
   torch.position.set(SX, 3.5, SZ);
   scene.add(torch);
+
+  // ── Colliders for walls (block players, animals, bullets) ─────────────────
+  if (colliders) {
+    // Main barn body
+    colliders.push({ x: SX,      z: SZ,       sx: 14,  sy: 6,   sz: 10  });
+    // Corral fence — north (two halves with gate gap)
+    colliders.push({ x: SX - 11, z: SZ - 17,  sx: 12,  sy: 1.6, sz: 0.3 });
+    colliders.push({ x: SX + 11, z: SZ - 17,  sx: 12,  sy: 1.6, sz: 0.3 });
+    // South fence
+    colliders.push({ x: SX,      z: SZ + 18,  sx: 36,  sy: 1.6, sz: 0.3 });
+    // East fence
+    colliders.push({ x: SX + 18, z: SZ,       sx: 0.3, sy: 1.6, sz: 36  });
+    // West fence
+    colliders.push({ x: SX - 18, z: SZ,       sx: 0.3, sy: 1.6, sz: 36  });
+  }
 }

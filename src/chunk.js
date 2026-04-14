@@ -163,12 +163,13 @@ loadTemplates();
 // ─── ChunkManager ────────────────────────────────────────────────────────────
 export class ChunkManager {
   constructor(scene, colliders) {
-    this.scene     = scene;
-    this.colliders = colliders;
-    this.chunks    = new Map();   // key → { ground, objects, ownColliders }
-    this._queue    = [];          // lista de { cx, cz } pendientes
-    this._building = false;
+    this.scene      = scene;
+    this.colliders  = colliders;
+    this.chunks     = new Map();
+    this._queue     = [];
+    this._building  = false;
     this._requested = new Set();
+    this._trees     = [];   // { mesh, x, z, tipping, angle, vel, axis }
   }
 
   // Llamar cada frame con la posición del jugador
@@ -260,6 +261,7 @@ export class ChunkManager {
         this.scene.add(tree);
         objects.push(tree);
         ownColl.push({ x: tx, z: tz, sx: 1, sy: 5, sz: 1 });
+        this._trees.push({ mesh: tree, x: tx, z: tz, tipping: false, angle: 0, vel: 0, axis: new THREE.Vector3(1, 0, 0) });
       }
     }
 
@@ -342,12 +344,65 @@ export class ChunkManager {
     if (!chunk) return;
     this.scene.remove(chunk.ground);
     chunk.ground.geometry.dispose();
-    for (const obj of chunk.objects) this.scene.remove(obj);
+    for (const obj of chunk.objects) {
+      this.scene.remove(obj);
+      // Remove from _trees array
+      const ti = this._trees.findIndex(t => t.mesh === obj);
+      if (ti >= 0) this._trees.splice(ti, 1);
+    }
     for (const c of chunk.ownColl) {
       const idx = this.colliders.indexOf(c);
       if (idx >= 0) this.colliders.splice(idx, 1);
     }
     this._requested.delete(key);
     this.chunks.delete(key);
+  }
+
+  // Hit a tree/cactus near (x, z) — triggers tip-over physics
+  hitTree(x, z, radius = 2.0) {
+    let best = null, bestD = radius * radius;
+    for (const t of this._trees) {
+      if (t.tipping) continue;
+      const dx = t.x - x, dz = t.z - z;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return;
+    best.tipping = true;
+    best.vel = 0.8;
+    // Fall direction: away from impact point
+    const ax = best.x - x, az = best.z - z;
+    const len = Math.sqrt(ax * ax + az * az);
+    best.axis.set(len > 0.01 ? ax / len : 1, 0, len > 0.01 ? az / len : 0);
+  }
+
+  // Returns all tree child meshes (for hitscan), tagged with _treeRef = tree entry
+  getTreeHitboxes() {
+    const out = [];
+    for (const t of this._trees) {
+      if (t.tipping) continue;
+      t.mesh.traverse(o => {
+        if (o.isMesh) {
+          o._treeRef = t;
+          out.push(o);
+        }
+      });
+    }
+    return out;
+  }
+
+  // Call every frame to animate tipping trees
+  updateTrees(dt) {
+    for (const t of this._trees) {
+      if (!t.tipping || t.angle >= Math.PI / 2) continue;
+      t.vel += 3.5 * dt;
+      t.angle = Math.min(Math.PI / 2, t.angle + t.vel * dt);
+      // Rotate around base: axis perpendicular to fall direction
+      const perpX = -t.axis.z, perpZ = t.axis.x;
+      const q = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(perpX, 0, perpZ), t.angle
+      );
+      t.mesh.quaternion.copy(q);
+    }
   }
 }

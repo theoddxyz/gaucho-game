@@ -9,7 +9,7 @@ import { ChunkManager } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
 import { CarrosaSystem } from './carrosa.js';
-import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE } from './shooting.js';
+import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE, isReloading, reloadProgress, shotsLeft } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
@@ -621,6 +621,11 @@ Network.onPlayerHit((data) => {
     Audio.playerHurt();
     if (myData.hp <= 30) Audio.startHeartbeat();
     else Audio.stopHeartbeat();
+    localPlayerModel?.startHurt(1.5);
+    if (controls) {
+      controls._stunned = true;
+      setTimeout(() => { if (controls) controls._stunned = false; }, 1500);
+    }
   } else {
     remotePlayers.get(data.id)?.detachHat();
     remotePlayers.get(data.id)?.setHP(data.hp);
@@ -886,8 +891,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const allHitboxes = [];
   const infoMap = new Map();
 
+  const _pvpHitboxRestores = [];
   for (const [id, pm] of remotePlayers) {
     for (const hb of pm.getHitboxes()) {
+      if (!hb.visible) { hb.visible = true; _pvpHitboxRestores.push(hb); }
       allHitboxes.push(hb);
       infoMap.set(hb.uuid, { id, type: 'player' });
     }
@@ -910,8 +917,14 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const bird = birdSystem.getBirdByHitbox(hb);
     if (bird) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: bird, type: 'bird' }); }
   }
+  for (const hb of chunkManager.getTreeHitboxes()) {
+    allHitboxes.push(hb);
+    infoMap.set(hb.uuid, { id: hb._treeRef, type: 'tree' });
+  }
 
   const scanHit = hitscan(ray, allHitboxes, infoMap);
+  // Restore pvp hitbox visibility after hitscan
+  for (const hb of _pvpHitboxRestores) hb.visible = false;
 
   // ── Visual bullet — travels toward hit point (or in flat aim dir if miss) ──
   const gunVec = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
@@ -993,6 +1006,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       else if (scanHit.target.type === 'chicken') {
         chickenSystem.hit(scanHit.target.id, scanHit.point, hitZone);
         Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
+      }
+      else if (scanHit.target.type === 'tree') {
+        chunkManager.hitTree(scanHit.point.x, scanHit.point.z);
+        Audio.bulletImpactDirt();
       }
     }, travelMs);
   } else {
@@ -1120,6 +1137,17 @@ function _updateMonturaHUD() {
   ">🏇 <b>${_monturaCnt}</b></div>`;
 }
 
+// ── Reload HUD ────────────────────────────────────────────────────────────────
+const _reloadHud = document.createElement('div');
+_reloadHud.style.cssText = [
+  'position:fixed', 'bottom:52px', 'left:120px', 'z-index:200',
+  'display:none', 'color:#f0c040', 'font:bold 13px "Share Tech Mono",monospace',
+  'text-shadow:0 0 6px #000', 'background:rgba(0,0,0,0.55)',
+  'padding:4px 10px', 'border-radius:6px',
+  'border:1px solid rgba(255,200,50,0.3)',
+].join(';');
+document.body.appendChild(_reloadHud);
+
 // ── Comida tirada al suelo ─────────────────────────────────────────────────────
 const _thrownFoods = [];
 
@@ -1181,6 +1209,7 @@ function gameLoop() {
 
     // Chunk streaming
     chunkManager.update(pos);
+    chunkManager.updateTrees(dt);
 
     // Shadow follows player — sun moves on a day arc (east at dawn, west at dusk)
     const _sunOff = getSunOffset();
@@ -1263,7 +1292,7 @@ function gameLoop() {
       _facingAngle += _fd * Math.min(1, 12 * dt); // smooth turn when walking
     }
     const facingAngle = _facingAngle;
-    localPlayerModel?.setAiming(controls.isAiming());
+    localPlayerModel?.setAiming(currentWeapon === 'shotgun');
     if (localPlayerModel) {
       // Y: mount/dismount anim → lomo world-space (localToWorld) → salto → suelo
       const animY   = horseManager?.getAnimY() ?? carrossaSystem?.getAnimY();
@@ -1300,6 +1329,22 @@ function gameLoop() {
     }
 
     UI.updateCoords(pos.x, pos.z);
+
+    // ── Reload HUD ─────────────────────────────────────────────────────────
+    if (currentWeapon === 'shotgun') {
+      const now = performance.now() / 1000;
+      if (isReloading(now)) {
+        const pct = Math.round(reloadProgress(now) * 100);
+        _reloadHud.style.display = 'block';
+        _reloadHud.textContent = `RECARGANDO ${pct}%`;
+      } else {
+        const left = shotsLeft();
+        _reloadHud.style.display = 'block';
+        _reloadHud.textContent = `🔫 ${left}/6`;
+      }
+    } else {
+      _reloadHud.style.display = 'none';
+    }
 
     // ── NPC proximity trigger ──────────────────────────────────────────────
     if (!_npcDone && !_npcActive) {
