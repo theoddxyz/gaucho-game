@@ -223,7 +223,7 @@ export class CarrosaSystem {
     }
 
     // Wheel debug cylinders pushed outward beyond body edge
-    const wt = trackHalf + 0.9;
+    const wt = trackHalf + 0.6;
     this._dbgWheelPositions = [
       [-wt, fwdZ], [wt, fwdZ],
       [-wt, bwdZ], [wt, bwdZ],
@@ -347,6 +347,7 @@ export class CarrosaSystem {
         trackHalf = Math.max(Math.abs(l0.x), Math.abs(l1.x), TRACK_W);
       }
 
+      this._tongueZ = fwdZ + 1.8;  // tongue attachment: ahead of front axle
       this._finalizeCannonWheels(fwdZ, bwdZ, trackHalf);
 
       // ── Green box: defined by axle positions, not bounding box ──────────────
@@ -627,15 +628,18 @@ export class CarrosaSystem {
 
     const isMoving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.25;
 
-    // ── Determine steering and engine force ───────────────────────────────
-    let engineF = 0;
-    let steerV  = 0;
+    // ── Determine pull direction and magnitude ────────────────────────────
+    // Horses pull from the tongue (front attachment point), not from the wheels.
+    // We apply a direct force to the chassis body at the tongue world position.
+    // Wheels are passive — suspension/ground contact only, no engine force.
+
+    this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
+    const heading = Math.atan2(this._fwdWorld.x, this._fwdWorld.z);
+
+    let pullF  = 0;
+    let steerV = 0;
 
     if (isMoving) {
-      // Extract current heading from chassis quaternion
-      this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
-      const heading = Math.atan2(this._fwdWorld.x, this._fwdWorld.z);
-
       const desiredAngle = Math.atan2(desiredVelX, desiredVelZ);
       let diff = desiredAngle - heading;
       while (diff >  Math.PI) diff -= Math.PI * 2;
@@ -643,24 +647,56 @@ export class CarrosaSystem {
 
       const wantsForward = Math.abs(diff) < Math.PI * 0.55;
       if (wantsForward) {
-        const ds       = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
-        const sprint   = ds > 13 ? SPRINT_F_MULT : 1.0;
-        engineF = ENGINE_FORCE * sprint;
-        steerV  = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
+        const ds   = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
+        const spr  = ds > 13 ? SPRINT_F_MULT : 1.0;
+        pullF  = ENGINE_FORCE * spr;
+        steerV = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
       }
     }
 
-    // Front axle steers, all wheels get engine force (horses pull whole carriage).
-    // Negative force = forward in +Z (axleLocal=-X convention in cannon-es).
-    this._vehicle.setSteeringValue(steerV, 0);   // front-left
-    this._vehicle.setSteeringValue(steerV, 1);   // front-right
-    this._vehicle.applyEngineForce(-engineF,                    0);
-    this._vehicle.applyEngineForce(-engineF,                    1);
-    this._vehicle.applyEngineForce(-engineF * REAR_FORCE_RATIO, 2);
-    this._vehicle.applyEngineForce(-engineF * REAR_FORCE_RATIO, 3);
+    // Wheels: passive (no engine force), front axle steers for visual alignment only
+    for (let i = 0; i < 4; i++) this._vehicle.applyEngineForce(0, i);
+    this._vehicle.setSteeringValue(steerV, 0);
+    this._vehicle.setSteeringValue(steerV, 1);
 
+    // Braking when stopped
     const brakeF = !isMoving ? BRAKE_FORCE : 0;
     for (let i = 0; i < 4; i++) this._vehicle.setBrake(brakeF, i);
+
+    if (pullF > 0) {
+      // Pull direction: current heading rotated by steer angle (horses have turned)
+      const pullAngle = heading + steerV;
+      const fx = Math.sin(pullAngle) * pullF;
+      const fz = Math.cos(pullAngle) * pullF;
+
+      // Apply at tongue position (world space) — off-center force creates natural rotation
+      const tongueZ = this._tongueZ || 2.0;
+      const cp = this._chassisBody.position;
+      const tx = cp.x + tongueZ * Math.sin(heading);
+      const tz = cp.z + tongueZ * Math.cos(heading);
+      this._chassisBody.applyForce(
+        new CANNON.Vec3(fx, 0, fz),
+        new CANNON.Vec3(tx, cp.y, tz)
+      );
+    }
+
+    // Drag — simulate wheel rolling resistance and air drag
+    const vel  = this._chassisBody.velocity;
+    const spd  = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    const drag = spd * 45 + (isMoving ? 0 : spd * 120); // more drag when no input
+    if (spd > 0.01) {
+      this._chassisBody.applyForce(
+        new CANNON.Vec3(-vel.x / spd * drag, 0, -vel.z / spd * drag),
+        this._chassisBody.position
+      );
+    }
+
+    // Speed cap
+    const MAX_SPD = 16;
+    if (spd > MAX_SPD) {
+      this._chassisBody.velocity.x *= MAX_SPD / spd;
+      this._chassisBody.velocity.z *= MAX_SPD / spd;
+    }
 
     // Lock pitch/roll — ground vehicle, prevent tipping
     this._chassisBody.angularVelocity.x = 0;
