@@ -779,7 +779,7 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
       socket.emit('aldeanoChatResponse', { response: r.response.text().trim() });
     } catch(e) {
       console.warn('[aldeanoChat] FALLO:', e.message, e.status ?? '', e.statusText ?? '');
-      socket.emit('aldeanoChatResponse', { response: `[ERR] ${e.message?.slice(0,120) || e.toString().slice(0,120)}` });
+      socket.emit('aldeanoChatResponse', { response: `[ERR] ${e.message?.slice(0,300) || e.toString().slice(0,300)}` });
     }
   });
 
