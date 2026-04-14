@@ -667,9 +667,14 @@ Network.onPlayerRespawned((data) => {
   } else {
     const pm = remotePlayers.get(data.id);
     if (pm) {
-      pm.setTarget(data.x, data.y, data.z, 0);
+      pm._dying  = false;
+      pm._dyingT = 0;
+      pm.group.rotation.z = 0;
+      pm.group.position.y = 0;
+      pm.setTarget(data.x, data.y ?? 0, data.z, 0);
       pm.respawnHat();
       pm.resetImpact();   // restore head/leg visibility, clear flying parts
+      pm.setHP(data.hp ?? 200);
     }
   }
 });
