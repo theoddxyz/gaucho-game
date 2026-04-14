@@ -212,7 +212,7 @@ export class CarrosaSystem {
 
     this._dbgChassis.geometry.dispose();
     // Taller box (1.8) so it matches the carriage body height better
-    const bodyW = (trackHalf - 0.35) * 2;  // narrower than wheel track so wheels stick out
+    const bodyW = (trackHalf - 0.8) * 2;   // clear gap between carriage body and wheels
     this._dbgChassisOffsetY = 1.2;           // raise box so it sits above the axle, not around it
     this._dbgChassis.geometry = new THREE.BoxGeometry(Math.max(bodyW, 1.8), 2.2, Math.max(axleSpan, 3.0));
   }
@@ -649,11 +649,9 @@ export class CarrosaSystem {
     this._moveDist = Math.sqrt(ddx * ddx + ddz * ddz);
     this._x = px; this._z = pz;
 
-    // Keep chassis on ground (prevent bouncing off on ramps or physics glitches)
-    if (this._chassisBody.position.y < CHASSIS_REST_Y - 0.3) {
-      this._chassisBody.position.y = CHASSIS_REST_Y;
-      this._chassisBody.velocity.y = 0;
-    }
+    // Pin chassis to rest height — kill all vertical movement (no bouncing)
+    this._chassisBody.position.y = CHASSIS_REST_Y;
+    this._chassisBody.velocity.y = 0;
 
     this._updateDebug();
 
