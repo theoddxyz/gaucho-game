@@ -891,10 +891,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   const allHitboxes = [];
   const infoMap = new Map();
 
-  const _pvpHitboxRestores = [];
   for (const [id, pm] of remotePlayers) {
     for (const hb of pm.getHitboxes()) {
-      if (!hb.visible) { hb.visible = true; _pvpHitboxRestores.push(hb); }
       allHitboxes.push(hb);
       infoMap.set(hb.uuid, { id, type: 'player' });
     }
@@ -923,8 +921,6 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   }
 
   const scanHit = hitscan(ray, allHitboxes, infoMap);
-  // Restore pvp hitbox visibility after hitscan
-  for (const hb of _pvpHitboxRestores) hb.visible = false;
 
   // ── Visual bullet — travels toward hit point (or in flat aim dir if miss) ──
   const gunVec = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
@@ -1292,7 +1288,9 @@ function gameLoop() {
       _facingAngle += _fd * Math.min(1, 12 * dt); // smooth turn when walking
     }
     const facingAngle = _facingAngle;
-    localPlayerModel?.setAiming(currentWeapon === 'shotgun');
+    const _movingKeys = controls.keys;
+    const _isMovingNow = _movingKeys && (_movingKeys.w || _movingKeys.a || _movingKeys.s || _movingKeys.d);
+    localPlayerModel?.setAiming(currentWeapon === 'shotgun' && !!_isMovingNow);
     if (localPlayerModel) {
       // Y: mount/dismount anim → lomo world-space (localToWorld) → salto → suelo
       const animY   = horseManager?.getAnimY() ?? carrossaSystem?.getAnimY();
@@ -1604,7 +1602,7 @@ function gameLoop() {
         // Detectar: cruce del punto medio O wrap de loop
         const wrapped  = prevT > curT + 0.01;           // el tiempo volvió atrás → loop
         const midCross = prevT < half && curT >= half;   // cruzó el punto medio
-        if (wrapped || midCross) {
+        if (wrapped || (midCross && currentWeapon !== 'shotgun')) {
           // Pitch levemente más alto a mayor velocidad
           const pitch = 0.80 + _wSpd * 0.28 + (Math.random() - 0.5) * 0.10;
           Audio.footstep('sand', pitch);

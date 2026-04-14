@@ -196,6 +196,18 @@ export class PlayerModel {
     this.group.position.set(data.x, 0, data.z);
     scene.add(this.group);
 
+    // Proxy hitboxes — always-visible invisible meshes parented to this.group
+    // (immune to _mainModel.visible=false, so PvP raycasting always works)
+    const _hbMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    this._proxyBody = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.3, 0.4), _hbMat);
+    this._proxyBody.position.set(0, 1.0, 0);
+    this._proxyHead = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), _hbMat);
+    this._proxyHead.name = 'head';
+    this._proxyHead.position.set(0, 2.15, 0);
+    this.group.add(this._proxyBody);
+    this.group.add(this._proxyHead);
+    this._proxyHitboxes = [this._proxyBody, this._proxyHead];
+
     this._scene = scene;
 
     this._hat = null; // set only if GLB has a hat node
@@ -1215,6 +1227,6 @@ export class PlayerModel {
   }
 
   getHitboxes() {
-    return this._hitboxes;
+    return this._proxyHitboxes ?? this._hitboxes;
   }
 }
