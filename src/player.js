@@ -899,6 +899,18 @@ export class PlayerModel {
     if (this._tranquiModel)   this._tranquiModel.visible   =  useTranquiModel;
     if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
 
+    // Compensar offset vertical de la animación HERIDO (root bone elevado en el GLB)
+    if (this._hurtModel) {
+      if (useHurtModel && !this._hurtYFixed) {
+        this._hurtModel.updateWorldMatrix(true, true);
+        const hbb = new THREE.Box3().setFromObject(this._hurtModel);
+        const footY = hbb.min.y - this.group.position.y;
+        if (footY > 0.15) this._hurtModel.position.y -= footY;
+        this._hurtYFixed = true;
+      }
+      if (!useHurtModel) this._hurtYFixed = false;
+    }
+
     // ── Mixer principal (walk) ────────────────────────────────────────────────
     if (this._mixer && !useHorseModel) {
       if (!useShootModel) {

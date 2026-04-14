@@ -628,6 +628,13 @@ Network.onPlayerJoined((pd) => {
   UI.updatePlayersCount(remotePlayers.size + 1);
 });
 
+Network.onBloodSplat((data) => {
+  bloodSystem.spawn(
+    { x: data.x, y: data.y, z: data.z },
+    data.dx, data.dz, 14
+  );
+});
+
 Network.onPlayerLeft((id) => {
   remotePlayers.get(id)?.remove(scene);
   remotePlayers.delete(id);
@@ -674,9 +681,20 @@ Network.onPlayerHit((data) => {
     if (myData.hp <= 30) Audio.startHeartbeat();
     else Audio.stopHeartbeat();
     localPlayerModel?.startHurt(1.5);
+    // Knockback: empujar al jugador en dirección opuesta al atacante
     if (controls) {
       controls._stunned = true;
       setTimeout(() => { if (controls) controls._stunned = false; }, 1500);
+      const myPos = controls.getPosition();
+      const attacker = remotePlayers.get(data.attackerId);
+      if (myPos && attacker) {
+        const ax = myPos.x - attacker.group.position.x;
+        const az = myPos.z - attacker.group.position.z;
+        const aLen = Math.sqrt(ax * ax + az * az) || 1;
+        const knockStr = 3.5;
+        controls._velX = (ax / aLen) * knockStr;
+        controls._velZ = (az / aLen) * knockStr;
+      }
     }
   } else {
     const rp = remotePlayers.get(data.id);
@@ -1084,8 +1102,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       // Sonido de impacto + sangre para cualquier entidad viva
       if (['player','cow','ostrich','chicken','bird'].includes(scanHit.target.type)) {
         Audio.bulletImpactFlesh();
-        bloodSystem.spawn(scanHit.point, result.direction.x, result.direction.z,
-          scanHit.target.type === 'chicken' ? 5 : 10);
+        const bCount = scanHit.target.type === 'chicken' ? 6 : 14;
+        bloodSystem.spawn(scanHit.point, result.direction.x, result.direction.z, bCount);
+        Network.sendBloodSplat(scanHit.point.x, scanHit.point.y, scanHit.point.z,
+          result.direction.x, result.direction.z);
       }
 
       if (scanHit.target.type === 'player') {

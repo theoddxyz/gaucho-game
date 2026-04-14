@@ -6,7 +6,7 @@ const GRAVITY = 12;
 const LIFETIME = 0.9;
 
 const _mat = new THREE.MeshBasicMaterial({ color: 0x8b0000 });
-const _geo = new THREE.SphereGeometry(0.04, 4, 3);
+const _geo = new THREE.SphereGeometry(0.12, 5, 4);
 
 export class BloodSystem {
   constructor(scene) {

@@ -55,6 +55,8 @@ export function sendCowCorralled(id) { socket.emit('cowCorralled', { id }); }
 export function onCowCorralled(cb)   { socket.on('cowCorralled', cb); }
 
 export function sendBulletHit(hitId)    { socket.emit('bulletHit', { hitId }); }
+export function sendBloodSplat(x, y, z, dx, dz) { socket.volatile.emit('bloodSplat', { x, y, z, dx, dz }); }
+export function onBloodSplat(cb) { socket.on('bloodSplat', cb); }
 export function sendYell(x, z)          { socket.emit('yell', { x, z }); }
 export function sendToggleInvincible()  { socket.emit('toggleInvincible'); }
 export function onYell(cb)      { socket.on('yell', cb); }
