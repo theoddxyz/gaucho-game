@@ -956,21 +956,55 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
   let scanHit = hitscan(ray, allHitboxes, infoMap);
 
-  // ── Wall occlusion: raycast from GUN to hit point — walls block bullets ────
+  // ── Wall occlusion: ray vs ALL colliders (stable + village buildings) ────
   const gunVec = new THREE.Vector3(result.origin.x, result.origin.y, result.origin.z);
-  if (scanHit && scanHit.target.type !== 'wall' && wallMeshes.length > 0) {
-    const toHit = new THREE.Vector3().subVectors(scanHit.point, gunVec);
-    const hitDist = toHit.length();
-    toHit.normalize();
-    const wallRay = new THREE.Raycaster(gunVec, toHit, 0, hitDist);
-    const wallHits = wallRay.intersectObjects(wallMeshes, false);
-    if (wallHits.length > 0) {
-      // Pared más cerca que el target → bala se detiene en la pared
+  {
+    const _bDir = scanHit
+      ? new THREE.Vector3().subVectors(scanHit.point, gunVec).normalize()
+      : new THREE.Vector3(result.direction.x, 0, result.direction.z).normalize();
+    const _maxD = scanHit ? gunVec.distanceTo(scanHit.point) : BULLET_RANGE;
+    let _wallT = _maxD;
+    let _wallPt = null;
+    for (const c of colliders) {
+      // Ray-AABB: origin=gunVec, dir=_bDir, box center=(c.x, c.sy/2, c.z), half=(c.sx/2, c.sy/2, c.sz/2)
+      const hx = c.sx / 2, hy = (c.sy || 4) / 2, hz = c.sz / 2;
+      const ox = gunVec.x - c.x, oy = gunVec.y - hy, oz = gunVec.z - c.z;
+      let tmin = -Infinity, tmax = Infinity;
+      // X slab
+      if (Math.abs(_bDir.x) > 1e-6) {
+        let t1 = (-hx - ox) / _bDir.x, t2 = (hx - ox) / _bDir.x;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+      } else if (ox < -hx || ox > hx) continue;
+      // Y slab
+      if (Math.abs(_bDir.y) > 1e-6) {
+        let t1 = (-hy - oy) / _bDir.y, t2 = (hy - oy) / _bDir.y;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+      } else if (oy < -hy || oy > hy) continue;
+      // Z slab
+      if (Math.abs(_bDir.z) > 1e-6) {
+        let t1 = (-hz - oz) / _bDir.z, t2 = (hz - oz) / _bDir.z;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+      } else if (oz < -hz || oz > hz) continue;
+      if (tmin > tmax || tmax < 0) continue;
+      const tHit = tmin > 0 ? tmin : tmax;
+      if (tHit > 0.3 && tHit < _wallT) {
+        _wallT = tHit;
+        _wallPt = new THREE.Vector3(
+          gunVec.x + _bDir.x * tHit,
+          gunVec.y + _bDir.y * tHit,
+          gunVec.z + _bDir.z * tHit
+        );
+      }
+    }
+    if (_wallPt && _wallT < _maxD - 0.1) {
       scanHit = {
-        target:    { id: wallHits[0].object, type: 'wall' },
-        point:     wallHits[0].point.clone(),
-        dist:      wallHits[0].distance,
-        hitObject: wallHits[0].object,
+        target: { id: null, type: 'wall' },
+        point: _wallPt,
+        dist: _wallT,
+        hitObject: null,
       };
     }
   }
@@ -985,21 +1019,6 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   } else {
     bulletDir3D   = new THREE.Vector3(result.direction.x, -gunY * 0.04, result.direction.z).normalize();
     bulletMaxDist = BULLET_RANGE;
-    // Check if a wall blocks the miss path
-    if (wallMeshes.length > 0) {
-      const missRay = new THREE.Raycaster(gunVec, bulletDir3D, 0, BULLET_RANGE);
-      const missWallHits = missRay.intersectObjects(wallMeshes, false);
-      if (missWallHits.length > 0) {
-        bulletMaxDist = missWallHits[0].distance + 0.1;
-        // Convert miss → wall hit
-        scanHit = {
-          target:    { id: missWallHits[0].object, type: 'wall' },
-          point:     missWallHits[0].point.clone(),
-          dist:      missWallHits[0].distance,
-          hitObject: missWallHits[0].object,
-        };
-      }
-    }
   }
   spawnBullet(scene, result.origin, bulletDir3D, 0xffff00, bulletMaxDist);
 
