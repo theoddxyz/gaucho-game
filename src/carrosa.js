@@ -35,7 +35,6 @@ export class CarrosaSystem {
     this._x            = spawnX;
     this._z            = spawnZ;
     this._ry           = 0;
-    this._speed        = 0;
     this._moveDist     = 0;
     this._wheelAngle   = 0;
     this._walkTime     = 0;
@@ -117,15 +116,12 @@ export class CarrosaSystem {
           if (minV === sx) spinAxis = new THREE.Vector3(1, 0, 0);
           else if (minV === sy) spinAxis = new THREE.Vector3(0, 1, 0);
           else spinAxis = new THREE.Vector3(0, 0, 1);
-          console.log(`[carrosa] wheel ${node.name}: ${sx.toFixed(2)}x${sy.toFixed(2)}x${sz.toFixed(2)} → spinAxis`, spinAxis.toArray());
+
         }
       });
       this._wheelData.push({ node, restQuat: node.quaternion.clone(), spinAxis });
     }
 
-    console.log('[carrosa] ruedas:', wheelCandidates.map(w => w.name));
-    console.log('[carrosa] ejes:', this._axles.map(a =>
-      `${a.name}[${a.children.map(c => c.name).join(',')}]`));
     if (!this._conductorNode)   console.warn('[carrosa] no encontré CONDUCTOR');
     if (!this._acompananteNode) console.warn('[carrosa] no encontré ACOMPAÑANTE');
 
@@ -152,14 +148,9 @@ export class CarrosaSystem {
         horse._prevX = wp.x; horse._prevZ = wp.z;
 
         this._hitchedHorses.push({ horse, node, walkTime: 0 });
-        console.log('[carrosa] caballo enganchado', horseIdx - 1, '| patas:', horse.legs.length);
       }
     }
 
-    console.log('[carrosa] lista. Conductor:', this._conductorNode ? 'OK' : 'NO',
-      '| Acompañante:', this._acompananteNode ? 'OK' : 'NO',
-      '| Ruedas:', this._wheelData.length,
-      '| Caballos:', this._hitchedHorses.length);
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────
@@ -273,7 +264,6 @@ export class CarrosaSystem {
     if (this._conducting) {
       this._conducting = false;
       this._driverId   = null;
-      this._speed      = 0;
       const cx = this._conductorNode
         ? this._conductorNode.getWorldPosition(new THREE.Vector3()).x : this._x;
       const cz = this._conductorNode
@@ -435,10 +425,10 @@ export class CarrosaSystem {
     return { x: this._x, z: this._z, ry: this._ry };
   }
 
-  syncPosition(x, z, moveAngle, speed) {
+  syncPosition(x, z, moveAngle) {
     const dx = x - this._x, dz = z - this._z;
     this._moveDist = Math.sqrt(dx * dx + dz * dz);
-    this._x = x; this._z = z; this._ry = moveAngle; this._speed = speed;
+    this._x = x; this._z = z; this._ry = moveAngle;
     this.group.position.set(x, 0, z);
     this.group.rotation.y = moveAngle;
     this.group.updateWorldMatrix(false, true);

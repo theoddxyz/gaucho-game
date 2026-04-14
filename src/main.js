@@ -671,7 +671,6 @@ Network.onPlayerRespawned((data) => {
 
 // ── GM narration display ──────────────────────────────────────────────────────
 Network.onGmMessage(({ text }) => {
-  console.log('[GM]', text);
   const box = document.getElementById('gm-box');
   const txt = document.getElementById('gm-text');
   if (!box || !txt) { console.warn('[GM] no gm-box found in DOM'); return; }
@@ -690,7 +689,6 @@ Network.onGmMessage(({ text }) => {
 let _daySpeedMult = 1;  // default 1x
 
 Network.onGmCommand((cmd) => {
-  console.log('[GM CMD]', cmd);
   switch (cmd.type) {
 
     case 'set_time':
@@ -794,7 +792,6 @@ Network.onNpcSpawned(({ id, name, x, z, color }) => {
   const labelDiv  = _npcLabelDiv(name);
   const bubbleDiv = _npcBubbleDiv();
   _storyNpcs.set(id, { group, labelDiv, bubbleDiv, walkT: 0, name });
-  console.log(`[NPC] Spawned "${name}" @(${x.toFixed(1)},${z.toFixed(1)})`);
 });
 
 Network.onNpcMoved(({ id, x, z }) => {
@@ -1170,7 +1167,7 @@ function gameLoop() {
   const dt = Math.min(clock.getDelta(), 0.1);
 
   let pos = null;
-  let _onCarrosa = false;  // scope: visible to whole gameLoop frame
+  let _onCarrosa = false;
   if (!isDead && myId) {
     const _onHorse = horseManager?.isMounted() ?? false;
     _onCarrosa = carrossaSystem?.isOnBoard() ?? false;
@@ -1191,7 +1188,6 @@ function gameLoop() {
     sun.target.position.set(pos.x, 0, pos.z);
     sun.target.updateMatrixWorld();
     sun.shadow.camera.updateProjectionMatrix();
-    sun.target.updateMatrixWorld();
 
     // Moon follows player (opposite offset to sun) so shadow frustum always covers local area
     moon.position.set(pos.x - 80, 30, pos.z - 20);
@@ -1233,14 +1229,10 @@ function gameLoop() {
       // Only the conductor drives the carriage (physics-based)
       if (carrossaSystem.isConducting() && !carrossaSystem.isMountAnimating()) {
         // Raw WASD velocity — no spring from controls, single spring in drive()
-        const speedMult   = carrossaSystem.speedMultiplier(controls.isSprinting());
-        const desired     = controls.getDesiredVelocity(speedMult, controls.isSprinting());
-        const moveAngle   = controls.getMovementAngle();
-        const desiredVelX = desired.x;
-        const desiredVelZ = desired.z;
-
-        // Physics: horses pull carriage with inertia
-        const carPos = carrossaSystem.drive(desiredVelX, desiredVelZ, moveAngle, dt);
+        const speedMult = carrossaSystem.speedMultiplier(controls.isSprinting());
+        const desired   = controls.getDesiredVelocity(speedMult, controls.isSprinting());
+        const moveAngle = controls.getMovementAngle();
+        const carPos    = carrossaSystem.drive(desired.x, desired.z, moveAngle, dt);
 
         // Snap player/camera to carriage (override where controls moved us this frame)
         controls.position.x = carPos.x;
@@ -1711,7 +1703,6 @@ if (Network.getRoomId()) {
     const moonAngle = sunAngle + Math.PI;
     const mx = cx + r * Math.cos(moonAngle);
     const my = cy - r * Math.sin(moonAngle);
-    const isNightMoon = !isDaySun || t < 0.25 || t > 0.75;
     if (my < cy) { // above horizon
       ctx.fillStyle = '#c0c8e0';
       ctx.shadowColor = '#c0c8e0'; ctx.shadowBlur = 8;

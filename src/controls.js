@@ -248,12 +248,6 @@ export class IsoControls {
   }
 
   /**
-   * Recomputes aim direction fresh from current mouse NDC — use at shot time for precision.
-   * @param {THREE.Vector3|null} gunOrigin  Posición real del arma en world-space.
-   *   Si se provee, el vector incluye componente Y descendente para poder impactar
-   *   blancos que estén por debajo del arma (p.ej. disparando desde el caballo).
-   */
-  /**
    * Dirección de disparo desde la posición del jugador hacia el punto apuntado (y=0).
    * @param {number} gunY  Altura del arma en world-space (0.55 en suelo, ~3 en caballo).
    *   Si es > 0, la dirección incluye un componente Y descendente para poder

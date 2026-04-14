@@ -185,7 +185,7 @@ const npcSessions = new Map();
 const _geminiKey = process.env.GEMINI_API_KEY || '';
 const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
 const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.0-flash' }) : null;
-console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO key=...'+_geminiKey.slice(-4) : 'INACTIVO (sin API key)'}`);
+console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO' : 'INACTIVO (sin API key)'}`);
 
 // ── Story Bible — persistent narrative state per room ────────────────────────
 const storyBibles = new Map();
@@ -303,11 +303,9 @@ function execGMCommand(roomId, cmd) {
       }
       break;
 
-    case 'spawn_bots': {      // summon a bot wave
-      const n = Math.min(cmd.count ?? 3, 8);
+    case 'spawn_bots':
       _spawnBotWave(roomId);
       break;
-    }
 
     case 'day_speed':         // change how fast time passes (multiplier)
       io.to(roomId).emit('gmCommand', { type: 'day_speed', mult: cmd.mult ?? 1 });
@@ -429,7 +427,7 @@ setInterval(() => {
     if (humans.length === 0) continue;
     runStoryCycle(roomId).catch(e => console.warn('[STORY interval]', e.message));
   }
-}, 20 * 1000); // TEST: 20s — cambiar a 2*60*1000 en producción
+}, 2 * 60 * 1000);
 
 function _resolveNpc(roomId) {
   const s = npcSessions.get(roomId);
@@ -737,7 +735,6 @@ io.on('connection', (socket) => {
 
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
   socket.on('gameEvent', ({ type, detail, hour }) => {
-    console.log(`[GM] gameEvent recibido: type=${type}`);
     if (!currentRoom || !playerData) return;
     if (hour != null) getStory(currentRoom).hour = hour;
     const EVENT_DESCS = {
@@ -786,7 +783,6 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
   });
 
   socket.on('aldeanoChat', async ({ name, message, cuadrante, trayectoria, energia, recursos, vecinos, historial }) => {
-    console.log(`[aldeanoChat] ${name} ← "${message?.slice(0,40)}" | model=${_gmModel ? 'ok' : 'NULL'}`);
     if (typeof message !== 'string' || !message.trim()) return;
     if (!_gmModel) { socket.emit('aldeanoChatResponse', { response: 'No tengo nada que decirte.' }); return; }
     const histStr = Array.isArray(historial) && historial.length
