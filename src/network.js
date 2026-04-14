@@ -77,10 +77,15 @@ export function sendCarrosaMoved(x, z, ry) { socket.volatile.emit('carrosaMoved'
 export function onCarrosaMoved(cb)         { socket.on('carrosaMoved', cb); }
 
 // Reliable mount/dismount events so remote clients update immediately
-export function sendCarrossaMount()        { socket.emit('carrossaMount'); }
-export function sendCarrossaDismount()     { socket.emit('carrossaDismount'); }
-export function onCarrossaMount(cb)        { socket.on('carrossaMount', cb); }
-export function onCarrossaDismount(cb)     { socket.on('carrossaDismount', cb); }
+export function sendCarrossaMount()              { socket.emit('carrossaMount'); }
+export function sendCarrossaDismount()           { socket.emit('carrossaDismount'); }
+export function onCarrossaMount(cb)              { socket.on('carrossaMount', cb); }
+export function onCarrossaDismount(cb)           { socket.on('carrossaDismount', cb); }
+
+export function sendCarrossaPassengerMount()     { socket.emit('carrossaPassengerMount'); }
+export function sendCarrossaPassengerDismount()  { socket.emit('carrossaPassengerDismount'); }
+export function onCarrossaPassengerMount(cb)     { socket.on('carrossaPassengerMount', cb); }
+export function onCarrossaPassengerDismount(cb)  { socket.on('carrossaPassengerDismount', cb); }
 
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);

@@ -276,8 +276,9 @@ UI.initCoords();
 // --- State ---
 let localPlayerModel  = null;
 let horseManager      = null;
-let carrossaSystem        = null;
-let _remoteCarrosaDriver  = null;  // socket.id of whoever is remotely driving the carriage
+let carrossaSystem           = null;
+let _remoteCarrosaDriver     = null;  // socket.id of whoever is remotely driving the carriage
+let _remoteCarrosaPassenger  = null;  // socket.id of whoever is remotely riding as passenger
 const remotePlayers   = new Map();
 let myId   = null;
 let myData = { hp: 100, kills: 0, deaths: 0 };
@@ -372,7 +373,7 @@ Network.onJoined((data) => {
   carrossaSystem = new CarrosaSystem(scene, 14, -56, horseManager);
   Network.onCarrosaMoved(({ x, z, ry, driverId }) => {
     carrossaSystem?.onRemoteMove(x, z, ry);
-    // Track driver changes (volatile — may arrive before/after mount events)
+    // Volatile fallback: catch driver changes in case reliable event was lost
     if (driverId && driverId !== _remoteCarrosaDriver) {
       if (_remoteCarrosaDriver) remotePlayers.get(_remoteCarrosaDriver)?.setRiding(false);
       _remoteCarrosaDriver = driverId;
@@ -392,6 +393,20 @@ Network.onJoined((data) => {
       remotePlayers.get(_remoteCarrosaDriver)?.setRiding(false);
       _remoteCarrosaDriver = null;
       carrossaSystem?.setRemoteDriver(null);
+    }
+  });
+  Network.onCarrossaPassengerMount(({ passengerId }) => {
+    if (_remoteCarrosaPassenger && _remoteCarrosaPassenger !== passengerId)
+      remotePlayers.get(_remoteCarrosaPassenger)?.setRiding(false);
+    _remoteCarrosaPassenger = passengerId;
+    remotePlayers.get(_remoteCarrosaPassenger)?.setRiding(true);
+    carrossaSystem?.setRemotePassenger(_remoteCarrosaPassenger);
+  });
+  Network.onCarrossaPassengerDismount(({ passengerId }) => {
+    if (_remoteCarrosaPassenger === passengerId) {
+      remotePlayers.get(_remoteCarrosaPassenger)?.setRiding(false);
+      _remoteCarrosaPassenger = null;
+      carrossaSystem?.setRemotePassenger(null);
     }
   });
   _monturaCnt = 0;  // arranca sin montura en inventario (ya está en el caballo)
@@ -441,15 +456,30 @@ Network.onJoined((data) => {
     }
 
     // ── 2a. Subir/bajar carrosa ───────────────────────────────────────────────
-    if (carrossaSystem?._nearCarrosa || carrossaSystem?.isConducting()) {
+    if (carrossaSystem?._nearCarrosa || carrossaSystem?.isOnBoard()) {
       const wasConducting = carrossaSystem.isConducting();
-      const land = carrossaSystem.tryMount(myId, pos.x, pos.z);
-      if (land) {
-        controls.setPosition(land.x, 0, land.z);
-        Audio.mountSound();
-        Network.sendCarrossaMount();   // reliable: tell others I'm driving
-      } else if (wasConducting) {
-        Network.sendCarrossaDismount(); // reliable: tell others I dismounted
+      const wasPassenger  = carrossaSystem.isPassenger();
+
+      if (wasConducting || (!wasPassenger && !carrossaSystem.getDriverId())) {
+        // Try conductor seat (dismount if already there; mount if free)
+        const land = carrossaSystem.tryMount(myId, pos.x, pos.z);
+        if (land) {
+          controls.setPosition(land.x, 0, land.z);
+          Audio.mountSound();
+          Network.sendCarrossaMount();
+        } else if (wasConducting) {
+          Network.sendCarrossaDismount();
+        }
+      } else {
+        // Conductor seat taken (or we're already passenger) → passenger seat
+        const land = carrossaSystem.tryMountPassenger(myId, pos.x, pos.z);
+        if (land) {
+          controls.setPosition(land.x, 0, land.z);
+          Audio.mountSound();
+          Network.sendCarrossaPassengerMount();
+        } else if (wasPassenger) {
+          Network.sendCarrossaPassengerDismount();
+        }
       }
       return;
     }
@@ -559,7 +589,8 @@ Network.onPlayerLeft((id) => {
 Network.onPlayerMoved((data) => {
   // Skip position update for mounted/carriage players — vehicle position is authoritative
   if (horseManager?.isPlayerMounted(data.id)) return;
-  if (data.id === _remoteCarrosaDriver) return;
+  if (data.id === _remoteCarrosaDriver)    return;
+  if (data.id === _remoteCarrosaPassenger) return;
   remotePlayers.get(data.id)?.setTarget(data.x, data.y, data.z, data.ry);
 });
 
@@ -1194,9 +1225,13 @@ function gameLoop() {
     // ── Carrosa ───────────────────────────────────────────────────────────────
     if (carrossaSystem) {
       carrossaSystem.update(pos, dt);
+      // Snap controls when mount animation finishes (conductor or passenger)
       const carLand = carrossaSystem.consumeMountLand();
       if (carLand) controls.setPosition(carLand.x, 0, carLand.z);
-      if (_onCarrosa && !carrossaSystem.isMountAnimating()) {
+      const carPassLand = carrossaSystem.consumePassengerLand();
+      if (carPassLand) controls.setPosition(carPassLand.x, 0, carPassLand.z);
+      // Only the conductor drives the carriage
+      if (carrossaSystem.isConducting() && !carrossaSystem.isMountAnimating()) {
         const moveAngle = controls.getMovementAngle();
         const speed     = Math.hypot(controls._velX ?? 0, controls._velZ ?? 0);
         carrossaSystem.syncPosition(pos.x, pos.z, moveAngle, speed);
@@ -1221,12 +1256,13 @@ function gameLoop() {
       const animY   = horseManager?.getAnimY() ?? carrossaSystem?.getAnimY();
       const mounted = horseManager?.isMounted() ?? false;
       const saddlePos = mounted ? horseManager.getSaddleWorldPos() : null;
+      const _isCarPassenger = carrossaSystem?.isPassenger() ?? false;
       const riderY  = animY != null
         ? animY
         : saddlePos != null
           ? saddlePos.y + pos.y
           : _onCarrosa
-            ? carrossaSystem.getRiderY()
+            ? (_isCarPassenger ? carrossaSystem.getPassengerY() : carrossaSystem.getRiderY())
             : pos.y;
 
       // XZ: arc from player pos → horse/carrosa seat on mount, and back on dismount
@@ -1234,7 +1270,9 @@ function gameLoop() {
       const dismountXZ = horseManager?.getDismountModelPos(pos) ?? carrossaSystem?.getDismountModelPos(pos);
       const overrideXZ = mountXZ ?? dismountXZ;
       // While riding carrosa (no animation), place model at actual seat world position
-      const seatXZ     = (!overrideXZ && _onCarrosa) ? carrossaSystem.getRiderWorldPos() : null;
+      const seatXZ     = (!overrideXZ && _onCarrosa)
+        ? (_isCarPassenger ? carrossaSystem.getPassengerWorldPos() : carrossaSystem.getRiderWorldPos())
+        : null;
       const modelX = overrideXZ ? overrideXZ.x : (seatXZ?.x ?? pos.x);
       const modelZ = overrideXZ ? overrideXZ.z : (seatXZ?.z ?? pos.z);
 
@@ -1284,6 +1322,19 @@ function gameLoop() {
         pm.group.position.x = seat.x;
         pm.group.position.z = seat.z;
         pm.group.position.y = carrossaSystem.getRiderY();
+      }
+    }
+  }
+
+  // ── Pin remote passenger to passenger seat ────────────────────────────────
+  if (_remoteCarrosaPassenger && carrossaSystem) {
+    const pm = remotePlayers.get(_remoteCarrosaPassenger);
+    if (pm) {
+      const seat = carrossaSystem.getPassengerWorldPos();
+      if (seat) {
+        pm.group.position.x = seat.x;
+        pm.group.position.z = seat.z;
+        pm.group.position.y = carrossaSystem.getPassengerY();
       }
     }
   }

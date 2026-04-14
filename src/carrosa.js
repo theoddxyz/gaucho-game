@@ -10,9 +10,10 @@ const WALK_FREQ   = 6.0;
 const WALK_AMP    = 0.45;
 const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
-const WHEEL_RADIUS   = 1.5;   // world-unit radius — adjust if spin looks too fast/slow
-const CONDUCTOR_FWD  = 0.5;   // nudge conductor seat forward
-const CONDUCTOR_Y    = -0.5;  // nudge conductor seat down
+const WHEEL_RADIUS   = 1.5;
+const CONDUCTOR_FWD  = 0.5;
+const CONDUCTOR_Y    = -0.5;
+const PASSENGER_Y    = -0.5;
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -30,18 +31,27 @@ export class CarrosaSystem {
     this._ry           = 0;
     this._speed        = 0;
     this._moveDist     = 0;
-    this._wheelAngle   = 0;   // accumulated rotation angle (rad) from total distance
+    this._wheelAngle   = 0;
     this._walkTime     = 0;
-    this._wheelData    = [];  // [{ node, restQuat }]
-    this._axles        = [];  // eje nodes (fallback)
-    this._hitchedHorses = []; // [{ horse, node, walkTime }]
+    this._wheelData    = [];
+    this._axles        = [];
+    this._hitchedHorses = [];
     this._conductorNode    = null;
     this._acompananteNode  = null;
-    this._conducting  = false;
-    this._nearCarrosa = false;
-    this._anim        = null;
+
+    // ── Conductor (driver) state ──────────────────────────────────────────────
+    this._conducting  = false;   // local player is driving
+    this._driverId    = null;    // socket.id of driver (local or remote)
+    this._anim        = null;    // mount/dismount anim for conductor
     this._mountLandPos = null;
-    this._driverId    = null;   // socket.id of whoever is currently driving
+
+    // ── Passenger state ───────────────────────────────────────────────────────
+    this._isPassenger       = false;   // local player is passenger
+    this._passengerId       = null;    // socket.id of passenger (local or remote)
+    this._passengerAnim     = null;
+    this._passengerMountLandPos = null;
+
+    this._nearCarrosa = false;
     this._prompt      = this._mkPrompt();
 
     this.group.position.set(spawnX, 0, spawnZ);
@@ -73,7 +83,6 @@ export class CarrosaSystem {
     this.group.updateWorldMatrix(false, true);
 
     // ── Collect wheel nodes ──────────────────────────────────────────────────
-    // Prefer explicit RUEDA/wheel nodes; fall back to mesh-children of axles; last resort: axles themselves
     const wheelCandidates = [];
     car.traverse(o => {
       if (/rueda|wheel/i.test(o.name)) wheelCandidates.push(o);
@@ -83,13 +92,10 @@ export class CarrosaSystem {
         axle.children.forEach(c => { if (c.isMesh) wheelCandidates.push(c); });
       }
     }
-    if (!wheelCandidates.length) {
-      wheelCandidates.push(...this._axles);
-    }
+    if (!wheelCandidates.length) wheelCandidates.push(...this._axles);
 
-    // Store rest quaternion + detect axle axis (thin dim of geometry = spin axis)
     for (const node of wheelCandidates) {
-      let spinAxis = new THREE.Vector3(0, 1, 0);  // default: Y (standard Blender cylinder)
+      let spinAxis = new THREE.Vector3(0, 1, 0);
       node.traverse(o => {
         if (o.isMesh && o.geometry) {
           o.geometry.computeBoundingBox();
@@ -141,6 +147,7 @@ export class CarrosaSystem {
     }
 
     console.log('[carrosa] lista. Conductor:', this._conductorNode ? 'OK' : 'NO',
+      '| Acompañante:', this._acompananteNode ? 'OK' : 'NO',
       '| Ruedas:', this._wheelData.length,
       '| Caballos:', this._hitchedHorses.length);
   }
@@ -155,28 +162,46 @@ export class CarrosaSystem {
       padding:8px 20px; border-radius:8px; font-size:14px;
       display:none; pointer-events:none; border:1px solid rgba(255,255,255,0.2);
     `;
-    el.textContent = '[E] Subir a la carrosa';
     document.body.appendChild(el);
     return el;
+  }
+
+  _updatePrompt() {
+    if (!this._nearCarrosa) { this._prompt.style.display = 'none'; return; }
+    const driverFree    = !this._driverId;
+    const passengerFree = !this._passengerId && !!this._acompananteNode;
+    if (!driverFree && !passengerFree) { this._prompt.style.display = 'none'; return; }
+    this._prompt.textContent = driverFree ? '[E] Conducir la carrosa' : '[E] Subir como acompañante';
+    this._prompt.style.display = 'block';
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
 
   isConducting()     { return this._conducting; }
-  isOnBoard()        { return this._conducting; }
-  isMountAnimating() { return this._anim?.type === 'mount'; }
+  isPassenger()      { return this._isPassenger; }
+  isOnBoard()        { return this._conducting || this._isPassenger; }
+  isMountAnimating() {
+    return this._anim?.type === 'mount' || this._passengerAnim?.type === 'mount';
+  }
   speedMultiplier(sprinting) { return sprinting ? SPEED_MULT * SPRINT_MULT : SPEED_MULT; }
-  getDriverId()      { return this._driverId; }
-  /** Called by remote carrossaDriver event to lock/unlock the carriage */
+  getDriverId()    { return this._driverId; }
+  getPassengerId() { return this._passengerId; }
+
+  /** Remote clients call this to lock/unlock conductor seat */
   setRemoteDriver(id) { if (!this._conducting) this._driverId = id; }
+  /** Remote clients call this to lock/unlock passenger seat */
+  setRemotePassenger(id) { if (!this._isPassenger) this._passengerId = id; }
+
+  // ── Seat world positions (no guard — safe for remote clients too) ──────────
 
   getRiderY() {
     if (!this._conductorNode) return 3.0;
     return this._conductorNode.getWorldPosition(new THREE.Vector3()).y + CONDUCTOR_Y;
   }
 
+  /** World XZ of conductor seat. No _conducting guard — usable on remote clients. */
   getRiderWorldPos() {
-    if (!this._conductorNode || !this._conducting) return null;
+    if (!this._conductorNode) return null;
     const wp = this._conductorNode.getWorldPosition(new THREE.Vector3());
     return {
       x: wp.x + Math.sin(this._ry) * CONDUCTOR_FWD,
@@ -184,41 +209,61 @@ export class CarrosaSystem {
     };
   }
 
-  consumeMountLand() { const p = this._mountLandPos; this._mountLandPos = null; return p; }
+  getPassengerY() {
+    if (!this._acompananteNode) return 3.0;
+    return this._acompananteNode.getWorldPosition(new THREE.Vector3()).y + PASSENGER_Y;
+  }
 
+  /** World XZ of passenger seat. No _isPassenger guard — usable on remote clients. */
+  getPassengerWorldPos() {
+    if (!this._acompananteNode) return null;
+    const wp = this._acompananteNode.getWorldPosition(new THREE.Vector3());
+    return { x: wp.x, z: wp.z };
+  }
+
+  // ── Animation helpers ─────────────────────────────────────────────────────
+
+  consumeMountLand() {
+    const p = this._mountLandPos; this._mountLandPos = null; return p;
+  }
+  consumePassengerLand() {
+    const p = this._passengerMountLandPos; this._passengerMountLandPos = null; return p;
+  }
+
+  /** Arc XZ for mount/dismount animation — covers both conductor and passenger. */
   getMountModelPos() {
-    if (!this._anim || this._anim.type !== 'mount') return null;
-    const t = _ease(this._anim.t);
-    return {
-      x: this._anim.fromX + (this._anim.toX - this._anim.fromX) * t,
-      z: this._anim.fromZ + (this._anim.toZ - this._anim.fromZ) * t,
-    };
+    const a = this._anim?.type === 'mount' ? this._anim
+      : (this._passengerAnim?.type === 'mount' ? this._passengerAnim : null);
+    if (!a) return null;
+    const t = _ease(a.t);
+    return { x: a.fromX + (a.toX - a.fromX) * t, z: a.fromZ + (a.toZ - a.fromZ) * t };
   }
 
   getDismountModelPos(controlsPos) {
-    if (!this._anim || this._anim.type !== 'dismount') return null;
-    const t = _ease(this._anim.t);
-    return {
-      x: this._anim.fromX + (controlsPos.x - this._anim.fromX) * t,
-      z: this._anim.fromZ + (controlsPos.z - this._anim.fromZ) * t,
-    };
+    const a = this._anim?.type === 'dismount' ? this._anim
+      : (this._passengerAnim?.type === 'dismount' ? this._passengerAnim : null);
+    if (!a) return null;
+    const t = _ease(a.t);
+    return { x: a.fromX + (controlsPos.x - a.fromX) * t, z: a.fromZ + (controlsPos.z - a.fromZ) * t };
   }
 
   getAnimY() {
-    if (!this._anim) return null;
-    const seatY = this.getRiderY();
-    const t = this._anim.t, ease = _ease(t);
-    if (this._anim.type === 'mount') return ease * seatY + Math.sin(t * Math.PI) * 0.3;
+    const a = this._anim ?? this._passengerAnim;
+    if (!a) return null;
+    const seatY = (a === this._anim) ? this.getRiderY() : this.getPassengerY();
+    const t = a.t, ease = _ease(t);
+    if (a.type === 'mount')    return ease * seatY + Math.sin(t * Math.PI) * 0.3;
     return (1 - ease) * seatY + Math.sin(t * Math.PI) * 0.5;
   }
 
   // ── Mount / dismount ──────────────────────────────────────────────────────
 
   tryMount(playerId, fromX, fromZ) {
+    // ── Dismount conductor ────────────────────────────────────────────────
     if (this._conducting) {
       this._conducting = false;
-      this._driverId = null;
-      this._speed = 0;
+      this._driverId   = null;
+      this._speed      = 0;
       const cx = this._conductorNode
         ? this._conductorNode.getWorldPosition(new THREE.Vector3()).x : this._x;
       const cz = this._conductorNode
@@ -230,12 +275,14 @@ export class CarrosaSystem {
         toZ: this._z + Math.cos(sideAngle) * 3 };
       return null;
     }
-    // Lock: someone else is already driving
+
+    // ── Lock: someone else is already driving ─────────────────────────────
     if (this._driverId && this._driverId !== playerId) return null;
     if (!this._nearCarrosa) return null;
 
+    // ── Mount conductor ───────────────────────────────────────────────────
     this._conducting = true;
-    this._driverId = playerId;
+    this._driverId   = playerId;
     const wp = this._conductorNode
       ? this._conductorNode.getWorldPosition(new THREE.Vector3())
       : new THREE.Vector3(this._x, 0, this._z);
@@ -244,9 +291,41 @@ export class CarrosaSystem {
     return { x: wp.x, z: wp.z };
   }
 
+  tryMountPassenger(playerId, fromX, fromZ) {
+    // ── Dismount passenger ────────────────────────────────────────────────
+    if (this._isPassenger) {
+      this._isPassenger  = false;
+      this._passengerId  = null;
+      const cx = this._acompananteNode
+        ? this._acompananteNode.getWorldPosition(new THREE.Vector3()).x : this._x;
+      const cz = this._acompananteNode
+        ? this._acompananteNode.getWorldPosition(new THREE.Vector3()).z : this._z;
+      const sideAngle = this._ry - Math.PI * 0.5;  // opposite side from conductor
+      this._passengerAnim = { type: 'dismount', t: 0, dur: 0.4,
+        fromX: cx, fromZ: cz,
+        toX: this._x + Math.sin(sideAngle) * 3,
+        toZ: this._z + Math.cos(sideAngle) * 3 };
+      return null;
+    }
+
+    // ── Lock: no passenger seat or seat taken ────────────────────────────
+    if (!this._acompananteNode) return null;
+    if (this._passengerId && this._passengerId !== playerId) return null;
+    if (!this._nearCarrosa) return null;
+
+    // ── Mount passenger ───────────────────────────────────────────────────
+    this._isPassenger  = true;
+    this._passengerId  = playerId;
+    const wp = this._acompananteNode.getWorldPosition(new THREE.Vector3());
+    this._passengerAnim = { type: 'mount', t: 0, dur: MOUNT_DUR,
+      fromX: fromX, fromZ: fromZ, toX: wp.x, toZ: wp.z };
+    return { x: wp.x, z: wp.z };
+  }
+
   // ── Per-frame update ──────────────────────────────────────────────────────
 
   update(playerPos, dt) {
+    // Advance conductor anim
     if (this._anim) {
       this._anim.t += dt / this._anim.dur;
       if (this._anim.t >= 1) {
@@ -257,10 +336,22 @@ export class CarrosaSystem {
       }
     }
 
-    if (!this._conducting) {
+    // Advance passenger anim
+    if (this._passengerAnim) {
+      this._passengerAnim.t += dt / this._passengerAnim.dur;
+      if (this._passengerAnim.t >= 1) {
+        this._passengerAnim.t = 1;
+        if (this._passengerAnim.type === 'mount')
+          this._passengerMountLandPos = { x: this._passengerAnim.toX, z: this._passengerAnim.toZ };
+        this._passengerAnim = null;
+      }
+    }
+
+    // Proximity prompt (only when not on board)
+    if (!this._conducting && !this._isPassenger) {
       const dx = this._x - playerPos.x, dz = this._z - playerPos.z;
       this._nearCarrosa = (dx * dx + dz * dz) < MOUNT_R * MOUNT_R;
-      this._prompt.style.display = this._nearCarrosa ? 'block' : 'none';
+      this._updatePrompt();
     } else {
       this._nearCarrosa = false;
       this._prompt.style.display = 'none';
@@ -268,7 +359,7 @@ export class CarrosaSystem {
 
     const moving = this._moveDist > 0.001;
 
-    // ── Hitched horses — full animation via HorseManager (bob, head nod, all) ──
+    // ── Hitched horses ────────────────────────────────────────────────────
     for (const h of this._hitchedHorses) {
       if (moving) h.walkTime += dt;
       else        h.walkTime  = 0;
@@ -279,11 +370,8 @@ export class CarrosaSystem {
     }
 
     // ── Wheels ────────────────────────────────────────────────────────────
-    // Absolute quaternion: restQuat * spinQuat(detectedAxis, angle)
-    // restQuat * spinQuat = spin around the wheel's OWN geometry-space axle axis.
-    // Using absolute angle avoids incremental drift and first-frame teleport spikes.
     if (this._wheelData.length) {
-      const dist = Math.min(this._moveDist, 0.3);  // cap to avoid teleport spike
+      const dist = Math.min(this._moveDist, 0.3);
       this._wheelAngle += dist / WHEEL_RADIUS;
       for (const wd of this._wheelData) {
         const spinQuat = new THREE.Quaternion().setFromAxisAngle(wd.spinAxis, this._wheelAngle);
