@@ -778,8 +778,8 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
       const r = await Promise.race([_gmModel.generateContent(prompt), _timeout]);
       socket.emit('aldeanoChatResponse', { response: r.response.text().trim() });
     } catch(e) {
-      console.warn('[aldeanoChat] FALLO:', e.message, e.status ?? '');
-      socket.emit('aldeanoChatResponse', { response: 'No tengo ganas de hablar ahora.' });
+      console.warn('[aldeanoChat] FALLO:', e.message, e.status ?? '', e.statusText ?? '');
+      socket.emit('aldeanoChatResponse', { response: `[DEBUG] ${e.message || e.toString()}` });
     }
   });
 
