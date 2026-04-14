@@ -358,11 +358,13 @@ export class CarrosaSystem {
         if (tmpV.y > topY) topY = tmpV.y;
       });
       // cabin height: from ground (0) to roughly 2x wheel-center height
-      const cabinH  = Math.max(topY * 2.2, WHL_R * 3.5);
-      const cabinCY = cabinH / 2;                            // center Y
-      const cabinW  = (trackHalf - 0.25) * 2;               // slightly narrower than track
-      const cabinL  = Math.abs(fwdZ - bwdZ) + 0.4;         // axle span + small overhang
-      const cabinCZ = (fwdZ + bwdZ) / 2;                    // center between axles
+      const cabinBottom = WHL_R;                             // base of body starts at axle height
+      const cabinTop    = Math.max(topY * 2.2, WHL_R * 4.5);
+      const cabinH      = cabinTop - cabinBottom;
+      const cabinCY     = cabinBottom + cabinH / 2;          // center above ground, not from 0
+      const cabinW      = (trackHalf - 1.0) * 2;            // significantly narrower → clear gap to wheels
+      const cabinL      = Math.abs(fwdZ - bwdZ) + 0.4;
+      const cabinCZ     = (fwdZ + bwdZ) / 2;
 
       this._rebuildDebugWheels(fwdZ, bwdZ, trackHalf,
         new THREE.Vector3(0, cabinCY, cabinCZ),
