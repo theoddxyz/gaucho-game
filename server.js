@@ -184,7 +184,7 @@ const npcSessions = new Map();
 // ─── Gemini Game Master ───────────────────────────────────────────────────────
 const _geminiKey = process.env.GEMINI_API_KEY || '';
 const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
-const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }) : null;
+const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.0-flash' }) : null;
 console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO key=...'+_geminiKey.slice(-4) : 'INACTIVO (sin API key)'}`);
 
 // ── Story Bible — persistent narrative state per room ────────────────────────
