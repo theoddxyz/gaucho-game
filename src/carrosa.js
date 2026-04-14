@@ -86,6 +86,7 @@ export class CarrosaSystem {
     this._debugGroup       = null;
     this._dbgChassis       = null;
     this._dbgChassisOffsetZ = 0;
+    this._dbgChassisOffsetY = 0;
     this._dbgWheels        = [];
     this._dbgArrow         = null;
     this._initDebug(scene);
@@ -211,7 +212,9 @@ export class CarrosaSystem {
 
     this._dbgChassis.geometry.dispose();
     // Taller box (1.8) so it matches the carriage body height better
-    this._dbgChassis.geometry = new THREE.BoxGeometry(2.6, 1.8, Math.max(axleSpan, 3.0));
+    const bodyW = (trackHalf - 0.35) * 2;  // narrower than wheel track so wheels stick out
+    this._dbgChassisOffsetY = 1.2;           // raise box so it sits above the axle, not around it
+    this._dbgChassis.geometry = new THREE.BoxGeometry(Math.max(bodyW, 1.8), 2.2, Math.max(axleSpan, 3.0));
   }
 
   toggleDebug() {
@@ -229,9 +232,10 @@ export class CarrosaSystem {
     // Offset the box along the local Z axis so it centers on the carriage body (not the tongue)
     const offZ = this._dbgChassisOffsetZ || 0;
     const cosY = Math.cos(this._ry), sinY = Math.sin(this._ry);
+    const offY = this._dbgChassisOffsetY || 0;
     this._dbgChassis.position.set(
       cp.x + offZ * sinY,
-      cp.y,
+      cp.y + offY,
       cp.z + offZ * cosY
     );
     this._dbgChassis.quaternion.set(cq.x, cq.y, cq.z, cq.w);
