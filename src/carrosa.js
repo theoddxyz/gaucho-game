@@ -3,21 +3,22 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader      = new GLTFLoader();
-const SCALE       = 5.0;
+const SCALE       = 8.0;
 const MOUNT_R     = 5.0;
 const MOUNT_DUR   = 0.45;
-const SADDLE_H    = 2.05;   // conductor seat Y in group-local space (after scale + rot)
+const SADDLE_H    = 3.28;   // conductor seat Y: model.y(0.41) * SCALE(8)
 const WALK_FREQ   = 4.5;
 const WALK_AMP    = 0.38;
 const SPEED_MULT  = 1.4;
 const SPRINT_MULT = 1.6;
 
-// Precomputed group-local offsets after SCALE=5 + car.rotation.y=π/2:
+// Precomputed group-local offsets after SCALE=8 + car.rotation.y=-π/2:
 //   group.x = -model.z * S,  group.z = model.x * S,  group.y = model.y * S
-const OFF_CONDUCTOR   = new THREE.Vector3( 0.6, 2.05, -1.9);  // LUGAR CONDUCTOR
-const OFF_ACOMPANANTE = new THREE.Vector3(-0.6, 2.05, -1.9);  // LUGAR ACOMPAÑANTE
-const OFF_HORSE_IZQ   = new THREE.Vector3( 0.6, 0.0,   1.5);  // LUGAR CABALLO IZQUIERDA
-const OFF_HORSE_DER   = new THREE.Vector3(-0.6, 0.0,   1.5);  // LUGAR CABALLO DERECHA
+const OFF_CONDUCTOR   = new THREE.Vector3( 0.96, 3.28, -3.04);  // LUGAR CONDUCTOR
+const OFF_ACOMPANANTE = new THREE.Vector3(-0.96, 3.28, -3.04);  // LUGAR ACOMPAÑANTE
+// Horses: LUGAR CABALLO z_group = 0.30*8 = 2.4, but add +2 so they're IN FRONT of the carriage
+const OFF_HORSE_IZQ   = new THREE.Vector3( 0.96, 0.0,   4.4);  // LUGAR CABALLO IZQUIERDA
+const OFF_HORSE_DER   = new THREE.Vector3(-0.96, 0.0,   4.4);  // LUGAR CABALLO DERECHA
 
 function loadGLB(path) {
   return new Promise(r =>
@@ -79,8 +80,9 @@ export class CarrosaSystem {
 
     const car = carGLTF.scene;
     car.scale.setScalar(SCALE);
-    // Rotate so horse-side (model +X) faces Three.js +Z (forward)
-    car.rotation.y = Math.PI / 2;
+    // Rotate so horse-side (model +X) faces Three.js +Z (forward).
+    // -π/2: model +X → world +Z  (positive = counterclockwise from above, so -π/2 = clockwise)
+    car.rotation.y = -Math.PI / 2;
 
     // Find wheels — the GLB already has ruedas, ejes, etc. we just spin them
     car.traverse(o => {
@@ -91,7 +93,8 @@ export class CarrosaSystem {
     this.group.add(car);
     car.updateWorldMatrix(true, true);
 
-    // Override offsets from actual node positions if available
+    // Override offsets from actual node world positions (robust to model changes)
+    // NOTE: horse positions get +2 forward offset so they appear IN FRONT of the carriage
     car.traverse(o => {
       if (/LUGAR CONDUCTOR$/i.test(o.name)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
@@ -101,10 +104,11 @@ export class CarrosaSystem {
         OFF_ACOMPANANTE.set(wp.x - this._x, wp.y, wp.z - this._z);
       } else if (/LUGAR CABALLO IZQ/i.test(o.name)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
-        OFF_HORSE_IZQ.set(wp.x - this._x, 0, wp.z - this._z);
+        // +2 forward (z) so horse body is in front, not inside the carriage
+        OFF_HORSE_IZQ.set(wp.x - this._x, 0, wp.z - this._z + 2.0);
       } else if (/LUGAR CABALLO DER/i.test(o.name)) {
         const wp = o.getWorldPosition(new THREE.Vector3());
-        OFF_HORSE_DER.set(wp.x - this._x, 0, wp.z - this._z);
+        OFF_HORSE_DER.set(wp.x - this._x, 0, wp.z - this._z + 2.0);
       }
     });
 
@@ -159,7 +163,7 @@ export class CarrosaSystem {
   isConducting()     { return this._conducting; }
   isOnBoard()        { return this._conducting; }
   isMountAnimating() { return this._anim?.type === 'mount'; }
-  getRiderY()        { return OFF_CONDUCTOR.y; }
+  getRiderY()        { return SADDLE_H; }
   speedMultiplier(sprinting) { return sprinting ? SPEED_MULT * SPRINT_MULT : SPEED_MULT; }
 
   consumeMountLand() {
