@@ -582,6 +582,40 @@ export class PlayerModel {
       this.group.add(model);
       // HP bar for bots
       if (this._isBot) this._buildHPBar();
+
+      // Shoot-walk model para remotos (clonado, con mixer propio)
+      if (!this._isBot) {
+        loadShootWalkTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const shootClone = SkeletonUtils.clone(gltf.scene);
+          shootClone.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+          // Escalar a 2.8
+          shootClone.updateWorldMatrix(true, true);
+          const bbox = new THREE.Box3().setFromObject(shootClone);
+          const h = bbox.max.y - bbox.min.y;
+          if (h > 0.01) {
+            shootClone.scale.setScalar(2.8 / h);
+            shootClone.updateWorldMatrix(true, true);
+            const b2 = new THREE.Box3().setFromObject(shootClone);
+            shootClone.position.y -= b2.min.y;
+          }
+          shootClone.visible = false;
+          this.group.add(shootClone);
+          this._shootWalkModel = shootClone;
+          this._shootWalkMixer  = new THREE.AnimationMixer(shootClone);
+          this._shootWalkAction = this._shootWalkMixer.clipAction(gltf.animations[0]);
+          this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._shootWalkAction.play();
+          this._shootWalkAction.paused = true;
+        });
+      }
     });
   }
 

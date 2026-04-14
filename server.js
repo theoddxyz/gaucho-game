@@ -510,10 +510,12 @@ io.on('connection', (socket) => {
     playerData.z = data.z;
     playerData.rx = data.rx;
     playerData.ry = data.ry;
+    playerData.aiming = !!data.aiming;
     socket.to(currentRoom).volatile.emit('playerMoved', {
       id: socket.id,
       x: data.x, y: data.y, z: data.z,
       rx: data.rx, ry: data.ry,
+      aiming: !!data.aiming,
     });
   });
 

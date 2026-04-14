@@ -591,7 +591,11 @@ Network.onPlayerMoved((data) => {
   if (horseManager?.isPlayerMounted(data.id)) return;
   if (data.id === _remoteCarrosaDriver)    return;
   if (data.id === _remoteCarrosaPassenger) return;
-  remotePlayers.get(data.id)?.setTarget(data.x, data.y, data.z, data.ry);
+  const _rp = remotePlayers.get(data.id);
+  if (_rp) {
+    _rp.setTarget(data.x, data.y, data.z, data.ry);
+    _rp.setAiming(!!data.aiming);
+  }
 });
 
 Network.onPlayerShot((data) => {
@@ -1366,7 +1370,7 @@ function gameLoop() {
     sendTimer += dt;
     if (sendTimer >= SEND_RATE) {
       sendTimer = 0;
-      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: facingAngle });
+      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: facingAngle, aiming: controls.isAiming() });
     }
   }
 
