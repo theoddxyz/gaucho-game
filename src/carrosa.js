@@ -669,85 +669,17 @@ export class CarrosaSystem {
   drive(desiredVelX, desiredVelZ, moveAngle, dt) {
     if (!this._vehicle) return this._driveFallback(desiredVelX, desiredVelZ, moveAngle, dt);
 
-    const isMoving = desiredVelX * desiredVelX + desiredVelZ * desiredVelZ > 0.25;
-
-    // ── Determine pull direction and magnitude ────────────────────────────
-    // Horses pull from the tongue (front attachment point), not from the wheels.
-    // We apply a direct force to the chassis body at the tongue world position.
-    // Wheels are passive — suspension/ground contact only, no engine force.
-
-    this._chassisBody.quaternion.vmult(this._fwdLocal, this._fwdWorld);
-    const heading = Math.atan2(this._fwdWorld.x, this._fwdWorld.z);
-
-    let pullF  = 0;
-    let steerV = 0;
-
-    if (isMoving) {
-      const desiredAngle = Math.atan2(desiredVelX, desiredVelZ);
-      let diff = desiredAngle - heading;
-      while (diff >  Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-
-      const wantsForward = Math.abs(diff) < Math.PI * 0.55;
-      if (wantsForward) {
-        const ds   = Math.sqrt(desiredVelX * desiredVelX + desiredVelZ * desiredVelZ);
-        const spr  = ds > 13 ? SPRINT_F_MULT : 1.0;
-        pullF  = ENGINE_FORCE * spr;
-        steerV = Math.max(-MAX_STEER, Math.min(MAX_STEER, diff));
-      }
+    // NO ENGINE — pure physics body, can be pushed by player
+    // Zero all wheel forces, no braking, let cannon handle everything
+    for (let i = 0; i < 4; i++) {
+      this._vehicle.applyEngineForce(0, i);
+      this._vehicle.setBrake(0, i);
     }
+    this._lastPullF = 0;
 
-    // Wheels: passive (no engine force), front axle steers for visual alignment only
-    for (let i = 0; i < 4; i++) this._vehicle.applyEngineForce(0, i);
-    this._vehicle.setSteeringValue(steerV, 0);
-    this._vehicle.setSteeringValue(steerV, 1);
-
-    // Braking when stopped
-    const brakeF = !isMoving ? BRAKE_FORCE : 0;
-    for (let i = 0; i < 4; i++) this._vehicle.setBrake(brakeF, i);
-
-    if (pullF > 0) {
-      this._lastPullF     = pullF;
-      this._lastPullAngle = heading;
-      // Linear force applied at CENTER OF MASS → pure forward movement, no torque
-      const cp = this._chassisBody.position;
-      this._chassisBody.applyForce(
-        new CANNON.Vec3(Math.sin(heading) * pullF, 0, Math.cos(heading) * pullF),
-        cp
-      );
-      // Steering: separate yaw torque so it doesn't fight the linear force
-      if (Math.abs(steerV) > 0.01) {
-        const vel = this._chassisBody.velocity;
-        const spd = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-        const yawT = steerV * Math.max(spd, 1.5) * 420;
-        this._chassisBody.applyTorque(new CANNON.Vec3(0, yawT, 0));
-      }
-    } else {
-      this._lastPullF = 0;
-    }
-
-    // Drag — rolling resistance + extra when no input
-    const vel  = this._chassisBody.velocity;
-    const spd  = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-    const drag = spd * 40 + (isMoving ? 0 : spd * 100);
-    if (spd > 0.01) {
-      this._chassisBody.applyForce(
-        new CANNON.Vec3(-vel.x / spd * drag, 0, -vel.z / spd * drag),
-        this._chassisBody.position
-      );
-    }
-
-    // Speed cap
-    const MAX_SPD = 16;
-    if (spd > MAX_SPD) {
-      this._chassisBody.velocity.x *= MAX_SPD / spd;
-      this._chassisBody.velocity.z *= MAX_SPD / spd;
-    }
-
-    // Lock pitch/roll; damp yaw so it doesn't spin out
+    // Lock pitch/roll only
     this._chassisBody.angularVelocity.x = 0;
     this._chassisBody.angularVelocity.z = 0;
-    this._chassisBody.angularVelocity.y *= 0.80;
 
     this._cannonWorld.step(1 / 60, dt, 3);
 
