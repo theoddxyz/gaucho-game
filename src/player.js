@@ -597,16 +597,7 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
-          // Escalar a 2.8
-          shootClone.updateWorldMatrix(true, true);
-          const bbox = new THREE.Box3().setFromObject(shootClone);
-          const h = bbox.max.y - bbox.min.y;
-          if (h > 0.01) {
-            shootClone.scale.setScalar(2.8 / h);
-            shootClone.updateWorldMatrix(true, true);
-            const b2 = new THREE.Box3().setFromObject(shootClone);
-            shootClone.position.y -= b2.min.y;
-          }
+          // El clone hereda scale + position.y del source ya escalado por el local
           shootClone.visible = false;
           this.group.add(shootClone);
           this._shootWalkModel = shootClone;
