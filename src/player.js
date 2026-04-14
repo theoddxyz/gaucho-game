@@ -584,29 +584,36 @@ export class PlayerModel {
       // HP bar for bots
       if (this._isBot) this._buildHPBar();
 
-      // Shoot-walk model para remotos (clonado, con mixer propio)
+      // Modelos extra para remotos (clonados, con mixer propio)
       if (!this._isBot) {
-        loadShootWalkTemplate().then((gltf) => {
-          if (!gltf || !gltf.animations?.length) return;
-          const shootClone = SkeletonUtils.clone(gltf.scene);
-          shootClone.traverse((obj) => {
-            obj.visible = true;
-            if (obj.isMesh || obj.isSkinnedMesh) {
-              obj.castShadow = true; obj.frustumCulled = false;
-              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
-              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
-            }
+        // Helper: clonar, fix materials, agregar al group con mixer
+        const _loadRemoteModel = (loadFn, assignModel, assignMixer, assignAction) => {
+          loadFn().then((gltf) => {
+            if (!gltf || !gltf.animations?.length) return;
+            const clone = SkeletonUtils.clone(gltf.scene);
+            clone.traverse((obj) => {
+              obj.visible = true;
+              if (obj.isMesh || obj.isSkinnedMesh) {
+                obj.castShadow = true; obj.frustumCulled = false;
+                const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+                obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+              }
+            });
+            clone.visible = false;
+            this.group.add(clone);
+            this[assignModel] = clone;
+            const mixer = new THREE.AnimationMixer(clone);
+            this[assignMixer] = mixer;
+            const action = mixer.clipAction(gltf.animations[0]);
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.play();
+            if (assignAction) { this[assignAction] = action; action.paused = true; }
           });
-          // El clone hereda scale + position.y del source ya escalado por el local
-          shootClone.visible = false;
-          this.group.add(shootClone);
-          this._shootWalkModel = shootClone;
-          this._shootWalkMixer  = new THREE.AnimationMixer(shootClone);
-          this._shootWalkAction = this._shootWalkMixer.clipAction(gltf.animations[0]);
-          this._shootWalkAction.setLoop(THREE.LoopRepeat, Infinity);
-          this._shootWalkAction.play();
-          this._shootWalkAction.paused = true;
-        });
+        };
+
+        _loadRemoteModel(loadShootWalkTemplate, '_shootWalkModel', '_shootWalkMixer', '_shootWalkAction');
+        _loadRemoteModel(loadTranquiTemplate, '_tranquiModel', '_tranquiMixer', null);
+        _loadRemoteModel(loadHurtTemplate, '_hurtModel', '_hurtMixer', '_hurtAction');
       }
     });
   }

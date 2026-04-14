@@ -648,8 +648,12 @@ Network.onPlayerHit((data) => {
       setTimeout(() => { if (controls) controls._stunned = false; }, 1500);
     }
   } else {
-    remotePlayers.get(data.id)?.detachHat();
-    remotePlayers.get(data.id)?.setHP(data.hp);
+    const rp = remotePlayers.get(data.id);
+    if (rp) {
+      rp.detachHat();
+      rp.setHP(data.hp);
+      rp.startHurt(1.5);
+    }
   }
   if (data.attackerId === myId) { UI.showHitmarker(); Audio.hitMarker(); Audio.bulletImpactFlesh(); }
 });
