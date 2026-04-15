@@ -150,7 +150,8 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyR' || !myId || isDead) return;
   if (currentWeapon !== 'escopeta' && currentWeapon !== 'shotgun') return;
-  if (loadOneShell(performance.now() / 1000)) Audio.shellLoad();
+  Audio.shellLoad();  // siempre suena (se pueden pisar)
+  loadOneShell(performance.now() / 1000);
 });
 
 // Teclas 1/2/3: cambio directo de arma (sin menú radial)

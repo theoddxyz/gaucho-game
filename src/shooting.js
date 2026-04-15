@@ -25,7 +25,7 @@ export function reloadProgress(now) {
 export function shotsLeft() { return MAGAZINE - shotCount; }
 
 // Carga UNA bala por press de R. Retorna true si se inició la carga.
-const SHELL_TIME = 0.45;   // segundos por bala
+const SHELL_TIME = 0.28;   // segundos por bala
 export function loadOneShell(now) {
   if (shotCount <= 0) return false;      // ya lleno
   if (now < reloadEnd) return false;     // aún cargando la anterior

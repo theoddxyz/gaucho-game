@@ -92,7 +92,7 @@ const MANIFEST = [
   'weapons/shotgun.mp3','weapons/bullet_whiz.mp3',
   'weapons/impact_dirt.mp3','weapons/impact_flesh.mp3','weapons/impact_flesh_2.mp3',
   'weapons/impact_glass.mp3','weapons/impact_glass_2.mp3','weapons/impact_metal.mp3',
-  'weapons/shell.mp3','weapons/shell_2.mp3','weapons/shell_3.mp3',
+  'weapons/shell.mp3','weapons/shell_2.mp3','weapons/shell_3.mp3','weapons/insertal bala.wav',
   // player
   'player/step_sand_1.mp3','player/step_sand_2.mp3','player/step_sand_3.mp3','player/step_sand_4.mp3',
   'player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3',
@@ -459,7 +459,7 @@ export function playerHurt() {
 
 // ── CARGA DE BALA (R key) ─────────────────────────────────────────────────────
 export function shellLoad() {
-  _playFile('weapons/shell.mp3', { volume: 0.55, reverb: 0.03, pitch: 0.95+Math.random()*0.1 }, () => {
+  _playFile('weapons/insertal bala.wav', { volume: 0.60, reverb: 0.03, pitch: 0.97+Math.random()*0.06 }, () => {
     const c = _ctx_(); if (!c) return; const t = _now();
     // Click metálico de cerrojo
     const n1 = _noise(0.025, 4200, 3.5);
