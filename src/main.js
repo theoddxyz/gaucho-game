@@ -472,10 +472,15 @@ let _npcActive = false;   // dialogue panel is open
 let _npcDone   = false;   // player already completed dialogue this session
 
 // --- Network ---
+let isHost = false;
+let _hostSyncTimer = 0;
+const HOST_SYNC_INTERVAL = 0.1; // 10Hz
+
 Network.connect();
 
-// Creature sync — registrar ANTES de onJoined para no perder el snapshot inicial
+// Creature sync — non-host receives positions from host via server relay
 Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird }) => {
+  if (isHost) return; // host is authoritative, ignore echoes
   if (vibora)    viboraSystem.applyServerSync(vibora);
   if (armadillo) armadilloSystem.applyServerSync(armadillo);
   if (condor)    condorSystem.applyServerSync(condor);
@@ -483,6 +488,18 @@ Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird
   if (chicken)   chickenSystem?.applyServerSync(chicken);
   if (cow)       cowSystem?.applyServerSync(cow);
   if (bird)      birdSystem?.applyServerSync(bird);
+});
+
+// Host promotion (when previous host disconnects)
+Network.onBecomeHost(() => {
+  isHost = true;
+  console.log('[HOST] This client is now the creature host');
+});
+
+// Host sends immediate snapshot when server requests it (new player joined)
+Network.onRequestCreatureSync(() => {
+  if (!isHost) return;
+  _sendHostCreatureSync();
 });
 
 let _musicPlayer = null;
@@ -516,8 +533,8 @@ function startGame(name) {
 Network.onJoined((data) => {
   myId   = data.self.id;
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
-
-  // Criaturas: server-authoritative via creatureSync (handler registrado arriba, antes del connect)
+  isHost = data.isHost || false;
+  console.log(`[JOIN] isHost=${isHost}`);
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '', local: true });
@@ -1552,6 +1569,20 @@ let _wasNight      = false;
 let _wasDawn       = false;   // para pajaros al amanecer
 let _wasInAir      = false;
 
+// ── Host creature sync: serialize all animal positions and send to server ─────
+function _sendHostCreatureSync() {
+  if (!isHost) return;
+  Network.sendHostCreatureSync({
+    vibora:    viboraSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
+    armadillo: armadilloSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
+    condor:    condorSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
+    ostrich:   ostrichSystem._entities.map((e,i) => (e.dead || e.dying || e.dyingPhysics) ? { idx:i, dead:true } : { idx:i, x:e.mesh?.position.x ?? 0, z:e.mesh?.position.z ?? 0, vx:e.vx, vz:e.vz }),
+    chicken:   (chickenSystem?._chickens ?? []).map((c,i) => c.removed ? { idx:i, dead:true } : { idx:i, x:c.mesh?.position.x ?? 0, z:c.mesh?.position.z ?? 0, vx:c.vx, vz:c.vz }),
+    cow:       (cowSystem?._cows ?? []).map((c,i) => c.removed ? { idx:i, dead:true } : { idx:i, x:c.mesh?.position.x ?? 0, z:c.mesh?.position.z ?? 0, vx:c.vx, vz:c.vz }),
+    bird:      (birdSystem?._syncBirds ?? []).map(b => ({ idx:b.syncIdx, x:b.x, z:b.z, y:b.mesh?.position.y ?? 0 })),
+  });
+}
+
 function gameLoop() {
   requestAnimationFrame(gameLoop);
   const dt = Math.min(clock.getDelta(), 0.1);
@@ -1835,7 +1866,8 @@ function gameLoop() {
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
   // Víboras: cazan gallinas si están cerca
-  viboraSystem.renderOnly(dt, pos);
+  if (isHost) viboraSystem.update(dt, { playerPos: pos, preyPositions: chickenSystem._chickens.filter(c => !c.removed).map(c => ({ x: c.mesh?.position.x, z: c.mesh?.position.z })) });
+  else viboraSystem.renderOnly(dt, pos);
   // Víboras que alcanzan una gallina: la matan y dejan cadáver
   for (const _vib of viboraSystem._entities) {
     if (_vib.dead || _vib.state !== 'hunt') continue;
@@ -1883,7 +1915,8 @@ function gameLoop() {
     if (Inventory.add('snake', _viboraLoot.hunger, _viboraLoot.hp)) _updateInventoryHUD();
   }
 
-  armadilloSystem.renderOnly(dt, pos);
+  if (isHost) armadilloSystem.update(dt, { playerPos: pos });
+  else armadilloSystem.renderOnly(dt, pos);
   const _armadilloLoot = armadilloSystem.updateLoot(dt, pos);
   if (_armadilloLoot && myId && !isDead) {
     if (Inventory.add('armadillo', _armadilloLoot.hunger, _armadilloLoot.hp)) _updateInventoryHUD();
@@ -1913,7 +1946,8 @@ function gameLoop() {
       }
     }
   }
-  condorSystem.renderOnly(dt, pos);
+  if (isHost) condorSystem.update(dt, { playerPos: pos });
+  else condorSystem.renderOnly(dt, pos);
   const _condorLoot = condorSystem.updateLoot(dt, pos);
   if (_condorLoot && myId && !isDead) {
     if (Inventory.add('condor', _condorLoot.hunger, _condorLoot.hp)) _updateInventoryHUD();
@@ -2162,6 +2196,15 @@ function gameLoop() {
     const _a0 = armadilloSystem._entities[0];
     _dbg.style.display = 'block';
     _dbg.textContent = `VIB[0]:(${_v0?.x?.toFixed(0)},${_v0?.z?.toFixed(0)}) ARM[0]:(${_a0?.x?.toFixed(0)},${_a0?.z?.toFixed(0)})`;
+  }
+
+  // ── Host: broadcast creature positions to server for relay ───────────────
+  if (isHost && myId) {
+    _hostSyncTimer += dt;
+    if (_hostSyncTimer >= HOST_SYNC_INTERVAL) {
+      _hostSyncTimer -= HOST_SYNC_INTERVAL;
+      _sendHostCreatureSync();
+    }
   }
 
   _aberration = Math.max(0, _aberration - dt * 3.5);
