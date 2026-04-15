@@ -3,9 +3,9 @@ import * as THREE from 'three';
 
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
-const SPACING    = 1.20;   // 4x original
-const BASE_R     = 0.72;   // 4x original
-const HEAD_R     = BASE_R * 1.55;  // cabeza más grande que el cuello
+const SPACING    = 1.20;
+const BASE_R     = 0.72;
+const HEAD_R     = BASE_R * 1.55;
 const NPC_HP     = 4;
 
 function segRadius(i) {
@@ -31,8 +31,10 @@ const PATROLS = [
   { from: { x:  0, z: -143 }, to: { x:  0, z: -150 } },
 ];
 
+const _hitMat = new THREE.MeshBasicMaterial({ visible: false });
+
 // ─── Constructor gusano ───────────────────────────────────────────────────────
-function buildWorm(char) {
+function buildWorm(char, npcIdx) {
   const root  = new THREE.Group();
   const color = char.color;
 
@@ -56,12 +58,6 @@ function buildWorm(char) {
   head.castShadow = true;
   root.add(head);
 
-  // Hitbox invisible para raycast (esfera ligeramente más grande)
-  const hitGeo = new THREE.SphereGeometry(HEAD_R * 1.15, 8, 8);
-  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
-  const hitbox = new THREE.Mesh(hitGeo, hitMat);
-  head.add(hitbox);
-
   // Ojos
   const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
   const pupilMat    = new THREE.MeshStandardMaterial({ color: char.eyeColor });
@@ -76,21 +72,36 @@ function buildWorm(char) {
     eye.position.set(sx * HEAD_R * 0.50, HEAD_R * 0.32, HEAD_R * 0.82);
   }
 
+  // Hitboxes por segmento (uno por segmento, cubriendo todo el cuerpo)
+  const hitboxMeshes = [];
+  for (let i = 0; i < SEG_COUNT; i++) {
+    const r   = i === 0 ? HEAD_R * 1.2 : segRadius(i) * 1.3;
+    const hb  = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 6), _hitMat);
+    hb.userData.campesinoNpcIdx = npcIdx;
+    hb.userData.campesinoSegIdx = i;
+    root.add(hb);
+    hitboxMeshes.push(hb);
+  }
+
   // Segmentos — posiciones mundo (absolute)
   const segs = [];
   for (let i = 0; i < SEG_COUNT; i++)
     segs.push(new THREE.Vector3(0, BASE_R, -i * SPACING));
 
-  root._segs   = segs;
-  root._tube   = tube;
-  root._head   = head;
-  root._hitbox = hitbox;
-  root._curve  = curve;
-  root._walkT  = Math.random() * 10;
-  // Impulso físico (velocidad temporal sobre segs[0] — decae con fricción)
-  root._impVel = new THREE.Vector3();
-  root._dead   = false;
-  root._deadT  = 0;
+  // Velocidades por segmento (física de impacto)
+  const segVels = [];
+  for (let i = 0; i < SEG_COUNT; i++)
+    segVels.push(new THREE.Vector3());
+
+  root._segs         = segs;
+  root._segVels      = segVels;
+  root._tube         = tube;
+  root._head         = head;
+  root._hitboxMeshes = hitboxMeshes;
+  root._curve        = curve;
+  root._walkT        = Math.random() * 10;
+  root._dead         = false;
+  root._deadT        = 0;
 
   return root;
 }
@@ -124,17 +135,33 @@ function _rebuildTube(root) {
   root._tube.geometry = newGeo;
 }
 
+// ─── Actualizar hitbox positions (local respecto a root) ──────────────────────
+function _updateHitboxes(root) {
+  const segs = root._segs;
+  for (let i = 0; i < SEG_COUNT; i++) {
+    const hb = root._hitboxMeshes[i];
+    hb.position.set(
+      segs[i].x - root.position.x,
+      segs[i].y,
+      segs[i].z - root.position.z
+    );
+    hb.visible = false; // siempre invisible visualmente
+  }
+}
+
 // ─── Actualizar gusano cada frame ─────────────────────────────────────────────
 function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
-  const segs = root._segs;
+  const segs    = root._segs;
+  const segVels = root._segVels;
 
-  // Modo muerto: segmentos colapsan al piso
+  // Modo muerto: colapso al piso
   if (root._dead) {
     root._deadT += dt;
     for (let i = 0; i < SEG_COUNT; i++) {
       segs[i].y = Math.max(0, segs[i].y - dt * 2.5);
     }
     _rebuildTube(root);
+    _updateHitboxes(root);
     root._head.position.set(
       segs[0].x - root.position.x,
       segs[0].y,
@@ -146,11 +173,14 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
   root._walkT += dt * (isWalking ? speed * 3.5 : 1.0);
   const wt = root._walkT;
 
-  // Aplicar impulso de impacto con fricción
-  if (root._impVel.lengthSq() > 0.0001) {
-    segs[0].x += root._impVel.x * dt;
-    segs[0].z += root._impVel.z * dt;
-    root._impVel.multiplyScalar(Math.pow(0.12, dt)); // fricción fuerte
+  // Aplicar velocidades de impacto a cada segmento + decaimiento
+  for (let i = 0; i < SEG_COUNT; i++) {
+    const v = segVels[i];
+    if (v.lengthSq() > 0.0001) {
+      segs[i].x += v.x * dt;
+      segs[i].z += v.z * dt;
+      v.multiplyScalar(Math.pow(0.05, dt)); // fricción fuerte
+    }
   }
 
   // Cabeza sigue al objetivo (world space)
@@ -168,7 +198,7 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
   // Oscilación vertical de la cabeza
   head.y = BASE_R * 1.4 + Math.sin(wt * 3.8) * BASE_R * 0.35;
 
-  // Cadena de seguimiento — cada segmento sigue al anterior
+  // Cadena de seguimiento
   for (let i = 1; i < SEG_COUNT; i++) {
     const prev = segs[i - 1];
     const curr = segs[i];
@@ -188,7 +218,7 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
     curr.y = BASE_R * 0.7 + amp * Math.sin(wt * 3.5 - i * 0.55);
   }
 
-  // Actualizar posición de la mesh de cabeza (local, root en origen)
+  // Actualizar posición de la mesh de cabeza
   root._head.position.set(
     segs[0].x - root.position.x,
     segs[0].y,
@@ -204,6 +234,7 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
   }
 
   _rebuildTube(root);
+  _updateHitboxes(root);
 }
 
 // ─── Nombre flotante ──────────────────────────────────────────────────────────
@@ -221,7 +252,7 @@ function makeLabel(name) {
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sp  = new THREE.Sprite(mat);
   sp.scale.set(3.2, 0.64, 1);
-  sp.position.set(0, HEAD_R * 1.6, 0);  // flotando sobre la cabeza
+  sp.position.set(0, HEAD_R * 1.6, 0);
   sp.visible = false;
   return sp;
 }
@@ -234,7 +265,7 @@ export class CampesinoSystem {
 
     CHARS.forEach((char, i) => {
       const patrol = PATROLS[i];
-      const root   = buildWorm(char);
+      const root   = buildWorm(char, i);
       const startX = (patrol.from.x + patrol.to.x) / 2;
       const startZ = (patrol.from.z + patrol.to.z) / 2;
 
@@ -246,7 +277,7 @@ export class CampesinoSystem {
 
       const label = makeLabel(char.name);
       label._keep = true;
-      root._head.add(label);   // label flota sobre la cabeza
+      root._head.add(label);
       scene.add(root);
 
       this._npcs.push({
@@ -264,52 +295,86 @@ export class CampesinoSystem {
     });
   }
 
-  // ── Hit detection (raycast) ────────────────────────────────────────────────
+  // ── Todos los hitboxes (uno por segmento de cada NPC vivo) ─────────────────
   getHitboxes() {
-    return this._npcs
-      .filter(n => !n.dead)
-      .map(n => n.root._hitbox);
-  }
-
-  getIndexByHitbox(hb) {
-    return this._npcs.findIndex(n => n.root._hitbox === hb);
+    const out = [];
+    for (const npc of this._npcs) {
+      if (npc.dead) continue;
+      for (const hb of npc.root._hitboxMeshes) out.push(hb);
+    }
+    return out;
   }
 
   // ── Recibir impacto de bala ────────────────────────────────────────────────
-  hit(idx, point) {
-    const npc = this._npcs[idx];
+  // npcIdx: índice del NPC, segIdx: qué segmento fue impactado, bulletDir: dirección del disparo
+  hit(npcIdx, segIdx, point, bulletDir) {
+    const npc = this._npcs[npcIdx];
     if (!npc || npc.dead) return;
     npc.hp -= 1;
 
-    // Impulso: empujar cabeza en dirección opuesta al disparo
-    const head = npc.root._segs[0];
-    const dx = head.x - (point?.x ?? head.x);
-    const dz = head.z - (point?.z ?? head.z);
+    // Impulso en la dirección del disparo, aplicado al segmento impactado y los posteriores
+    // (el segmento 0 recibe siempre un impulso menor para que la cabeza también reaccione)
+    const force = 28;
+    const dx = bulletDir?.x ?? 0;
+    const dz = bulletDir?.z ?? 0;
     const len = Math.sqrt(dx * dx + dz * dz) || 1;
-    npc.root._impVel.set((dx / len) * 10, 0, (dz / len) * 10);
+    const ivx = (dx / len) * force;
+    const ivz = (dz / len) * force;
+
+    const vels = npc.root._segVels;
+    // Segmento impactado y cola: fuerza completa
+    for (let i = segIdx; i < SEG_COUNT; i++) {
+      const falloff = 1 - (i - segIdx) * 0.07; // decae un poco hacia la cola
+      vels[i].x += ivx * Math.max(0.3, falloff);
+      vels[i].z += ivz * Math.max(0.3, falloff);
+    }
+    // Cabeza: impulso reducido si el hit fue en la cola
+    const headFalloff = 1 - segIdx / SEG_COUNT * 0.6;
+    vels[0].x += ivx * headFalloff;
+    vels[0].z += ivz * headFalloff;
 
     if (npc.hp <= 0) {
       npc.dead = true;
       npc.root._dead = true;
+      // Ocultar hitboxes inmediatamente
+      for (const hb of npc.root._hitboxMeshes) hb.userData.campesinoNpcIdx = -1;
       npc.removeT = performance.now() + 4000;
     }
   }
 
-  // ── Empuje del jugador (colisión física simple) ────────────────────────────
+  // ── Colisión física con el jugador — devuelve repulsión para aplicar al player ─
   pushFromPlayer(px, pz) {
-    const avoidR = HEAD_R * 2.5;
+    let repelX = 0, repelZ = 0;
+    const playerR = 0.5; // radio aproximado del jugador
+
     for (const npc of this._npcs) {
       if (npc.dead) continue;
-      const head = npc.root._segs[0];
-      const dx = head.x - px;
-      const dz = head.z - pz;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      if (dist < avoidR && dist > 0.01) {
-        const force = (avoidR - dist) / avoidR * 14;
-        npc.root._impVel.x += (dx / dist) * force;
-        npc.root._impVel.z += (dz / dist) * force;
+      const segs  = npc.root._segs;
+      const vels  = npc.root._segVels;
+
+      for (let i = 0; i < SEG_COUNT; i++) {
+        const sr   = i === 0 ? HEAD_R : segRadius(i);
+        const minD = sr + playerR;
+        const dx   = segs[i].x - px;
+        const dz   = segs[i].z - pz;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist < minD && dist > 0.01) {
+          const overlap = minD - dist;
+          const nx = dx / dist;
+          const nz = dz / dist;
+          // Empujar gusano (este segmento + cabeza)
+          const wormForce = overlap * 12;
+          vels[i].x += nx * wormForce;
+          vels[i].z += nz * wormForce;
+          if (i > 0) { vels[0].x += nx * wormForce * 0.4; vels[0].z += nz * wormForce * 0.4; }
+          // Empujar jugador en dirección contraria
+          repelX -= nx * overlap * 8;
+          repelZ -= nz * overlap * 8;
+        }
       }
     }
+    return { vx: repelX, vz: repelZ };
   }
 
   update(dt, playerPos, units) {
@@ -319,7 +384,7 @@ export class CampesinoSystem {
       const unit = units ? units[i] : null;
       const { root, label } = npc;
 
-      // Limpiar cadáveres después de N segundos
+      // Limpiar cadáveres
       if (npc.dead) {
         if (npc.removeT > 0 && now > npc.removeT) {
           this._scene.remove(root);
@@ -345,7 +410,7 @@ export class CampesinoSystem {
         isWalking = speed > 0.05;
       }
 
-      // ── Evitación del jugador (steering de repulsión) ─────────────────────
+      // ── Evitación del jugador ─────────────────────────────────────────────
       if (playerPos) {
         const head  = root._segs[0];
         const dx    = head.x - playerPos.x;
@@ -364,10 +429,9 @@ export class CampesinoSystem {
       if (playerPos) {
         const dx = root.position.x - playerPos.x;
         const dz = root.position.z - playerPos.z;
-        label.visible = (dx * dx + dz * dz) < 144;  // 12m radius
+        label.visible = (dx * dx + dz * dz) < 144;
       }
 
-      // ── Actualizar gusano ─────────────────────────────────────────────────
       updateWorm(root, targetX, targetZ, dt, speed, isWalking);
     }
   }

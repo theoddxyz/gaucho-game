@@ -1045,8 +1045,9 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     if (bird) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: bird, type: 'bird' }); }
   }
   for (const hb of campesinoSystem.getHitboxes()) {
-    const cIdx = campesinoSystem.getIndexByHitbox(hb);
-    if (cIdx >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: cIdx, type: 'campesino' }); }
+    const ni = hb.userData.campesinoNpcIdx;
+    const si = hb.userData.campesinoSegIdx;
+    if (ni >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: { npcIdx: ni, segIdx: si }, type: 'campesino' }); }
   }
   for (const hb of chunkManager.getTreeHitboxes()) {
     allHitboxes.push(hb);
@@ -1204,11 +1205,12 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
       }
       else if (scanHit.target.type === 'campesino') {
-        const cIdx = scanHit.target.id;
-        const npc  = campesinoSystem._npcs[cIdx];
+        const { npcIdx, segIdx } = scanHit.target.id;
+        const npc = campesinoSystem._npcs[npcIdx];
         const hpBefore = npc?.hp ?? 0;
-        campesinoSystem.hit(cIdx, scanHit.point);
-        const hpAfter = campesinoSystem._npcs[cIdx]?.hp ?? 0;
+        const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
+        campesinoSystem.hit(npcIdx, segIdx, scanHit.point, bDir);
+        const hpAfter = campesinoSystem._npcs[npcIdx]?.hp ?? 0;
         if (hpAfter <= 0 && hpBefore > 0) {
           Network.sendGameEvent('animal_killed', { detail: `${npc?.name ?? 'Un campesino'} fue abatido. Silencio en la pampa.` });
         }
@@ -1681,7 +1683,13 @@ function gameLoop() {
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
-  if (pos) campesinoSystem.pushFromPlayer(pos.x, pos.z);
+  if (pos) {
+    const _cr = campesinoSystem.pushFromPlayer(pos.x, pos.z);
+    if (_cr.vx !== 0 || _cr.vz !== 0) {
+      controls._velX = (controls._velX || 0) + _cr.vx;
+      controls._velZ = (controls._velZ || 0) + _cr.vz;
+    }
+  }
 
   // ── Conversación: sync día, Q&A diaria, prompt de proximidad ─────────────
   if (myId) {
