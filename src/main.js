@@ -9,7 +9,7 @@ import { ChunkManager } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
 import { CarrosaSystem } from './carrosa.js';
-import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE, isReloading, reloadProgress, shotsLeft } from './shooting.js';
+import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE, isReloading, reloadProgress, shotsLeft, startReload } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
@@ -144,6 +144,13 @@ document.addEventListener('keydown', (e) => {
       Audio.horseNeigh();
     }
   }
+});
+
+// Tecla R: recarga manual
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyR' || !myId || isDead) return;
+  if (currentWeapon !== 'escopeta') return;
+  startReload(performance.now() / 1000);
 });
 
 // Teclas 1/2/3: cambio directo de arma (sin menú radial)
@@ -710,9 +717,10 @@ Network.onPlayerHit((data) => {
         const ax = myPos.x - attacker.group.position.x;
         const az = myPos.z - attacker.group.position.z;
         const aLen = Math.sqrt(ax * ax + az * az) || 1;
-        const knockStr = 3.5;
+        const knockStr = 7.0;
         controls._velX = (ax / aLen) * knockStr;
         controls._velZ = (az / aLen) * knockStr;
+        controls._vy   = 3.5;   // impulso vertical → vuela
       }
     }
   } else {

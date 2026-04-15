@@ -565,22 +565,29 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
+          // Escalar a 2.8 u
           sc.updateWorldMatrix(true, true);
           const bb = new THREE.Box3().setFromObject(sc);
           const hh = bb.max.y - bb.min.y;
-          if (hh > 0.01) {
-            sc.scale.setScalar(2.8 / hh);
-            sc.updateWorldMatrix(true, true);
-            const bb2 = new THREE.Box3().setFromObject(sc);
-            sc.position.y -= bb2.min.y;
-          }
-          sc.visible = false;
-          this.group.add(sc);
-          this._hurtModel  = sc;
+          if (hh > 0.01) sc.scale.setScalar(2.8 / hh);
+
+          // Crear mixer y avanzar un frame para que los huesos queden en la pose
+          // real de la animación — Box3 en T-pose no sirve para SkinnedMesh
           this._hurtMixer  = new THREE.AnimationMixer(sc);
           this._hurtAction = this._hurtMixer.clipAction(gltf.animations[0]);
           this._hurtAction.setLoop(THREE.LoopRepeat, Infinity);
           this._hurtAction.play();
+          this._hurtMixer.update(0.016);   // un frame → pose real
+
+          // Ahora medir con la pose real y clavar el pie en y=0
+          sc.position.y = 0;
+          sc.updateWorldMatrix(true, true);
+          const bb2 = new THREE.Box3().setFromObject(sc);
+          if (bb2.min.y !== 0) sc.position.y -= bb2.min.y;
+
+          sc.visible = false;
+          this.group.add(sc);
+          this._hurtModel = sc;
         });
 
         // ── Modelo descuartizar (CUCHIGLB) ───────────────────────────────────
@@ -958,17 +965,6 @@ export class PlayerModel {
     if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
     if (this._butcherModel)   this._butcherModel.visible   =  useButcherModel;
 
-    // Compensar offset vertical de la animación HERIDO (root bone elevado en el GLB)
-    if (this._hurtModel) {
-      if (useHurtModel && !this._hurtYFixed) {
-        this._hurtModel.updateWorldMatrix(true, true);
-        const hbb = new THREE.Box3().setFromObject(this._hurtModel);
-        const footY = hbb.min.y - this.group.position.y;
-        if (footY > 0.15) this._hurtModel.position.y -= footY;
-        this._hurtYFixed = true;
-      }
-      if (!useHurtModel) this._hurtYFixed = false;
-    }
 
     // ── Mixer principal (walk) ────────────────────────────────────────────────
     if (this._mixer && !useHorseModel) {

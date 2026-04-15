@@ -23,6 +23,12 @@ export function reloadProgress(now) {
   return Math.max(0, (now - reloadStart) / RELOAD_TIME);
 }
 export function shotsLeft() { return MAGAZINE - shotCount; }
+export function startReload(now) {
+  if (shotCount === 0) return;           // ya full
+  if (now < reloadEnd) return;           // ya recargando
+  reloadEnd = now + RELOAD_TIME * ((MAGAZINE - shotCount) / MAGAZINE);
+  shotCount = 0;
+}
 
 /**
  * Compute shot origin + XZ direction with cone soft-snap.
@@ -34,7 +40,7 @@ export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.5
   if (now - lastShot < COOLDOWN) return null;
   lastShot = now;
   shotCount++;
-  if (shotCount >= MAGAZINE) { reloadEnd = now + RELOAD_TIME; shotCount = 0; }
+  if (shotCount >= MAGAZINE) return null;   // sin munición — no disparar (esperar R)
 
   const origin = explicitOrigin || {
     x: playerPos.x + aimDirection.x * 0.8,
