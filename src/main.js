@@ -149,7 +149,7 @@ document.addEventListener('keydown', (e) => {
 // Tecla R: carga una bala
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyR' || !myId || isDead) return;
-  if (currentWeapon !== 'escopeta') return;
+  if (currentWeapon !== 'escopeta' && currentWeapon !== 'shotgun') return;
   if (loadOneShell(performance.now() / 1000)) Audio.shellLoad();
 });
 
