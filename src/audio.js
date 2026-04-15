@@ -339,28 +339,33 @@ export function bulletWhiz() {
 
 // ── IMPACTOS ──────────────────────────────────────────────────────────────────
 export function bulletImpactDirt() {
-  _playFile('weapons/impact_dirt.mp3', { volume: 0.50, reverb: 0.10, pitch: 0.85+Math.random()*0.3 }, () => {
+  _playFile('weapons/impact_dirt.mp3', { volume: 0.55, reverb: 0.10, pitch: 1.0+Math.random()*0.3 }, () => {
     const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.12, 450, 0.8);
-    if (n) { _env(n.gain,0.001,0.015,0.1,0.09,0.18); _toOut(n.gain,0.06); n.src.start(t); }
+    const n = _noise(0.10, 600, 1.0);
+    if (n) { _env(n.gain,0.001,0.012,0.05,0.08,0.18); _toOut(n.gain,0.06); n.src.start(t); }
   });
 }
 export function bulletImpactFlesh() {
-  _playFile('weapons/impact_flesh.mp3', { volume: 0.80, reverb: 0.06, pitch: 1.1 + Math.random() * 0.2 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    // Thump grave
-    const n = _noise(0.12, 400, 1.2);
-    if (n) { _env(n.gain,0.001,0.010,0.0,0.08,0.20); _toOut(n.gain,0.10); n.src.start(t); }
-    // Crack agudo
-    const n2 = _noise(0.06, 2800, 2.5);
-    if (n2) { _env(n2.gain,0.001,0.005,0.0,0.04,0.10); _toOut(n2.gain,0.08); n2.src.start(t); }
-  });
+  // Procedural only — agudo, seco, chasquido de carne
+  const c = _ctx_(); if (!c) return; const t = _now();
+  // 1) Crack agudo principal (3500 Hz, muy corto)
+  const n1 = _noise(0.04, 3500, 3.0);
+  if (n1) { _env(n1.gain,0.001,0.003,0.0,0.03,0.90); _toOut(n1.gain,0.04); n1.src.start(t); }
+  // 2) Snap medio-agudo (1800 Hz)
+  const n2 = _noise(0.06, 1800, 2.0);
+  if (n2) { _env(n2.gain,0.001,0.005,0.0,0.05,0.70); _toOut(n2.gain,0.05); n2.src.start(t); }
+  // 3) Thud corto de cuerpo (400 Hz, bajo volumen)
+  const n3 = _noise(0.08, 400, 1.5);
+  if (n3) { _env(n3.gain,0.001,0.008,0.0,0.06,0.25); _toOut(n3.gain,0.03); n3.src.start(t); }
+  // 4) Click transiente ultra agudo (5000 Hz, ultra corto)
+  const n4 = _noise(0.02, 5000, 4.0);
+  if (n4) { _env(n4.gain,0.001,0.002,0.0,0.015,0.60); _toOut(n4.gain,0.03); n4.src.start(t); }
 }
 export function bulletImpactWood() {
-  _playFile('weapons/impact_wood.mp3', { volume: 0.55, reverb: 0.12 }, () => {
+  _playFile('weapons/impact_wood.mp3', { volume: 0.60, reverb: 0.12, pitch: 1.1+Math.random()*0.2 }, () => {
     const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.08, 1200, 1.5);
-    if (n) { _env(n.gain,0.001,0.008,0.0,0.06,0.22); _toOut(n.gain,0.10); n.src.start(t); }
+    const n = _noise(0.06, 1600, 2.0);
+    if (n) { _env(n.gain,0.001,0.006,0.0,0.05,0.22); _toOut(n.gain,0.10); n.src.start(t); }
   });
 }
 
