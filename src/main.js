@@ -678,7 +678,7 @@ Network.onPlayerHit((data) => {
     UI.updateHP(myData.hp);
     UI.showDamageFlash();
     _aberration = 1.0;
-    localPlayerModel?.detachHat();
+    if (data.hitZone === 'head') localPlayerModel?.detachHat();
     Audio.playerHurt();
     if (myData.hp <= 30) Audio.startHeartbeat();
     else Audio.stopHeartbeat();
@@ -701,7 +701,7 @@ Network.onPlayerHit((data) => {
   } else {
     const rp = remotePlayers.get(data.id);
     if (rp) {
-      rp.detachHat();
+      if (data.hitZone === 'head') rp.detachHat();
       rp.setHP(data.hp);
       rp.startHurt(1.5);
     }
@@ -1112,7 +1112,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       }
 
       if (scanHit.target.type === 'player') {
-        Network.sendBulletHit(scanHit.target.id);
+        Network.sendBulletHit(scanHit.target.id, hitZone);
         remotePlayers.get(scanHit.target.id)?.applyImpact(hitZone, scanHit.point);
       }
       else if (scanHit.target.type === 'bird') {

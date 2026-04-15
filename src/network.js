@@ -54,7 +54,7 @@ export function onOstrichKill(cb)    { socket.on('ostrichKill', cb); }
 export function sendCowCorralled(id) { socket.emit('cowCorralled', { id }); }
 export function onCowCorralled(cb)   { socket.on('cowCorralled', cb); }
 
-export function sendBulletHit(hitId)    { socket.emit('bulletHit', { hitId }); }
+export function sendBulletHit(hitId, hitZone) { socket.emit('bulletHit', { hitId, hitZone: hitZone || 'body' }); }
 export function sendBloodSplat(x, y, z, dx, dz) { socket.volatile.emit('bloodSplat', { x, y, z, dx, dz }); }
 export function onBloodSplat(cb) { socket.on('bloodSplat', cb); }
 export function sendYell(x, z)          { socket.emit('yell', { x, z }); }

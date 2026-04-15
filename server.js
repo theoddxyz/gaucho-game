@@ -583,7 +583,7 @@ io.on('connection', (socket) => {
   });
 
   // bulletHit — damage-only event (visual already shown via 'shoot')
-  socket.on('bulletHit', ({ hitId }) => {
+  socket.on('bulletHit', ({ hitId, hitZone }) => {
     if (!currentRoom || !playerData) return;
     const room   = getRoom(currentRoom);
     const target = room.get(hitId);
@@ -623,7 +623,7 @@ io.on('connection', (socket) => {
       getStory(currentRoom).totalKills++;
       addEvent(currentRoom, `${playerData.name} eliminó a ${target.name}. ${playerData.name} lleva ${playerData.kills} bajas.`);
     } else {
-      io.to(currentRoom).emit('playerHit', { id: hitId, hp: target.hp, attackerId: socket.id });
+      io.to(currentRoom).emit('playerHit', { id: hitId, hp: target.hp, attackerId: socket.id, hitZone: hitZone || 'body' });
     }
   });
 
