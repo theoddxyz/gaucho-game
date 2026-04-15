@@ -303,6 +303,7 @@ export class CowSystem {
     this._corralled = new Set();
     this._hitboxMap = new Map();   // hitboxMesh → cowId
     this._meats     = [];          // { mesh, t, bobPhase }
+    this.serverMode = false; // when true: skip local AI, positions come from host
     this._bloodSpots = [];
 
     const rng = _rng(98765);
@@ -773,8 +774,8 @@ export class CowSystem {
         }
       }
 
-      // ── dBBMM: unified Brownian Bridge step for ALL states ────────────────
-      {
+      // ── dBBMM (skipped when server controls positions) ────────────────────
+      if (!this.serverMode) {
         const p = BB_STATES[cow.bbState] ?? BB_STATES.grazing;
 
         cow.waypointTimer -= dt;
@@ -782,7 +783,6 @@ export class CowSystem {
         const dwz  = cow.waypoint.z - cz;
         const wDst = Math.sqrt(dwx * dwx + dwz * dwz) || 1;
 
-        // Arrived at / past waypoint, or timer expired → pick new (non-fleeing only)
         if (cow.bbState !== 'fleeing' && (wDst < p.wpRadius[0] * 0.5 || cow.waypointTimer <= 0)) {
           if (Math.random() < 0.35) {
             cow.bbState = cow.bbState === 'grazing' ? 'traveling' : 'grazing';
@@ -794,17 +794,14 @@ export class CowSystem {
           cow.waypointTimer = np.timer[0] + Math.random() * (np.timer[1] - np.timer[0]);
         }
 
-        // Drift toward waypoint
         const driftX = (dwx / wDst) * p.speed;
         const driftZ = (dwz / wDst) * p.speed;
 
-        // Cohesion toward herd centroid (suppressed during fleeing)
         const hc   = herdCentroid.get(cow.herdId);
         const cohF = cow.bbState === 'fleeing' ? 0.02 : HERD_COHESION;
         const cohX = hc ? (hc.x - cx) * cohF : 0;
         const cohZ = hc ? (hc.z - cz) * cohF : 0;
 
-        // Brownian noise (Gaussian, σ ∝ sigma_m × √dt)
         const sigma  = p.sigma * Math.sqrt(dt);
         const noiseX = _gaussian() * sigma;
         const noiseZ = _gaussian() * sigma;
@@ -812,7 +809,6 @@ export class CowSystem {
         let targetVX = driftX + cohX + noiseX;
         let targetVZ = driftZ + cohZ + noiseZ;
 
-        // Speed cap
         const tspd = Math.sqrt(targetVX * targetVX + targetVZ * targetVZ);
         const maxS = p.speed * 1.5;
         if (tspd > maxS) { targetVX *= maxS / tspd; targetVZ *= maxS / tspd; }
@@ -824,8 +820,10 @@ export class CowSystem {
       }  // end dBBMM block
 
       // ── Move ──────────────────────────────────────────────────────────────
-      cow.mesh.position.x += cow.vx * dt;
-      cow.mesh.position.z += cow.vz * dt;
+      if (!this.serverMode) {
+        cow.mesh.position.x += cow.vx * dt;
+        cow.mesh.position.z += cow.vz * dt;
+      }
 
       // ── Corral boundary (repulsión suave + escape por puerta sur) ─────────
       if (cow.corrHW < 9999 && !cow.escaped) {

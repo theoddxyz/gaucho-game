@@ -88,6 +88,7 @@ export class BirdSystem {
     // Flat list of all live birds for hitscan
     this._allBirds   = [];
     this._syncBirds  = [];   // stable index for server sync (never modified after init)
+    this.serverMode  = false; // when true: skip boids AI, positions come from host
     this._hitboxes   = [];   // THREE.Mesh per bird (invisible)
     this._hitboxMap  = new Map();  // hitbox.uuid → bird object
 
@@ -208,8 +209,22 @@ export class BirdSystem {
 
   // ── Main update ───────────────────────────────────────────────────────────
   update(dt, playerPos) {
-    this._updateFlocks(dt, playerPos);
+    if (!this.serverMode) this._updateFlocks(dt, playerPos);
+    else this._animateFlocks(dt); // still animate wings, skip boids movement
     this._updateDead(dt);
+  }
+
+  // ── Animate wings only (no position update) for server-mode clients ──────
+  _animateFlocks(dt) {
+    for (const flock of this._flocks) {
+      for (const bird of flock) {
+        if (!bird.alive) continue;
+        bird.wingT += dt * 3.5;
+        // sync mesh position to the x/z set by applyServerSync
+        if (bird.mesh) bird.mesh.position.set(bird.x, bird.y, bird.z);
+        if (bird.mesh) bird.mesh.rotation.y = Math.atan2(bird.vx || 0, bird.vz || 0.001);
+      }
+    }
   }
 
   // ── Boids por bandada ─────────────────────────────────────────────────────

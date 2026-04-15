@@ -262,6 +262,7 @@ export class OstrichSystem {
     this._scene    = scene;
     this._entities = SPAWN_SPOTS.map(s => makeEntity(scene, s.x, s.z));
     this._bloodSpots = [];
+    this.serverMode = false; // when true: skip local AI, positions come from host
   }
 
   /** Retorna todos los hitboxes de avestruces vivas (con matrixWorld actualizado). */
@@ -447,32 +448,36 @@ export class OstrichSystem {
         continue;
       }
 
-      // ── Wander ────────────────────────────────────────────────────────────
-      e.wanderTimer -= dt;
-      if (e.wanderTimer <= 0) {
-        if (Math.random() < 0.22) {
-          e.vx = 0; e.vz = 0;
-          e.wanderTimer = 1.0 + Math.random() * 1.5;
-        } else {
-          const bx   = e.spawnX - e.mesh.position.x;
-          const bz   = e.spawnZ - e.mesh.position.z;
-          const angle = Math.atan2(bz, bx) + (Math.random() - 0.5) * Math.PI * 1.4;
-          e.vx = Math.cos(angle) * WALK_SPEED;
-          e.vz = Math.sin(angle) * WALK_SPEED;
-          e.wanderTimer = 2.5 + Math.random() * 3.0;
+      // ── Wander (skipped when server controls positions) ───────────────────
+      if (!this.serverMode) {
+        e.wanderTimer -= dt;
+        if (e.wanderTimer <= 0) {
+          if (Math.random() < 0.22) {
+            e.vx = 0; e.vz = 0;
+            e.wanderTimer = 1.0 + Math.random() * 1.5;
+          } else {
+            const bx   = e.spawnX - e.mesh.position.x;
+            const bz   = e.spawnZ - e.mesh.position.z;
+            const angle = Math.atan2(bz, bx) + (Math.random() - 0.5) * Math.PI * 1.4;
+            e.vx = Math.cos(angle) * WALK_SPEED;
+            e.vz = Math.sin(angle) * WALK_SPEED;
+            e.wanderTimer = 2.5 + Math.random() * 3.0;
+          }
         }
       }
 
       const moving = e.vx * e.vx + e.vz * e.vz > 0.01;
       if (moving) {
-        const nx = e.mesh.position.x + e.vx * dt;
-        const nz = e.mesh.position.z + e.vz * dt;
-        const dx = nx - e.spawnX, dz = nz - e.spawnZ;
-        if (dx * dx + dz * dz < WANDER_RADIUS * WANDER_RADIUS) {
-          e.mesh.position.x = nx;
-          e.mesh.position.z = nz;
-        } else {
-          e.vx = -e.vx; e.vz = -e.vz;
+        if (!this.serverMode) {
+          const nx = e.mesh.position.x + e.vx * dt;
+          const nz = e.mesh.position.z + e.vz * dt;
+          const dx = nx - e.spawnX, dz = nz - e.spawnZ;
+          if (dx * dx + dz * dz < WANDER_RADIUS * WANDER_RADIUS) {
+            e.mesh.position.x = nx;
+            e.mesh.position.z = nz;
+          } else {
+            e.vx = -e.vx; e.vz = -e.vz;
+          }
         }
         e.mesh.rotation.y = Math.atan2(e.vx, e.vz);
         e.walkT += dt;

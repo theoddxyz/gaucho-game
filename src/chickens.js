@@ -249,6 +249,7 @@ export class ChickenSystem {
     this._chickens  = [];
     this._hitboxMap = new Map();
     this._feathers  = [];   // pickup items after death
+    this.serverMode = false; // when true: skip local AI, positions come from host
 
     const rng = _rng(77531);
     let id = 0;
@@ -510,8 +511,8 @@ export class ChickenSystem {
         }
       }
 
-      // ── dBBMM ─────────────────────────────────────────────────────────
-      {
+      // ── dBBMM (skipped when server controls positions) ────────────────
+      if (!this.serverMode) {
         const p     = BB_STATES[c.bbState] ?? BB_STATES.grazing;
         c.waypointTimer -= dt;
         const dwx   = c.waypoint.x - cx;
@@ -547,8 +548,10 @@ export class ChickenSystem {
       }
 
       // ── Mover ─────────────────────────────────────────────────────────
-      c.mesh.position.x += c.vx * dt;
-      c.mesh.position.z += c.vz * dt;
+      if (!this.serverMode) {
+        c.mesh.position.x += c.vx * dt;
+        c.mesh.position.z += c.vz * dt;
+      }
 
       // ── Confinar al corral (repulsión suave + escape por puerta) ──────────
       if (c.corrHW < 900 && !c.escaped) {

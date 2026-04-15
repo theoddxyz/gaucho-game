@@ -490,9 +490,18 @@ Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird
   if (bird)      birdSystem?.applyServerSync(bird);
 });
 
+// Toggle serverMode on all animal systems
+function _setAnimalServerMode(enabled) {
+  ostrichSystem.serverMode   = enabled;
+  if (chickenSystem) chickenSystem.serverMode = enabled;
+  if (cowSystem)     cowSystem.serverMode     = enabled;
+  if (birdSystem)    birdSystem.serverMode    = enabled;
+}
+
 // Host promotion (when previous host disconnects)
 Network.onBecomeHost(() => {
   isHost = true;
+  _setAnimalServerMode(false); // take over AI locally
   console.log('[HOST] This client is now the creature host');
 });
 
@@ -536,6 +545,8 @@ Network.onJoined((data) => {
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
   isHost = data.isHost || false;
   console.log(`[JOIN] isHost=${isHost}`);
+  // If viewer: disable local AI on all animal systems (positions come from host)
+  _setAnimalServerMode(!isHost);
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '', local: true });
@@ -731,6 +742,7 @@ Network.onJoined((data) => {
 
   // Vacas — init with already-corralled state from server
   cowSystem = new CowSystem(scene);
+  cowSystem.serverMode = !isHost; // match current host/viewer state
   for (const id of (data.corralledCows ?? [])) cowSystem.corrall(id);
   UI.updateCorralCount(cowSystem.getCorralled());
 
