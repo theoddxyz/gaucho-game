@@ -1,113 +1,75 @@
 // --- Moto (Motorcycle) system ---
+// GLB structure (scene index 2):
+//   CARROCERIA.003      — body mesh
+//   RUEDA TRASCERA.002  — rear wheel mesh  (pivot ≠ axle center)
+//   RUEDA DELANTERA.002 — front wheel mesh (pivot ≠ axle center)
+//   EJE TRASERO.002     — rear axle EMPTY  at correct wheel center
+//   EJE DELANERO .002   — front axle EMPTY at correct wheel center
+//   LUGAR CONDUCTOR     — rider seat EMPTY
+// Strategy: reset EJE scale → attach RUEDA to EJE → spin EJE on local Z.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const MOUNT_RADIUS   = 4.0;
-const SPEED_MULT     = 2.4;
-const SPRINT_MULT    = 1.35;
-const RIDER_HEIGHT   = 0.82;   // seat height above ground (m)
-const MOUNT_DUR      = 0.25;
-const DISMOUNT_DUR   = 0.35;
-const SIDE_DIST      = 2.0;
-const LEAN_MAX       = 0.32;   // ≈18°
-const LEAN_SPEED     = 7;
-const WHEEL_SPIN     = 3.2;    // rad per (m/s)
+const MOUNT_RADIUS = 4.0;
+const SPEED_MULT   = 2.4;
+const SPRINT_MULT  = 1.35;
+const RIDER_HEIGHT = 0.82;   // seat height above ground (m)
+const MOUNT_DUR    = 0.25;
+const DISMOUNT_DUR = 0.35;
+const SIDE_DIST    = 2.0;
+const LEAN_MAX     = 0.28;   // ~16°
+const LEAN_SPEED   = 6;
+const WHEEL_SPIN   = 3.0;    // rad per (m traveled)
+const STEER_FACTOR = 1.4;    // front wheel steer multiplier from lean
 
 export const MOTO_SPAWNS = [
   { id: 0, x:  12, z: -58 },
   { id: 1, x: -50, z:  55 },
 ];
 
-// ── GLB loader — collect ALL scenes into one group ────────────────────────────
+// ── Load only scene 2 from the GLB (has all moto parts) ──────────────────────
 let _tplPromise = null;
-
 function _loadTemplate() {
   if (_tplPromise) return _tplPromise;
   _tplPromise = new Promise(resolve => {
     new GLTFLoader().load('/models/MOTO.glb', gltf => {
-      const combined = new THREE.Group();
-      // Load every scene (the GLB has body/wheels split across 3 scenes)
-      (gltf.scenes || [gltf.scene]).forEach(s => {
-        combined.add(s);
-      });
-      resolve(combined);
+      // Scene 2 = complete motorcycle: body + wheels + axle empties + seat
+      const src = gltf.scenes?.[2] ?? gltf.scene;
+      resolve(src);
     }, undefined, err => {
-      console.warn('[Moto] MOTO.glb no cargó, fallback procedural', err);
+      console.warn('[Moto] MOTO.glb no cargó:', err);
       resolve(null);
     });
   });
   return _tplPromise;
 }
 
-// ── Fallback procedural motorcycle (faces −Z so inner correction isn't needed) ─
+// ── Fallback: simple procedural moto facing −Z ────────────────────────────────
 function _buildFallback() {
   const root = new THREE.Group();
+  const red = new THREE.MeshStandardMaterial({ color: 0xcc2222, metalness: 0.7, roughness: 0.3 });
+  const met = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.15 });
+  const blk = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.5, roughness: 0.7 });
 
-  const redMat  = new THREE.MeshStandardMaterial({ color: 0xcc2222, metalness: 0.75, roughness: 0.25 });
-  const metMat  = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9,  roughness: 0.15 });
-  const blkMat  = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.6,  roughness: 0.6  });
-  const rimMat  = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.95, roughness: 0.1  });
-
-  // Body (length along Z = forward)
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 1.35), redMat);
+  // Body (long axis = Z = forward)
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 1.4), red);
   body.position.y = 0.72; body.castShadow = true; root.add(body);
+  const tank = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.55), red);
+  tank.position.set(0, 1.02, -0.14); root.add(tank);
 
-  const tank = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.55), redMat);
-  tank.position.set(0, 1.0, -0.15); root.add(tank);
-
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.7, 8), metMat);
-  handle.rotation.z = Math.PI / 2; handle.position.set(0, 1.12, -0.56); root.add(handle);
-
-  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 0.55, 10), metMat);
-  exhaust.rotation.x = Math.PI / 2; exhaust.position.set(0.25, 0.48, 0.22); root.add(exhaust);
-
-  // Wheels — pivot group at axle center, tire rotates on X axis (axle along X)
-  const wheels = [];
-  const frontGroup = new THREE.Group();
-  const rearGroup  = new THREE.Group();
-  [[rearGroup, 0.58], [frontGroup, -0.58]].forEach(([wg, z]) => {
-    wg.position.set(0, 0.32, z);
-    const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.15, 22), blkMat);
-    tire.rotation.z = Math.PI / 2; tire.castShadow = true; wg.add(tire);
-    const rim  = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 16), rimMat);
-    rim.rotation.z = Math.PI / 2; wg.add(rim);
-    root.add(wg); wheels.push(wg);
+  // Wheels — pivot at axle center, cylinder axis along X (so rotation.x = spin)
+  const wheels = [], frontPivot = new THREE.Group(), rearPivot = new THREE.Group();
+  [[rearPivot, 0.62], [frontPivot, -0.62]].forEach(([piv, z]) => {
+    piv.position.set(0, 0.33, z);
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.14, 24), blk);
+    tire.rotation.z = Math.PI / 2; piv.add(tire);
+    root.add(piv); wheels.push(piv);
   });
 
-  root._fbWheels = wheels;
-  root._fbFront  = frontGroup;
+  root._fbWheels    = wheels;
+  root._fbFront     = frontPivot;
+  root._isFallback  = true;
   return root;
-}
-
-// ── Reparent a mesh so its pivot is at the geometric centre ───────────────────
-// Returns a new Group whose origin = bbox centre; the mesh is its child.
-function _centeredPivot(node) {
-  node.updateWorldMatrix(true, false);
-  node.geometry.computeBoundingBox();
-
-  // Bounding box centre in LOCAL geometry space
-  const localCtr = new THREE.Vector3();
-  node.geometry.boundingBox.getCenter(localCtr);
-
-  // World-space centre
-  const worldCtr = localCtr.clone().applyMatrix4(node.matrixWorld);
-
-  // Pivot in the node's parent local space
-  const pivot = new THREE.Group();
-  if (node.parent) {
-    const inv = node.parent.matrixWorld.clone().invert();
-    pivot.position.copy(worldCtr.clone().applyMatrix4(inv));
-  } else {
-    pivot.position.copy(worldCtr);
-  }
-
-  const parent = node.parent;
-  parent.remove(node);
-  parent.add(pivot);
-
-  // attach() moves node into pivot while preserving world transform
-  pivot.attach(node);
-  return pivot;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,60 +92,82 @@ export class MotoManager {
     const tpl = await _loadTemplate();
 
     for (const spawn of MOTO_SPAWNS) {
-      // ── Outer group: position + heading rotation controlled by game ──────────
-      const outer = new THREE.Group();
-
-      let wheels = [], frontWheel = null;
-      let isFallback = false;
+      const outer = new THREE.Group();  // heading + position
+      let wheels = [], frontWheel = null, isFallback = false;
 
       if (tpl) {
-        // ── Inner group: corrects model orientation (+X-facing → −Z-facing) ───
+        // ── Inner orientation-correction group ──────────────────────────────
+        // GLB faces −X; rotate so the nose points −Z (Three.js forward convention).
+        // Then _targetRY = moveAngle + PI works identically to the horse.
         const inner = new THREE.Group();
-        inner.rotation.y = Math.PI / 2;   // GLB front is at −X; rotate so front = −Z
+        inner.rotation.y = Math.PI / 2;
         outer.add(inner);
 
         const clone = tpl.clone(true);
         clone.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
         inner.add(clone);
 
-        // Force matrix update so we can compute world-space positions
-        outer.updateWorldMatrix(false, true);
-
-        // ── Find wheel nodes (ANY object whose name contains 'rueda') ─────────
-        const rawWheels = [];
+        // ── Find nodes by name ───────────────────────────────────────────────
+        const ejeNodes  = [], ruedaNodes = [];
+        let   seatNode  = null;
         clone.traverse(o => {
           const n = o.name.toLowerCase();
-          if (n.includes('rueda')) rawWheels.push(o);
+          if (n.includes('eje'))    ejeNodes.push(o);
+          if (n.includes('rueda'))  ruedaNodes.push(o);
+          if (n.includes('conductor') || n.includes('seat')) seatNode = o;
         });
 
-        // ── Create centered pivots for each wheel mesh ────────────────────────
-        for (const w of rawWheels) {
-          if (!w.geometry) continue;   // skip empties
-          const pivot = _centeredPivot(w);
-          wheels.push(pivot);
-          if (w.name.toLowerCase().includes('delantera') ||
-              w.name.toLowerCase().includes('front')) {
-            frontWheel = pivot;
-          }
-        }
-        if (!frontWheel && wheels.length > 0) frontWheel = wheels[0];
+        // ── Pair EJE ↔ RUEDA by trasero/delanero keywords ──────────────────
+        // EJE TRASERO  ↔ RUEDA TRASCERA  (rear)
+        // EJE DELANERO ↔ RUEDA DELANTERA (front)
+        const find = (arr, kw) => arr.find(o => o.name.toLowerCase().includes(kw)) ?? null;
+        const ejeR  = find(ejeNodes,   'trasero');
+        const ejeF  = find(ejeNodes,   'delanero') ?? find(ejeNodes, 'delantera');
+        const ruedaR = find(ruedaNodes, 'trasera')  ?? find(ruedaNodes, 'trasero');
+        const ruedaF = find(ruedaNodes, 'delantera')?? find(ruedaNodes, 'delanero');
 
-        // ── Auto-scale: normalise to ~2m long motorcycle ──────────────────────
+        // ── Reset EJE scale (Blender visual-only scale breaks attach math) ──
+        // Then attach each RUEDA to its EJE so it spins around the axle center.
+        [ejeR, ejeF].forEach(e => { if (e) { e.scale.set(1,1,1); e.updateMatrixWorld(true); }});
+
+        // Update full subtree matrices before calling attach()
+        outer.updateWorldMatrix(false, true);
+
+        if (ejeR && ruedaR) { ejeR.attach(ruedaR); wheels.push(ejeR); }
+        if (ejeF && ruedaF) { ejeF.attach(ruedaF); wheels.push(ejeF); frontWheel = ejeF; }
+
+        // Fallback if names didn't match
+        if (wheels.length === 0) {
+          console.warn('[Moto] Nombres no coincidieron, buscando por índice');
+          ejeNodes.forEach((e, i) => {
+            e.scale.set(1,1,1); e.updateMatrixWorld(true);
+            if (ruedaNodes[i]) { e.attach(ruedaNodes[i]); wheels.push(e); }
+          });
+          frontWheel = wheels[0] ?? null;
+        }
+
+        // ── Auto-scale so the motorcycle is ~2m long ─────────────────────────
         outer.updateWorldMatrix(false, true);
         const box = new THREE.Box3().setFromObject(inner);
         const sz  = box.getSize(new THREE.Vector3());
         const longest = Math.max(sz.x, sz.y, sz.z);
-        if (longest > 6 || longest < 0.5) {
-          const scl = 2.0 / longest;
-          inner.scale.setScalar(scl);
+        if (longest > 0.01) inner.scale.setScalar(2.0 / longest);
+
+        // ── Seat height (for rider Y offset) ─────────────────────────────────
+        // We use a fixed constant (RIDER_HEIGHT) but log it for calibration
+        if (seatNode) {
+          const sp = new THREE.Vector3();
+          seatNode.getWorldPosition(sp);
+          // seatNode.y in inner-local space (after inner rotation only) = sp.y
+          // (inner is a rotation-only group at outer origin)
         }
 
       } else {
-        // Procedural fallback
+        // ── Procedural fallback ───────────────────────────────────────────────
         isFallback = true;
         const fb = _buildFallback();
         outer.add(fb);
-        wheels    = fb._fbWheels;
+        wheels     = fb._fbWheels;
         frontWheel = fb._fbFront;
       }
 
@@ -191,13 +175,12 @@ export class MotoManager {
       this.scene.add(outer);
 
       this.motos.set(spawn.id, {
-        mesh: outer,
+        mesh:       outer,
         wheels,
         frontWheel,
         isFallback,
         riderId:    null,
-        x:          spawn.x,
-        z:          spawn.z,
+        x: spawn.x, z: spawn.z,
         _targetRY:  0,
         _displayRY: 0,
         _lean:      0,
@@ -214,8 +197,7 @@ export class MotoManager {
       position:fixed; bottom:100px; left:50%; transform:translateX(-50%);
       z-index:200; background:rgba(0,0,0,0.72); color:#fff;
       padding:8px 22px; border-radius:8px; font-size:14px; letter-spacing:0.04em;
-      display:none; pointer-events:none; border:1px solid rgba(220,60,40,0.6);
-    `;
+      display:none; pointer-events:none; border:1px solid rgba(220,60,40,0.6);`;
     el.textContent = '[E] Subir a la moto';
     document.body.appendChild(el);
     return el;
@@ -223,13 +205,13 @@ export class MotoManager {
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
-  isMounted()        { return this.myMotoId !== null; }
-  isMountAnimating() { return this._anim?.type === 'mount'; }
-  speedMultiplier(sprinting) { return SPEED_MULT * (sprinting ? SPRINT_MULT : 1.0); }
+  isMounted()           { return this.myMotoId !== null; }
+  isMountAnimating()    { return this._anim?.type === 'mount'; }
+  speedMultiplier(spr)  { return SPEED_MULT * (spr ? SPRINT_MULT : 1.0); }
 
   getRiderY() {
     const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
-    return m ? m.mesh.position.y + RIDER_HEIGHT : RIDER_HEIGHT;
+    return (m?.mesh.position.y ?? 0) + RIDER_HEIGHT;
   }
 
   consumeMountLand() {
@@ -239,7 +221,7 @@ export class MotoManager {
   // ── Per-frame update ─────────────────────────────────────────────────────────
 
   update(playerPos, dt) {
-    // Tick animation
+    // Tick mount/dismount animation
     if (this._anim) {
       this._anim.t += dt / this._anim.dur;
       if (this._anim.t >= 1) {
@@ -258,10 +240,10 @@ export class MotoManager {
       moto._displayRY += diff * Math.min(1, 8 * dt);
       moto.mesh.rotation.y = moto._displayRY;
 
-      // Lean (body tilt)
+      // Lean
       moto.mesh.rotation.z = -moto._lean;
 
-      // Wheel spin proportional to distance travelled
+      // Wheel spin — distance traveled this frame
       const dx  = moto.x - moto._prevX;
       const dz  = moto.z - moto._prevZ;
       const spd = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);
@@ -269,20 +251,21 @@ export class MotoManager {
 
       for (const w of moto.wheels) {
         if (moto.isFallback) {
-          // Fallback: wheel group's X axis = axle direction (cylinder lies along X)
-          w.rotation.x = moto._wheelRot;
+          w.rotation.x = moto._wheelRot;  // fallback: axle along X
         } else {
-          // GLB: axle is along the wheel pivot's local Z axis (moto faces −X in GLB space)
-          w.rotation.z = moto._wheelRot;
+          w.rotation.z = moto._wheelRot;  // GLB: axle along Z (EJE scale.z largest)
         }
       }
 
-      // Front wheel steering
+      // Front wheel steering from lean
       if (moto.frontWheel) {
         if (moto.isFallback) {
-          moto.frontWheel.rotation.y = -moto._lean * 1.2;
+          moto.frontWheel.rotation.y = -moto._lean * STEER_FACTOR;
         } else {
-          moto.frontWheel.rotation.y = -moto._lean * 1.2;
+          // Steer around the pivot's Y axis (vertical in inner-local space)
+          const prev = moto.frontWheel.rotation.z; // preserve spin
+          moto.frontWheel.rotation.y = -moto._lean * STEER_FACTOR;
+          moto.frontWheel.rotation.z = prev;
         }
       }
 
@@ -306,7 +289,7 @@ export class MotoManager {
     }
   }
 
-  /** Drive moto to player position; compute lean from turn rate */
+  /** Update moto position to rider position and compute lean from turn rate */
   syncRiderPosition(x, z, moveAngle, sprinting) {
     if (this.myMotoId === null) return;
     const moto = this.motos.get(this.myMotoId);
@@ -317,17 +300,16 @@ export class MotoManager {
       while (delta >  Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       const dx = x - moto.x, dz = z - moto.z;
-      const spd = Math.sqrt(dx * dx + dz * dz) * 60; // approx m/s at 60fps
-      const targetLean = Math.max(-LEAN_MAX, Math.min(LEAN_MAX,
-        delta * Math.max(1, spd * 0.4)));
-      moto._lean += (targetLean - moto._lean) * Math.min(1, LEAN_SPEED / 60);
+      const spd = Math.sqrt(dx * dx + dz * dz) * 60;
+      const target = Math.max(-LEAN_MAX, Math.min(LEAN_MAX,
+        delta * Math.max(1, spd * 0.35)));
+      moto._lean += (target - moto._lean) * Math.min(1, LEAN_SPEED / 60);
     }
     this._prevAngle = moveAngle;
 
     moto.x = x; moto.z = z;
     moto.mesh.position.set(x, 0, z);
-    // Same convention as horse: _targetRY = moveAngle + PI
-    moto._targetRY = moveAngle + Math.PI;
+    moto._targetRY = moveAngle + Math.PI;  // same convention as horse
   }
 
   // ── Mount / dismount ─────────────────────────────────────────────────────────
@@ -345,7 +327,7 @@ export class MotoManager {
     this.myMotoId = id;
     this._nearestId  = null;
     this._lean = moto._lean = 0;
-    this._prevAngle = null;
+    this._prevAngle  = null;
     this._anim = {
       type: 'mount', t: 0,
       dur:   startY > 0.5 ? 0.18 : MOUNT_DUR,
@@ -360,7 +342,7 @@ export class MotoManager {
     if (this.myMotoId === null) return;
     const moto = this.motos.get(this.myMotoId);
     if (!moto) return;
-    const ry   = moto._displayRY;
+    const ry    = moto._displayRY;
     const sideX = moto.x + Math.sin(ry + Math.PI / 2) * SIDE_DIST;
     const sideZ = moto.z + Math.cos(ry + Math.PI / 2) * SIDE_DIST;
     this._anim = {
@@ -375,15 +357,14 @@ export class MotoManager {
     this._prevAngle = null;
   }
 
-  // ── Animation helpers for main.js player model arc ───────────────────────────
+  // ── Animation helpers for main.js player-model arc ───────────────────────────
 
   getAnimY() {
     if (!this._anim) return null;
     const ts = this._anim.t * this._anim.t * (3 - 2 * this._anim.t);
-    if (this._anim.type === 'mount') {
+    if (this._anim.type === 'mount')
       return this._anim.startY + (RIDER_HEIGHT - this._anim.startY) * ts
-             + Math.sin(this._anim.t * Math.PI) * 0.4;
-    }
+             + Math.sin(this._anim.t * Math.PI) * 0.35;
     return RIDER_HEIGHT * (1 - ts);
   }
 
@@ -407,15 +388,11 @@ export class MotoManager {
   // ── Remote events ────────────────────────────────────────────────────────────
 
   onRemoteMount(motoId, riderId) {
-    const m = this.motos.get(motoId);
-    if (m) m.riderId = riderId;
+    const m = this.motos.get(motoId); if (m) m.riderId = riderId;
   }
-
   onRemoteDismount(motoId) {
-    const m = this.motos.get(motoId);
-    if (m) { m.riderId = null; m._lean = 0; }
+    const m = this.motos.get(motoId); if (m) { m.riderId = null; m._lean = 0; }
   }
-
   onRemoteMoved(motoId, x, z, ry) {
     const m = this.motos.get(motoId);
     if (!m) return;
