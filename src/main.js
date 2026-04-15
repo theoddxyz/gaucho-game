@@ -20,6 +20,7 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
+import { CreatureSystem, wormRenderer } from './creature.js';
 import { SoulSystem } from './souls.js';
 import { SoulMap } from './soulmap.js';
 import { ConversationUI } from './conversation-ui.js';
@@ -349,6 +350,31 @@ const ostrichSystem = new OstrichSystem(scene);
 
 // Gallinas
 const chickenSystem = new ChickenSystem(scene);
+
+// ── Víboras del desierto (CreatureSystem) ─────────────────────────────────────
+const viboraSystem = new CreatureSystem(scene, {
+  species:     'vibora',
+  count:       7,
+  hp:          1,
+  hx: 0.18, hy: 0.1, hz: 0.18, mass: 1,
+  fleeRadius:   3.5,
+  huntRadius:  10,
+  attackRadius: 1.2,
+  homeRadius:  35,
+  states: {
+    wander: { sigma: 1.8,  speed: 1.8,  wpRadius: [4,  14], timer: [3,  7] },
+    flee:   { sigma: 4.0,  speed: 7.5,  wpRadius: [18, 35], timer: [3,  5] },
+    hunt:   { sigma: 0.6,  speed: 4.0,  wpRadius: [5,  12], timer: [4,  9] },
+  },
+  tau:         { wander: 0.30, flee: 0.10, hunt: 0.20 },
+  loot:        [{ hp: 4, hunger: 10, color: 0xc8a050, chance: 0.75 }],
+  renderer:    wormRenderer({ segCount: 6, spacing: 0.30, baseR: 0.14, color: 0xc8a050, eyeColor: 0x330000 }),
+  respawnDelay: 90,
+}, [
+  { x:  18, z:  -72 }, { x: -22, z:  -68 }, { x:  32, z:  -88 },
+  { x: -12, z:  -93 }, { x:  26, z: -108 }, { x: -35, z:  -82 },
+  { x:   5, z:  -55 },
+]);
 
 // Campesinos + sistema de almas
 const soulSystem      = new SoulSystem(scene);
@@ -1044,6 +1070,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const bird = birdSystem.getBirdByHitbox(hb);
     if (bird) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: bird, type: 'bird' }); }
   }
+  for (const hb of viboraSystem.getHitboxes()) {
+    const vi = viboraSystem.getIndexByHitbox(hb);
+    if (vi >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: vi, type: 'vibora' }); }
+  }
   for (const hb of campesinoSystem.getHitboxes()) {
     const ni = hb.userData.campesinoNpcIdx;
     const si = hb.userData.campesinoSegIdx;
@@ -1155,7 +1185,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
     setTimeout(() => {
       // Sonido de impacto + sangre + grito de dolor para entidades vivas
-      if (['player','cow','ostrich','chicken','bird','campesino'].includes(scanHit.target.type)) {
+      if (['player','cow','ostrich','chicken','bird','campesino','vibora'].includes(scanHit.target.type)) {
         Audio.bulletImpactFlesh();
         // Grito de dolor por tipo
         if (scanHit.target.type === 'cow')     Audio.painCow();
@@ -1203,6 +1233,11 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       else if (scanHit.target.type === 'chicken') {
         chickenSystem.hit(scanHit.target.id, scanHit.point, hitZone);
         Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
+      }
+      else if (scanHit.target.type === 'vibora') {
+        const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
+        viboraSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        Network.sendGameEvent('animal_killed', { detail: `Una víbora del desierto fue abatida.` });
       }
       else if (scanHit.target.type === 'campesino') {
         const { npcIdx, segIdx } = scanHit.target.id;
@@ -1683,6 +1718,15 @@ function gameLoop() {
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
+  // Víboras: cazan gallinas si están cerca
+  const _chickenPos = chickenSystem._chickens
+    .filter(c => !c.dead && !c.removed && !c.wounded)
+    .map(c => ({ x: c.mesh.position.x, z: c.mesh.position.z }));
+  viboraSystem.update(dt, { playerPos: pos, preyPositions: _chickenPos });
+  const _viboraLoot = viboraSystem.updateLoot(dt, pos);
+  if (_viboraLoot && myId && !isDead) {
+    if (Inventory.add('snake', _viboraLoot.hunger, _viboraLoot.hp)) _updateInventoryHUD();
+  }
   if (pos) {
     const _cr = campesinoSystem.pushFromPlayer(pos.x, pos.z);
     if (_cr.vx !== 0 || _cr.vz !== 0) {
@@ -1755,6 +1799,7 @@ function gameLoop() {
     chTargets.push(...ostrichSystem.getHitboxes());
     chTargets.push(...chickenSystem.getHitboxes());
     chTargets.push(...campesinoSystem.getHitboxes());
+    chTargets.push(...viboraSystem.getHitboxes());
     const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
     UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }
