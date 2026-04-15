@@ -7,6 +7,7 @@ const loader = new GLTFLoader();
 let playerTemplate    = null;
 let botTemplate       = null;
 let horseRideTemplate = null;
+let motoRideTemplate  = null;
 let shootWalkTemplate = null;
 let tranquiTemplate   = null;
 let hurtTemplate      = null;
@@ -35,6 +36,14 @@ function loadHorseRideTemplate() {
       });
   });
   return horseRideTemplate;
+}
+
+function loadMotoRideTemplate() {
+  if (motoRideTemplate) return motoRideTemplate;
+  motoRideTemplate = new Promise((resolve) => {
+    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+  });
+  return motoRideTemplate;
 }
 
 function loadShootWalkTemplate() {
@@ -268,6 +277,10 @@ export class PlayerModel {
     this._horseRideMixer  = null;
     this._horseRideAction = null;
     this._horseSmokePoint = null;  // SMOKE_POINT del modelo de caballo
+    this._motoRideModel   = null;
+    this._motoRideMixer   = null;
+    this._motoRideAction  = null;
+    this._isMotoRiding    = false;
     this._shootMuzzle     = null;  // Empty "muzzle" del modelo de disparo
     this._smokePoint      = null;  // Empty "smoke_point" del modelo principal
     this._shootSmokePoint = null;  // Empty "smoke_point" del modelo de disparo
@@ -521,6 +534,34 @@ export class PlayerModel {
           this._horseRideAction = this._horseRideMixer.clipAction(gltf.animations[0]);
           this._horseRideAction.setLoop(THREE.LoopRepeat, Infinity);
           this._horseRideAction.play();
+        });
+
+        // ── Modelo andar en moto ──────────────────────────────────────────────
+        loadMotoRideTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const sc = gltf.scene;
+          sc.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+            }
+          });
+          sc.updateWorldMatrix(true, true);
+          const mbbox = new THREE.Box3().setFromObject(sc);
+          const mh = mbbox.max.y - mbbox.min.y;
+          if (mh > 0.01) {
+            sc.scale.setScalar(2.8 / mh);
+            sc.updateWorldMatrix(true, true);
+            const mb2 = new THREE.Box3().setFromObject(sc);
+            sc.position.y -= mb2.min.y;
+          }
+          sc.visible = false;
+          this.group.add(sc);
+          this._motoRideModel  = sc;
+          this._motoRideMixer  = new THREE.AnimationMixer(sc);
+          this._motoRideAction = this._motoRideMixer.clipAction(gltf.animations[0]);
+          this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._motoRideAction.play();
         });
 
         // ── Modelo tranquilo (idle a pie, sano) ──────────────────────────────
@@ -963,16 +1004,18 @@ export class PlayerModel {
     // Priority: butcher > hurt > shoot > horse > tranqui > main
     const forceButcher   = this._butcherTimer > 0 && !!this._butcherModel;
     const forceHurt      = !forceButcher && this._hurtTimer > 0 && !!this._hurtModel;
-    const useShootModel  = !forceHurt && !forceButcher && this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
-    const useHorseModel  = !forceHurt && !forceButcher && this._isRiding && !!this._horseRideModel;
-    const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
+    const useMotoModel   = !forceHurt && !forceButcher && this._isMotoRiding && !!this._motoRideModel;
+    const useShootModel  = !forceHurt && !forceButcher && this._isAimingAnim && !this._isRiding && !useMotoModel && !!this._shootWalkModel;
+    const useHorseModel  = !forceHurt && !forceButcher && this._isRiding && !useMotoModel && !!this._horseRideModel;
+    const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel && !useMotoModel;
     const isHurt         = forceHurt || this._hunger <= 50 || this._hp <= 100;
     const useHurtModel   = forceHurt || (isIdleOnFoot && isHurt && !!this._hurtModel);
     const useButcherModel= forceButcher;
     const useTranquiModel= isIdleOnFoot && !useHurtModel && !useButcherModel && !!this._tranquiModel;
-    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel && !useButcherModel;
+    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useMotoModel && !useHurtModel && !useTranquiModel && !useButcherModel;
     if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
     if (this._horseRideModel) this._horseRideModel.visible =  useHorseModel;
+    if (this._motoRideModel)  this._motoRideModel.visible  =  useMotoModel;
     if (this._tranquiModel)   this._tranquiModel.visible   =  useTranquiModel;
     if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
     if (this._butcherModel)   this._butcherModel.visible   =  useButcherModel;
@@ -989,6 +1032,11 @@ export class PlayerModel {
     // ── Mixer caballo (modelo propio, sin retargeting) ────────────────────────
     if (this._horseRideMixer && useHorseModel) {
       this._horseRideMixer.update(dt);
+    }
+
+    // ── Mixer moto ───────────────────────────────────────────────────────────
+    if (this._motoRideMixer && useMotoModel) {
+      this._motoRideMixer.update(dt);
     }
 
     // ── Mixers idle a pie ─────────────────────────────────────────────────────
@@ -1152,6 +1200,10 @@ export class PlayerModel {
 
   setRiding(isRiding) {
     this._isRiding = isRiding;
+  }
+
+  setMotoRiding(v) {
+    this._isMotoRiding = !!v;
   }
 
   /** Llamar desde main.js cada frame con el estado real de teclas (solo jugador local). */
