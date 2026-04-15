@@ -42,10 +42,10 @@ export function loadOneShell(now) {
  */
 export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55, explicitOrigin = null) {
   if (now < reloadEnd) return null;                      // cargando bala
-  if (shotCount >= MAGAZINE) return null;                // sin munición — presionar R
+  // if (shotCount >= MAGAZINE) return null;             // TODO: re-habilitar cuando esté listo
   if (now - lastShot < COOLDOWN) return null;
   lastShot = now;
-  shotCount++;
+  shotCount = Math.min(MAGAZINE, shotCount + 1);
 
   const origin = explicitOrigin || {
     x: playerPos.x + aimDirection.x * 0.8,
