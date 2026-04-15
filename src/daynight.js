@@ -177,6 +177,18 @@ let _locked = false;
 export function setDayProgress(t) { _t = Math.max(0, Math.min(1, t)); _locked = true; }
 export function unlockDayProgress() { _locked = false; }
 
+/** Soft sync: nudge time toward target value without locking progression.
+ *  Called every 100ms by the viewer to stay in sync with the host. */
+export function nudgeDayProgress(t) {
+  const target = Math.max(0, Math.min(1, t));
+  // Handle wrap-around (e.g. host at 0.99, viewer at 0.01)
+  let diff = target - _t;
+  if (diff > 0.5) diff -= 1;
+  if (diff < -0.5) diff += 1;
+  // Smoothly converge: move 30% toward target each call (10Hz = fully synced in ~1s)
+  _t = (_t + diff * 0.3 + 1) % 1;
+}
+
 /** Temperature in °C — cold at night (~5°), hot at noon (~40°) */
 export function getTemperature() {
   const angle = (_t - 0.5) * Math.PI * 2;

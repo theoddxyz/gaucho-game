@@ -855,6 +855,13 @@ export class CreatureSystem {
     const _pPos = playerPos;
     const _ar2  = (this._config.activeRadius ?? 280) ** 2;
     for (const e of this._entities) {
+      // Dead-reckoning: extrapolate position between host snapshots using last known velocity
+      if (!e.dead) {
+        e.x += (e.vx ?? 0) * realDt;
+        e.z += (e.vz ?? 0) * realDt;
+        e.speed  = Math.sqrt((e.vx ?? 0) ** 2 + (e.vz ?? 0) ** 2);
+        e.moving = e.speed > 0.15;
+      }
       const _d2 = _pPos ? (e.x - _pPos.x)**2 + (e.z - _pPos.z)**2 : 0;
       if (e.dead) {
         if (e.active && e.group) {

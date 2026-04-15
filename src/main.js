@@ -14,7 +14,7 @@ import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
-import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight, setDayProgress, unlockDayProgress, getSunOffset } from './daynight.js';
+import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight, setDayProgress, unlockDayProgress, nudgeDayProgress, getSunOffset } from './daynight.js';
 import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
 import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
@@ -479,7 +479,7 @@ const HOST_SYNC_INTERVAL = 0.1; // 10Hz
 Network.connect();
 
 // Creature sync — non-host receives positions from host via server relay
-Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird }) => {
+Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird, dayProgress }) => {
   if (isHost) return; // host is authoritative, ignore echoes
   if (vibora)    viboraSystem.applyServerSync(vibora);
   if (armadillo) armadilloSystem.applyServerSync(armadillo);
@@ -488,6 +488,8 @@ Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird
   if (chicken)   chickenSystem?.applyServerSync(chicken);
   if (cow)       cowSystem?.applyServerSync(cow);
   if (bird)      birdSystem?.applyServerSync(bird);
+  // Sync day/night clock every 100ms so campesinos, sky, lighting match the host
+  if (dayProgress !== undefined) nudgeDayProgress(dayProgress);
 });
 
 // Toggle serverMode on all animal systems
@@ -1593,6 +1595,7 @@ function _sendHostCreatureSync(reliable = false) {
     chicken:   (chickenSystem?._chickens ?? []).map((c,i) => (c.removed || c.dyingPhysics || !c.mesh) ? { idx:i, dead:true } : { idx:i, x:c.mesh.position.x, z:c.mesh.position.z, vx:c.vx, vz:c.vz }),
     cow:       (cowSystem?._cows ?? []).map((c,i) => (c.removed || c.dyingPhysics || !c.mesh) ? { idx:i, dead:true } : { idx:i, x:c.mesh.position.x, z:c.mesh.position.z, vx:c.vx, vz:c.vz }),
     bird:      (birdSystem?._syncBirds ?? []).map(b => ({ idx:b.syncIdx, x:b.x, z:b.z, y:b.mesh?.position.y ?? 0 })),
+    dayProgress: getDayProgress(), // sync day/night clock so campesinos and sky match
   };
   Network.sendHostCreatureSync(payload, reliable);
 }
