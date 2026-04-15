@@ -10,17 +10,18 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const MOUNT_RADIUS = 4.0;
-const SPEED_MULT   = 2.4;
-const SPRINT_MULT  = 1.35;
-const RIDER_HEIGHT = 0.82;   // seat height above ground (m)
-const MOUNT_DUR    = 0.25;
-const DISMOUNT_DUR = 0.35;
-const SIDE_DIST    = 2.0;
-const LEAN_MAX     = 0.28;   // ~16°
-const LEAN_SPEED   = 6;
-const WHEEL_SPIN   = 3.0;    // rad per (m traveled)
-const STEER_FACTOR = 1.4;    // front wheel steer multiplier from lean
+const MOUNT_RADIUS    = 4.0;
+const SPEED_MULT      = 2.4;
+const SPRINT_MULT     = 1.35;
+const RIDER_HEIGHT    = 0.82;   // seat height above ground (m)
+const MOUNT_DUR       = 0.25;
+const DISMOUNT_DUR    = 0.35;
+const SIDE_DIST       = 2.0;
+const LEAN_MAX        = 0.28;   // ~16°
+const LEAN_SPEED      = 6;
+const WHEEL_SPIN      = 3.0;    // rad per (m traveled)
+const STEER_FACTOR    = 1.4;    // front wheel steer multiplier from lean
+const SEAT_BACK_OFFSET = 0.7;   // meters the moto center sits ahead of rider
 
 export const MOTO_SPAWNS = [
   { id: 0, x:  12, z: -58 },
@@ -105,6 +106,21 @@ export class MotoManager {
 
         const clone = tpl.clone(true);
         clone.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+
+        // ── Reflective glass / visor — dark materials get low roughness ──────
+        clone.traverse(o => {
+          if (!o.isMesh || !o.material) return;
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach(m => {
+            if (!m.color) return;
+            if (m.color.r + m.color.g + m.color.b < 0.25 && (m.roughness ?? 1) > 0.2) {
+              m.roughness        = 0.02;
+              m.metalness        = 0.15;
+              m.envMapIntensity  = 2.0;
+            }
+          });
+        });
+
         inner.add(clone);
 
         // ── Find nodes by name ───────────────────────────────────────────────
@@ -151,7 +167,7 @@ export class MotoManager {
         const box = new THREE.Box3().setFromObject(inner);
         const sz  = box.getSize(new THREE.Vector3());
         const longest = Math.max(sz.x, sz.y, sz.z);
-        if (longest > 0.01) inner.scale.setScalar(8.0 / longest);
+        if (longest > 0.01) inner.scale.setScalar(6.8 / longest);
 
         // ── Seat height (for rider Y offset) ─────────────────────────────────
         // We use a fixed constant (RIDER_HEIGHT) but log it for calibration
@@ -175,18 +191,20 @@ export class MotoManager {
       this.scene.add(outer);
 
       this.motos.set(spawn.id, {
-        mesh:       outer,
+        mesh:        outer,
         wheels,
         frontWheel,
         isFallback,
-        riderId:    null,
+        riderId:     null,
         x: spawn.x, z: spawn.z,
-        _targetRY:  0,
-        _displayRY: 0,
-        _lean:      0,
-        _wheelRot:  0,
-        _prevX:     spawn.x,
-        _prevZ:     spawn.z,
+        _targetRY:   0,
+        _displayRY:  0,
+        _lean:       0,
+        _wheelRot:   0,
+        _prevX:      spawn.x,
+        _prevZ:      spawn.z,
+        _speedFactor: 0,   // 0..1, drives acceleration ramp
+        _turnRate:    0,   // rad/s angular momentum
       });
     }
   }
@@ -207,7 +225,11 @@ export class MotoManager {
 
   isMounted()           { return this.myMotoId !== null; }
   isMountAnimating()    { return this._anim?.type === 'mount'; }
-  speedMultiplier(spr)  { return SPEED_MULT * (spr ? SPRINT_MULT : 1.0); }
+  speedMultiplier(spr) {
+    const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
+    const sf   = Math.max(0.15, moto?._speedFactor ?? 0);  // min 15% so it starts
+    return SPEED_MULT * sf * (spr ? SPRINT_MULT : 1.0);
+  }
 
   getRiderY() {
     const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
@@ -233,11 +255,24 @@ export class MotoManager {
     }
 
     for (const [, moto] of this.motos) {
-      // Smooth heading rotation
-      let diff = moto._targetRY - moto._displayRY;
-      while (diff >  Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      moto._displayRY += diff * Math.min(1, 8 * dt);
+      // ── Heading with angular momentum (local player) ──────────────────────
+      // For remote motos we still use the old fast-follow approach.
+      if (moto.riderId !== null && moto === (this.myMotoId !== null ? this.motos.get(this.myMotoId) : null)) {
+        // local rider: _turnRate momentum driven by lean × speed
+        const speedF = Math.max(0, moto._speedFactor ?? 0);
+        const targetTurnRate = -moto._lean * speedF * 3.5;
+        moto._turnRate += (targetTurnRate - moto._turnRate) * Math.min(1, (2 + speedF * 4) * dt);
+        moto._displayRY += moto._turnRate * dt;
+        while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
+        while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
+        moto._targetRY = moto._displayRY;
+      } else {
+        // remote / unmounted: snap to target
+        let diff = moto._targetRY - moto._displayRY;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        moto._displayRY += diff * Math.min(1, 8 * dt);
+      }
       moto.mesh.rotation.y = moto._displayRY;
 
       // Lean
@@ -295,6 +330,17 @@ export class MotoManager {
     const moto = this.motos.get(this.myMotoId);
     if (!moto) return;
 
+    // ── Speed factor ramp-up (variable tau: fast start, slow to reach max) ──
+    const dx0 = x - moto.x, dz0 = z - moto.z;
+    const isMoving = Math.sqrt(dx0 * dx0 + dz0 * dz0) * 60 > 0.5;
+    if (isMoving) {
+      const tau   = 0.15 + 3.5 * moto._speedFactor;   // τ: 0.15s → 3.65s
+      const alpha = 1 - Math.exp(-(1 / 60) / tau);
+      moto._speedFactor = Math.min(1, moto._speedFactor + alpha * (1 - moto._speedFactor));
+    } else {
+      moto._speedFactor *= 0.85;   // quick decay when stopped
+    }
+
     if (this._prevAngle !== null) {
       let delta = moveAngle - this._prevAngle;
       while (delta >  Math.PI) delta -= Math.PI * 2;
@@ -308,8 +354,14 @@ export class MotoManager {
     this._prevAngle = moveAngle;
 
     moto.x = x; moto.z = z;
-    moto.mesh.position.set(x, 0, z);
-    moto._targetRY = moveAngle;  // GLB front = +Z after PI/2 correction, no flip needed
+    // Offset moto mesh forward of rider so rider appears to sit toward the rear
+    const ry = moto._displayRY;
+    moto.mesh.position.set(
+      x + Math.sin(ry) * SEAT_BACK_OFFSET,
+      0,
+      z + Math.cos(ry) * SEAT_BACK_OFFSET
+    );
+    // _targetRY is managed by the momentum system in update(); don't overwrite.
   }
 
   // ── Mount / dismount ─────────────────────────────────────────────────────────
