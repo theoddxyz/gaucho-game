@@ -741,6 +741,11 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).volatile.emit('bloodSplat', data);
   });
 
+  socket.on('butcher', () => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('butcher', { id: socket.id });
+  });
+
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
   socket.on('gameEvent', ({ type, detail, hour }) => {
     if (!currentRoom || !playerData) return;

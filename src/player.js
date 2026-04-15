@@ -61,6 +61,15 @@ function loadHurtTemplate() {
   return hurtTemplate;
 }
 
+let butcherTemplate = null;
+function loadButcherTemplate() {
+  if (butcherTemplate) return butcherTemplate;
+  butcherTemplate = new Promise((resolve) => {
+    loader.load('/models/CUCHIGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+  });
+  return butcherTemplate;
+}
+
 function buildFallbackModel(color) {
   const group = new THREE.Group();
   const c = new THREE.Color(color);
@@ -269,6 +278,10 @@ export class PlayerModel {
     this._hurtModel       = null;
     this._hurtMixer       = null;
     this._hurtAction      = null;
+    this._butcherModel    = null;
+    this._butcherMixer    = null;
+    this._butcherAction   = null;
+    this._butcherTimer    = 0;     // seconds remaining of butcher animation
     this._hunger          = 100;   // 0-100, actualizado desde main.js
     this._hp              = 200;   // 0-200, actualizado desde main.js
     this._hurtTimer       = 0;     // seconds remaining of forced hurt animation
@@ -569,6 +582,36 @@ export class PlayerModel {
           this._hurtAction.setLoop(THREE.LoopRepeat, Infinity);
           this._hurtAction.play();
         });
+
+        // ── Modelo descuartizar (CUCHIGLB) ───────────────────────────────────
+        loadButcherTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const sc = gltf.scene;
+          sc.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+          sc.updateWorldMatrix(true, true);
+          const bb = new THREE.Box3().setFromObject(sc);
+          const hh = bb.max.y - bb.min.y;
+          if (hh > 0.01) {
+            sc.scale.setScalar(2.8 / hh);
+            sc.updateWorldMatrix(true, true);
+            const bb2 = new THREE.Box3().setFromObject(sc);
+            sc.position.y -= bb2.min.y;
+          }
+          sc.visible = false;
+          this.group.add(sc);
+          this._butcherModel  = sc;
+          this._butcherMixer  = new THREE.AnimationMixer(sc);
+          this._butcherAction = this._butcherMixer.clipAction(gltf.animations[0]);
+          this._butcherAction.setLoop(THREE.LoopOnce, 1);
+          this._butcherAction.clampWhenFinished = true;
+        });
       });
       return;
     }
@@ -592,7 +635,7 @@ export class PlayerModel {
       // Modelos extra para remotos (clonados, con mixer propio)
       if (!this._isBot) {
         // Helper: clonar, fix materials, agregar al group con mixer
-        const _loadRemoteModel = (loadFn, assignModel, assignMixer, assignAction) => {
+        const _loadRemoteModel = (loadFn, assignModel, assignMixer, assignAction, opts = {}) => {
           loadFn().then((gltf) => {
             if (!gltf || !gltf.animations?.length) return;
             const clone = SkeletonUtils.clone(gltf.scene);
@@ -610,8 +653,13 @@ export class PlayerModel {
             const mixer = new THREE.AnimationMixer(clone);
             this[assignMixer] = mixer;
             const action = mixer.clipAction(gltf.animations[0]);
-            action.setLoop(THREE.LoopRepeat, Infinity);
-            action.play();
+            if (opts.loopOnce) {
+              action.setLoop(THREE.LoopOnce, 1);
+              action.clampWhenFinished = true;
+            } else {
+              action.setLoop(THREE.LoopRepeat, Infinity);
+              action.play();
+            }
             if (assignAction) { this[assignAction] = action; action.paused = true; }
           });
         };
@@ -619,6 +667,7 @@ export class PlayerModel {
         _loadRemoteModel(loadShootWalkTemplate, '_shootWalkModel', '_shootWalkMixer', '_shootWalkAction');
         _loadRemoteModel(loadTranquiTemplate, '_tranquiModel', '_tranquiMixer', null);
         _loadRemoteModel(loadHurtTemplate, '_hurtModel', '_hurtMixer', '_hurtAction');
+        _loadRemoteModel(loadButcherTemplate, '_butcherModel', '_butcherMixer', '_butcherAction', { loopOnce: true });
       }
     });
   }
@@ -891,19 +940,23 @@ export class PlayerModel {
 
     // ── Model swap ────────────────────────────────────────────────────────────
     if (this._hurtTimer > 0) this._hurtTimer -= dt;
-    // Stun override: durante hurtTimer, SIEMPRE usar modelo HERIDO (prioridad máxima)
-    const forceHurt      = this._hurtTimer > 0 && !!this._hurtModel;
-    const useShootModel  = !forceHurt && this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
-    const useHorseModel  = !forceHurt && this._isRiding && !!this._horseRideModel;
+    if (this._butcherTimer > 0) this._butcherTimer -= dt;
+    // Priority: butcher > hurt > shoot > horse > tranqui > main
+    const forceButcher   = this._butcherTimer > 0 && !!this._butcherModel;
+    const forceHurt      = !forceButcher && this._hurtTimer > 0 && !!this._hurtModel;
+    const useShootModel  = !forceHurt && !forceButcher && this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
+    const useHorseModel  = !forceHurt && !forceButcher && this._isRiding && !!this._horseRideModel;
     const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
     const isHurt         = forceHurt || this._hunger <= 50 || this._hp <= 100;
     const useHurtModel   = forceHurt || (isIdleOnFoot && isHurt && !!this._hurtModel);
-    const useTranquiModel= isIdleOnFoot && !useHurtModel && !!this._tranquiModel;
-    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel;
+    const useButcherModel= forceButcher;
+    const useTranquiModel= isIdleOnFoot && !useHurtModel && !useButcherModel && !!this._tranquiModel;
+    if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel && !useButcherModel;
     if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
     if (this._horseRideModel) this._horseRideModel.visible =  useHorseModel;
     if (this._tranquiModel)   this._tranquiModel.visible   =  useTranquiModel;
     if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
+    if (this._butcherModel)   this._butcherModel.visible   =  useButcherModel;
 
     // Compensar offset vertical de la animación HERIDO (root bone elevado en el GLB)
     if (this._hurtModel) {
@@ -933,6 +986,7 @@ export class PlayerModel {
     // ── Mixers idle a pie ─────────────────────────────────────────────────────
     if (this._tranquiMixer && useTranquiModel) this._tranquiMixer.update(dt);
     if (this._hurtMixer    && useHurtModel)    this._hurtMixer.update(dt);
+    if (this._butcherMixer && useButcherModel) this._butcherMixer.update(dt);
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
@@ -1161,6 +1215,14 @@ export class PlayerModel {
   startHurt(duration = 1.5) {
     this._hurtTimer  = duration;
     this._staggerVel = 4.0 * (Math.random() < 0.5 ? 1 : -1);
+  }
+
+  // Trigger butcher (descuartizar) animation
+  startButcher(duration = 2.0) {
+    if (!this._butcherModel || !this._butcherAction) return;
+    this._butcherTimer = duration;
+    this._butcherAction.reset();
+    this._butcherAction.play();
   }
 
   applyImpact(hitZone, hitPoint) {

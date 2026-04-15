@@ -479,7 +479,9 @@ Network.onJoined((data) => {
     const wAnimal  = wCow || wOstrich || wChicken || wBird;
 
     if (wAnimal) {
-      // Spawnar animación visual (carne/churrascos vuelan) — pickup es por proximidad
+      // Animación de descuartizar + broadcast
+      localPlayerModel?.startButcher(2.0);
+      Network.sendButcher();
       Audio.eatSound();
       if (wCow)          cowSystem?.lootWounded(wCow);
       else if (wOstrich) ostrichSystem?.lootWounded(wOstrich);
@@ -626,6 +628,11 @@ Network.onPlayerJoined((pd) => {
   if (pd.id === myId) return;
   remotePlayers.set(pd.id, new PlayerModel(scene, pd));
   UI.updatePlayersCount(remotePlayers.size + 1);
+});
+
+Network.onButcher((data) => {
+  const rp = remotePlayers.get(data.id);
+  if (rp) rp.startButcher(2.0);
 });
 
 Network.onBloodSplat((data) => {
