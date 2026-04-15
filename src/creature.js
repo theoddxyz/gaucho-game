@@ -331,6 +331,140 @@ export function armadilloRenderer({ scale = 1.0, bodyColor = 0xa08060, shellColo
   };
 }
 
+// ─── Condor Renderer ─────────────────────────────────────────────────────────
+// Gran ave rapaz. Planea a gran altura, desciende hacia cadáveres.
+export function condorRenderer({ scale = 1.0 } = {}) {
+  const S       = scale;
+  const hitMat  = new THREE.MeshBasicMaterial({ visible: false });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.80 });
+  const wingMat = new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.85, side: THREE.DoubleSide });
+  const tipMat  = new THREE.MeshStandardMaterial({ color: 0xd4c8a0, roughness: 0.85, side: THREE.DoubleSide });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xcc3322, roughness: 0.75 });
+  const beakMat = new THREE.MeshStandardMaterial({ color: 0xc8a800, roughness: 0.6 });
+
+  return {
+    build(entityIdx, scene, spawnX, spawnZ) {
+      const group  = new THREE.Group();
+      group.position.set(spawnX, 0, spawnZ); // Y se setea en update via entity.y
+      const visual = new THREE.Group();
+      group.add(visual);
+
+      // Cuerpo
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.90*S, 0.22*S, 0.28*S), bodyMat);
+      body.position.y = 0;
+      body.castShadow = true;
+      visual.add(body);
+
+      // Cuello blanco (collar)
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.10*S, 0.12*S, 0.12*S, 8), tipMat);
+      collar.position.set(0.38*S, 0.08*S, 0);
+      visual.add(collar);
+
+      // Cabeza roja
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13*S, 8, 6), headMat);
+      head.scale.set(1.1, 0.85, 0.85);
+      head.position.set(0.52*S, 0.12*S, 0);
+      head.castShadow = true;
+      visual.add(head);
+
+      // Pico
+      const beak = new THREE.Mesh(new THREE.ConeGeometry(0.04*S, 0.16*S, 5), beakMat);
+      beak.rotation.z = -Math.PI / 2;
+      beak.position.set(0.66*S, 0.08*S, 0);
+      visual.add(beak);
+
+      // Alas — dos grupos (izq/der) para animación
+      const makeWing = (side) => {
+        const wingGroup = new THREE.Group();
+
+        // Ala principal (grande, oscura)
+        const mainWing = new THREE.Mesh(new THREE.BoxGeometry(1.10*S, 0.04*S, 0.55*S), wingMat);
+        mainWing.position.set(0, 0, side * 0.80*S);
+        wingGroup.add(mainWing);
+
+        // Punta del ala (más clara — parche blanco)
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.35*S, 0.035*S, 0.22*S), tipMat);
+        tip.position.set(-0.35*S, 0, side * 1.38*S);
+        wingGroup.add(tip);
+
+        // Plumas primarias (4 rectángulos colgantes)
+        for (let f = 0; f < 4; f++) {
+          const feather = new THREE.Mesh(new THREE.BoxGeometry(0.08*S, 0.03*S, 0.18*S), wingMat);
+          feather.position.set(-0.25*S + f * (-0.10*S), -0.04*S, side * (1.52 + f * 0.09)*S);
+          wingGroup.add(feather);
+        }
+
+        visual.add(wingGroup);
+        return wingGroup;
+      };
+
+      const wingL = makeWing(-1);
+      const wingR = makeWing( 1);
+
+      // Cola
+      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.35*S, 0.04*S, 0.30*S), wingMat);
+      tail.position.set(-0.52*S, 0, 0);
+      visual.add(tail);
+
+      // Hitbox grande (cubre envergadura completa)
+      const hitbox = new THREE.Mesh(new THREE.SphereGeometry(1.0*S, 6, 6), hitMat);
+      hitbox.userData.creatureEntityIdx = entityIdx;
+      hitbox.position.set(0, 0, 0);
+      group.add(hitbox);
+
+      const rendState = { visual, wingL, wingR, walkT: Math.random() * 10, hitboxes: [hitbox] };
+      scene.add(group);
+      return { group, hitboxes: [hitbox], rendState };
+    },
+
+    update(group, rendState, entity, dt) {
+      const { visual, wingL, wingR } = rendState;
+      rendState.walkT += dt;
+      const wt = rendState.walkT;
+
+      const altitude = entity.y ?? 0;
+      const soarH    = 10; // referencia
+      const soaring  = altitude > 2;
+
+      if (entity.dead) {
+        // Caída en espiral
+        visual.rotation.z += dt * 2.5;
+        visual.rotation.x += dt * 1.0;
+        return;
+      }
+
+      // Orientar hacia el movimiento
+      if (entity.moving) {
+        const targetRY = Math.atan2(entity.vx, entity.vz);
+        let diff = targetRY - visual.rotation.y;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        visual.rotation.y += diff * Math.min(1, dt * 4);
+      }
+
+      if (soaring) {
+        // Planeo — alas extendidas, balanceo lento
+        const flapSpeed = 0.6 + (1 - altitude / soarH) * 1.5; // más rápido al descender
+        const flapAmp   = 0.18 + (1 - Math.min(1, altitude / soarH)) * 0.25;
+        wingL.rotation.x =  Math.sin(wt * flapSpeed) * flapAmp;
+        wingR.rotation.x = -Math.sin(wt * flapSpeed) * flapAmp;
+        visual.rotation.z = Math.sin(wt * 0.4) * 0.08; // balanceo suave
+        visual.rotation.x = -0.08; // inclinación de planeo
+      } else {
+        // Aterrizando / en tierra — aleteo más fuerte
+        wingL.rotation.x =  Math.sin(wt * 3.5) * 0.55;
+        wingR.rotation.x = -Math.sin(wt * 3.5) * 0.55;
+        visual.rotation.z = Math.sin(wt * 2) * 0.05;
+        visual.rotation.x = 0;
+      }
+    },
+
+    removeVisuals(scene, group) {
+      scene.remove(group);
+    },
+  };
+}
+
 // ─── CreatureSystem Base ──────────────────────────────────────────────────────
 /**
  * config: {
@@ -497,7 +631,7 @@ export class CreatureSystem {
       // Muerto — colapso visual + respawn
       if (e.dead) {
         e.removeTimer -= dt;
-        e.group.position.set(e.x, 0, e.z);
+        e.group.position.set(e.x, e.y ?? 0, e.z);
         cfg.renderer.update(e.group, e.rendState, e, dt);
         if (e.removeTimer <= 0) {
           cfg.renderer.removeVisuals(this._scene, e.group);
@@ -620,8 +754,20 @@ export class CreatureSystem {
       e.speed  = Math.sqrt(e.vx*e.vx + e.vz*e.vz);
       e.moving = e.speed > 0.15;
 
+      // Altura de vuelo (soarHeight) — solo si el config lo define
+      if (cfg.soarHeight !== undefined) {
+        if (e.y === undefined) e.y = cfg.soarHeight;
+        const wpDist = Math.sqrt((e.waypoint.x-e.x)**2 + (e.waypoint.z-e.z)**2);
+        if (nextState === 'flee' || nextState === 'wander') {
+          e.targetY = cfg.soarHeight;
+        } else if (nextState === 'hunt') {
+          e.targetY = wpDist < 18 ? Math.max(0.4, wpDist * 0.04) : cfg.soarHeight;
+        }
+        e.y += ((e.targetY ?? cfg.soarHeight) - e.y) * Math.min(1, dt * (cfg.ySpeed ?? 2.5));
+      }
+
       // Group position (para frustum culling)
-      e.group.position.set(e.x, 0, e.z);
+      e.group.position.set(e.x, e.y ?? 0, e.z);
 
       cfg.renderer.update(e.group, e.rendState, e, dt);
     }

@@ -20,7 +20,7 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
-import { CreatureSystem, wormRenderer, armadilloRenderer } from './creature.js';
+import { CreatureSystem, wormRenderer, armadilloRenderer, condorRenderer } from './creature.js';
 import { SoulSystem } from './souls.js';
 import { SoulMap } from './soulmap.js';
 import { ConversationUI } from './conversation-ui.js';
@@ -400,6 +400,35 @@ const armadilloSystem = new CreatureSystem(scene, {
   { x: -28, z:  -80 }, { x:  12, z:  -95 }, { x: -5,  z:  -50 },
   { x:  35, z: -100 }, { x: -38, z:  -65 }, { x:  0,  z: -115 },
 ]);
+
+// ── Cóndores ──────────────────────────────────────────────────────────────────
+const condorSystem = new CreatureSystem(scene, {
+  species:     'condor',
+  count:       4,
+  hp:          2,
+  hx: 0.5, hy: 0.15, hz: 0.5, mass: 6,
+  fleeRadius:   7,       // huyen si el jugador se acerca demasiado mientras comen
+  huntRadius:  60,       // detectan cadáveres desde muy lejos
+  attackRadius: 3,
+  homeRadius:  120,
+  soarHeight:  11,       // altura de planeo por defecto
+  ySpeed:      1.8,      // velocidad de ascenso/descenso
+  states: {
+    wander: { sigma: 2.5,  speed: 5.0,  wpRadius: [30, 80], timer: [6, 14] },
+    flee:   { sigma: 4.0,  speed: 9.0,  wpRadius: [30, 60], timer: [4,  7] },
+    hunt:   { sigma: 0.8,  speed: 6.0,  wpRadius: [10, 30], timer: [8, 16] },
+  },
+  tau:         { wander: 0.8, flee: 0.18, hunt: 0.5 },
+  loot:        [{ hp: 6, hunger: 15, color: 0x1a1008, chance: 0.7 }],
+  renderer:    condorRenderer({ scale: 1.0 }),
+  respawnDelay: 120,
+}, [
+  { x:  0,  z:  -80 }, { x: -30, z: -110 },
+  { x: 40,  z:  -70 }, { x: -15, z:  -50 },
+]);
+
+// Cadáveres recientes — los cóndores los detectan
+const _recentCorpses = [];
 
 // Campesinos + sistema de almas
 const soulSystem      = new SoulSystem(scene);
@@ -1103,6 +1132,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const ai = armadilloSystem.getIndexByHitbox(hb);
     if (ai >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: ai, type: 'armadillo' }); }
   }
+  for (const hb of condorSystem.getHitboxes()) {
+    const ci = condorSystem.getIndexByHitbox(hb);
+    if (ci >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: ci, type: 'condor' }); }
+  }
   for (const hb of campesinoSystem.getHitboxes()) {
     const ni = hb.userData.campesinoNpcIdx;
     const si = hb.userData.campesinoSegIdx;
@@ -1244,8 +1277,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         const cowAfter = cowSystem?._cows[scanHit.target.id];
         if (cowAfter?.wounded && hpBefore > 1)
           Network.sendGameEvent('animal_wounded', { detail: `Una vaca quedó herida y se arrastra por la pampa.` });
-        else if (cowAfter?.removed || (cowAfter?.hp ?? 2) <= 0)
+        else if (cowAfter?.removed || (cowAfter?.hp ?? 2) <= 0) {
+          _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 300 });
           Network.sendGameEvent('animal_killed', { detail: `Una vaca fue abatida. La carne cae al pasto.` });
+        }
       }
       else if (scanHit.target.type === 'ostrich') {
         const oIdx = scanHit.target.id;
@@ -1255,8 +1290,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         const eAfter = ostrichSystem._entities[oIdx];
         if (eAfter?.wounded && hpBefore > 1)
           Network.sendGameEvent('animal_wounded', { detail: `Un avestruz herido corre en círculos por el campo.` });
-        else if (eAfter?.dead || eAfter?.dying)
+        else if (eAfter?.dead || eAfter?.dying) {
+          _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 250 });
           Network.sendGameEvent('animal_killed', { detail: `Un avestruz cayó. Sus plumas vuelan en el viento pampeano.` });
+        }
         if (eAfter && (eAfter.wounded || eAfter.dying || eAfter.dead)) Network.sendOstrichKill(oIdx);
       }
       else if (scanHit.target.type === 'chicken') {
@@ -1266,6 +1303,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       else if (scanHit.target.type === 'vibora') {
         const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
         viboraSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 180 });
         Network.sendGameEvent('animal_killed', { detail: `Una víbora del desierto fue abatida.` });
       }
       else if (scanHit.target.type === 'armadillo') {
@@ -1273,8 +1311,18 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         const hpBefore = armadilloSystem._entities[scanHit.target.id]?.hp ?? 0;
         armadilloSystem.hit(scanHit.target.id, scanHit.point, bDir);
         const hpAfter = armadilloSystem._entities[scanHit.target.id]?.hp ?? 0;
-        if (hpAfter <= 0 && hpBefore > 0)
+        if (hpAfter <= 0 && hpBefore > 0) {
+          _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 200 });
           Network.sendGameEvent('animal_killed', { detail: `Un armadillo quedó patas arriba en la arena.` });
+        }
+      }
+      else if (scanHit.target.type === 'condor') {
+        const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
+        const hpBefore = condorSystem._entities[scanHit.target.id]?.hp ?? 0;
+        condorSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        const hpAfter = condorSystem._entities[scanHit.target.id]?.hp ?? 0;
+        if (hpAfter <= 0 && hpBefore > 0)
+          Network.sendGameEvent('animal_killed', { detail: `Un cóndor cayó del cielo pampeano.` });
       }
       else if (scanHit.target.type === 'campesino') {
         const { npcIdx, segIdx } = scanHit.target.id;
@@ -1774,6 +1822,17 @@ function gameLoop() {
   if (_armadilloLoot && myId && !isDead) {
     if (Inventory.add('armadillo', _armadilloLoot.hunger, _armadilloLoot.hp)) _updateInventoryHUD();
   }
+
+  // Cóndores: atraídos por cadáveres recientes
+  for (let _ci = _recentCorpses.length - 1; _ci >= 0; _ci--) {
+    _recentCorpses[_ci].life -= dt;
+    if (_recentCorpses[_ci].life <= 0) _recentCorpses.splice(_ci, 1);
+  }
+  condorSystem.update(dt, { playerPos: pos, preyPositions: _recentCorpses });
+  const _condorLoot = condorSystem.updateLoot(dt, pos);
+  if (_condorLoot && myId && !isDead) {
+    if (Inventory.add('condor', _condorLoot.hunger, _condorLoot.hp)) _updateInventoryHUD();
+  }
   if (pos) {
     const _cr = campesinoSystem.pushFromPlayer(pos.x, pos.z);
     if (_cr.vx !== 0 || _cr.vz !== 0) {
@@ -1848,6 +1907,7 @@ function gameLoop() {
     chTargets.push(...campesinoSystem.getHitboxes());
     chTargets.push(...viboraSystem.getHitboxes());
     chTargets.push(...armadilloSystem.getHitboxes());
+    chTargets.push(...condorSystem.getHitboxes());
     const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
     UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }
