@@ -752,7 +752,88 @@ function _makeAmbientLoop(path, volume, revMix, fallbackFn) {
   };
 }
 
-const _wind     = _makeAmbientLoop('ambient/wind.mp3',     0.55, 0.0,  _windFallback);
+// ── VIENTO PROCEDURAL ─────────────────────────────────────────────────────────
+function _makeProceduralWind() {
+  let _nodes = null;
+  return {
+    start() {
+      if (_nodes) return;
+      const c = _ctx_(); if (!c) return;
+      const t = c.currentTime;
+      _nodes = [];
+
+      // Master gain con fade-in
+      const master = c.createGain(); master.gain.setValueAtTime(0.0001, t);
+      master.gain.linearRampToValueAtTime(0.52, t + 2.5);
+      master.connect(_out);
+
+      // 3 capas de ruido filtradas — frecuencias distintas para profundidad
+      const layers = [
+        { fc: 320,  bw: 1.8, vol: 0.38, lfoF: 0.07, lfoD: 55 },
+        { fc: 680,  bw: 2.2, vol: 0.24, lfoF: 0.13, lfoD: 90 },
+        { fc: 1400, bw: 2.8, vol: 0.14, lfoF: 0.19, lfoD: 130 },
+      ];
+
+      for (const l of layers) {
+        // White noise source (buffer loop)
+        const sr  = c.sampleRate;
+        const buf = c.createBuffer(1, sr * 2, sr);
+        const d   = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const ns  = c.createBufferSource(); ns.buffer = buf; ns.loop = true;
+
+        // BPF
+        const bp  = c.createBiquadFilter(); bp.type = 'bandpass';
+        bp.frequency.value = l.fc; bp.Q.value = l.bw;
+
+        // LFO de amplitud (modulación suave de intensidad)
+        const lfo  = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = l.lfoF;
+        const lfoG = c.createGain(); lfoG.gain.value = l.vol * 0.45;
+        const base = c.createGain(); base.gain.value  = l.vol * 0.55;
+
+        // LFO de frecuencia (el viento "sube y baja")
+        const lfof  = c.createOscillator(); lfof.type = 'sine'; lfof.frequency.value = l.lfoF * 0.6;
+        const lfofG = c.createGain(); lfofG.gain.value = l.lfoD;
+        lfof.connect(lfofG); lfofG.connect(bp.frequency);
+
+        lfo.connect(lfoG); lfoG.connect(base.gain);
+        ns.connect(bp); bp.connect(base); base.connect(master);
+        ns.start(); lfo.start(); lfof.start();
+
+        _nodes.push({ ns, lfo, lfof });
+      }
+
+      // Gusto: suave whoosh grave adicional cada ~6-14 s
+      const _gust = () => {
+        if (!_nodes) return;
+        const gc = _ctx_(); if (!gc) return; const gt = gc.currentTime;
+        const nb = gc.createBuffer(1, gc.sampleRate, gc.sampleRate);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+        const ns2 = gc.createBufferSource(); ns2.buffer = nb;
+        const lp  = gc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260;
+        const gg  = gc.createGain(); gg.gain.setValueAtTime(0.0001, gt);
+        gg.gain.linearRampToValueAtTime(0.30, gt + 0.8);
+        gg.gain.linearRampToValueAtTime(0.0001, gt + 2.8);
+        ns2.connect(lp); lp.connect(gg); gg.connect(master);
+        ns2.start(gt); ns2.stop(gt + 2.9);
+        _nodes._gustTimer = setTimeout(_gust, 6000 + Math.random() * 8000);
+      };
+      _nodes._gustTimer = setTimeout(_gust, 3000 + Math.random() * 5000);
+    },
+    stop() {
+      if (!_nodes) return;
+      clearTimeout(_nodes._gustTimer);
+      const c = _ctx_(); const t = c?.currentTime ?? 0;
+      for (const n of _nodes) {
+        try { n.lfo.stop(t + 1.5); n.lfof.stop(t + 1.5); n.ns.stop(t + 1.5); } catch(e) {}
+      }
+      _nodes = null;
+    },
+    get active() { return !!_nodes; }
+  };
+}
+const _wind = _makeProceduralWind();
 const _crickets = _makeAmbientLoop('ambient/crickets.mp3', 0.48, 0.0,  _cricketsFallback);
 const _birds    = _makeAmbientLoop('ambient/birds.mp3',    0.38, 0.15, null);
 const _rain     = _makeAmbientLoop('ambient/rain.mp3',     0.62, 0.0,  null);
@@ -769,10 +850,7 @@ export const stopRain      = () => _rain.stop();
 export const startFire     = () => _fire.start();
 export const stopFire      = () => _fire.stop();
 
-// Fallbacks procedurales para viento y grillos
-function _windFallback() {
-  // Se llama si wind.mp3 no existe — mantiene el loop sintético
-}
+// Fallback procedural para grillos
 function _cricketsFallback() {}
 
 // ── DRONE PAMPA (sub-graves, siempre) ─────────────────────────────────────────

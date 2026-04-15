@@ -484,8 +484,8 @@ export class OstrichSystem {
   }
 
   _spawnChurrascos(e) {
-    const px = e.lastX ?? e.spawnX;
-    const pz = e.lastZ ?? e.spawnZ;
+    const px = e._physBody?.position.x ?? e.mesh?.position.x ?? e.lastX ?? e.spawnX;
+    const pz = e._physBody?.position.z ?? e.mesh?.position.z ?? e.lastZ ?? e.spawnZ;
     const count = 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + Math.random() * 0.6;
