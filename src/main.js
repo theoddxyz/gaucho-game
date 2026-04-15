@@ -1044,6 +1044,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const bird = birdSystem.getBirdByHitbox(hb);
     if (bird) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: bird, type: 'bird' }); }
   }
+  for (const hb of campesinoSystem.getHitboxes()) {
+    const cIdx = campesinoSystem.getIndexByHitbox(hb);
+    if (cIdx >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: cIdx, type: 'campesino' }); }
+  }
   for (const hb of chunkManager.getTreeHitboxes()) {
     allHitboxes.push(hb);
     infoMap.set(hb.uuid, { id: hb._treeRef, type: 'tree' });
@@ -1150,13 +1154,14 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
     setTimeout(() => {
       // Sonido de impacto + sangre + grito de dolor para entidades vivas
-      if (['player','cow','ostrich','chicken','bird'].includes(scanHit.target.type)) {
+      if (['player','cow','ostrich','chicken','bird','campesino'].includes(scanHit.target.type)) {
         Audio.bulletImpactFlesh();
         // Grito de dolor por tipo
         if (scanHit.target.type === 'cow')     Audio.painCow();
         if (scanHit.target.type === 'ostrich') Audio.painOstrich();
         if (scanHit.target.type === 'chicken') Audio.painChicken();
         if (scanHit.target.type === 'bird')    Audio.painBird();
+        if (scanHit.target.type === 'campesino') Audio.playerHurt();
         // playerHurt ya se llama en onPlayerHit para jugadores
         const bCount = scanHit.target.type === 'chicken' ? 8 : 18;
         bloodSystem.spawn(scanHit.point, result.direction.x, result.direction.z, bCount);
@@ -1197,6 +1202,16 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       else if (scanHit.target.type === 'chicken') {
         chickenSystem.hit(scanHit.target.id, scanHit.point, hitZone);
         Network.sendGameEvent('animal_killed', { detail: `Una gallina explotó en plumas. El olor a asado flota en el aire.` });
+      }
+      else if (scanHit.target.type === 'campesino') {
+        const cIdx = scanHit.target.id;
+        const npc  = campesinoSystem._npcs[cIdx];
+        const hpBefore = npc?.hp ?? 0;
+        campesinoSystem.hit(cIdx, scanHit.point);
+        const hpAfter = campesinoSystem._npcs[cIdx]?.hp ?? 0;
+        if (hpAfter <= 0 && hpBefore > 0) {
+          Network.sendGameEvent('animal_killed', { detail: `${npc?.name ?? 'Un campesino'} fue abatido. Silencio en la pampa.` });
+        }
       }
       else if (scanHit.target.type === 'tree') {
         chunkManager.hitTree(scanHit.point.x, scanHit.point.z);
@@ -1666,6 +1681,7 @@ function gameLoop() {
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
+  if (pos) campesinoSystem.pushFromPlayer(pos.x, pos.z);
 
   // ── Conversación: sync día, Q&A diaria, prompt de proximidad ─────────────
   if (myId) {
@@ -1730,6 +1746,7 @@ function gameLoop() {
     if (cowSystem) chTargets.push(...cowSystem.getCowHitboxes());
     chTargets.push(...ostrichSystem.getHitboxes());
     chTargets.push(...chickenSystem.getHitboxes());
+    chTargets.push(...campesinoSystem.getHitboxes());
     const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
     UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }

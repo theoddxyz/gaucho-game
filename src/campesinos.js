@@ -3,8 +3,10 @@ import * as THREE from 'three';
 
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
-const SPACING    = 0.30;   // distancia entre segmentos
-const BASE_R     = 0.18;   // radio base del tubo
+const SPACING    = 1.20;   // 4x original
+const BASE_R     = 0.72;   // 4x original
+const HEAD_R     = BASE_R * 1.55;  // cabeza más grande que el cuello
+const NPC_HP     = 4;
 
 function segRadius(i) {
   const t = i / (SEG_COUNT - 1);
@@ -41,24 +43,29 @@ function buildWorm(char) {
   // Tubo (geometría se regenera cada frame)
   const initPts = [];
   for (let i = 0; i < SEG_COUNT; i++)
-    initPts.push(new THREE.Vector3(0, 0.3, -i * SPACING));
+    initPts.push(new THREE.Vector3(0, BASE_R, -i * SPACING));
   const curve   = new THREE.CatmullRomCurve3(initPts);
   const initGeo = new THREE.TubeGeometry(curve, SEG_COUNT * 3, BASE_R, 8, false);
   const tube    = new THREE.Mesh(initGeo, mat);
   tube.castShadow = true;
   root.add(tube);
 
-  // Cabeza — esfera visible
-  const headR   = segRadius(0) * 1.35;
-  const headGeo = new THREE.SphereGeometry(headR, 20, 16);
+  // Cabeza — esfera visible, más grande que el cuello
+  const headGeo = new THREE.SphereGeometry(HEAD_R, 20, 16);
   const head    = new THREE.Mesh(headGeo, mat.clone());
   head.castShadow = true;
   root.add(head);
 
+  // Hitbox invisible para raycast (esfera ligeramente más grande)
+  const hitGeo = new THREE.SphereGeometry(HEAD_R * 1.15, 8, 8);
+  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+  const hitbox = new THREE.Mesh(hitGeo, hitMat);
+  head.add(hitbox);
+
   // Ojos
   const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
   const pupilMat    = new THREE.MeshStandardMaterial({ color: char.eyeColor });
-  const eyeR  = headR * 0.28;
+  const eyeR  = HEAD_R * 0.28;
   const pupR  = eyeR  * 0.55;
   for (const sx of [-1, 1]) {
     const eye   = new THREE.Mesh(new THREE.SphereGeometry(eyeR,  10, 10), eyeWhiteMat);
@@ -66,29 +73,85 @@ function buildWorm(char) {
     pupil.position.set(0, 0, eyeR * 0.72);
     eye.add(pupil);
     head.add(eye);
-    eye.position.set(sx * headR * 0.50, headR * 0.32, headR * 0.82);
+    eye.position.set(sx * HEAD_R * 0.50, HEAD_R * 0.32, HEAD_R * 0.82);
   }
 
-  // Segmentos �� posiciones mundo (absolute)
+  // Segmentos — posiciones mundo (absolute)
   const segs = [];
   for (let i = 0; i < SEG_COUNT; i++)
-    segs.push(new THREE.Vector3(0, 0.3, -i * SPACING));
+    segs.push(new THREE.Vector3(0, BASE_R, -i * SPACING));
 
-  root._segs    = segs;
-  root._tube    = tube;
-  root._head    = head;
-  root._curve   = curve;
-  root._walkT   = Math.random() * 10;
-  root._headPivot = head;   // compatibilidad con getNearby (head tracking opcional)
+  root._segs   = segs;
+  root._tube   = tube;
+  root._head   = head;
+  root._hitbox = hitbox;
+  root._curve  = curve;
+  root._walkT  = Math.random() * 10;
+  // Impulso físico (velocidad temporal sobre segs[0] — decae con fricción)
+  root._impVel = new THREE.Vector3();
+  root._dead   = false;
+  root._deadT  = 0;
 
   return root;
 }
 
+// ─── Reconstruir TubeGeometry con radio variable ──────────────────────────────
+function _rebuildTube(root) {
+  const segs = root._segs;
+  const localPts = segs.map(s =>
+    new THREE.Vector3(s.x - root.position.x, s.y, s.z - root.position.z)
+  );
+  root._curve.points = localPts;
+  const tubSegs = SEG_COUNT * 3;
+  const newGeo  = new THREE.TubeGeometry(root._curve, tubSegs, BASE_R, 8, false);
+
+  const pos  = newGeo.attributes.position;
+  const norm = newGeo.attributes.normal;
+  const radSeg = 8;
+  for (let vi = 0; vi < pos.count; vi++) {
+    const ti    = Math.floor(vi / (radSeg + 1));
+    const t     = ti / tubSegs;
+    const extra = Math.sin(t * Math.PI) * BASE_R * 1.0;
+    pos.setXYZ(vi,
+      pos.getX(vi) + norm.getX(vi) * extra,
+      pos.getY(vi) + norm.getY(vi) * extra,
+      pos.getZ(vi) + norm.getZ(vi) * extra
+    );
+  }
+  pos.needsUpdate = true;
+
+  root._tube.geometry.dispose();
+  root._tube.geometry = newGeo;
+}
+
 // ─── Actualizar gusano cada frame ─────────────────────────────────────────────
 function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
-  const segs  = root._segs;
+  const segs = root._segs;
+
+  // Modo muerto: segmentos colapsan al piso
+  if (root._dead) {
+    root._deadT += dt;
+    for (let i = 0; i < SEG_COUNT; i++) {
+      segs[i].y = Math.max(0, segs[i].y - dt * 2.5);
+    }
+    _rebuildTube(root);
+    root._head.position.set(
+      segs[0].x - root.position.x,
+      segs[0].y,
+      segs[0].z - root.position.z
+    );
+    return;
+  }
+
   root._walkT += dt * (isWalking ? speed * 3.5 : 1.0);
-  const wt    = root._walkT;
+  const wt = root._walkT;
+
+  // Aplicar impulso de impacto con fricción
+  if (root._impVel.lengthSq() > 0.0001) {
+    segs[0].x += root._impVel.x * dt;
+    segs[0].z += root._impVel.z * dt;
+    root._impVel.multiplyScalar(Math.pow(0.12, dt)); // fricción fuerte
+  }
 
   // Cabeza sigue al objetivo (world space)
   const head = segs[0];
@@ -103,7 +166,7 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
     }
   }
   // Oscilación vertical de la cabeza
-  head.y = 0.32 + Math.sin(wt * 3.8) * 0.12;
+  head.y = BASE_R * 1.4 + Math.sin(wt * 3.8) * BASE_R * 0.35;
 
   // Cadena de seguimiento — cada segmento sigue al anterior
   for (let i = 1; i < SEG_COUNT; i++) {
@@ -121,8 +184,8 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
     }
     // Ondulación vertical del cuerpo
     const t   = i / (SEG_COUNT - 1);
-    const amp = Math.sin(t * Math.PI) * 0.10;
-    curr.y = 0.18 + amp * Math.sin(wt * 3.5 - i * 0.55);
+    const amp = Math.sin(t * Math.PI) * BASE_R * 0.55;
+    curr.y = BASE_R * 0.7 + amp * Math.sin(wt * 3.5 - i * 0.55);
   }
 
   // Actualizar posición de la mesh de cabeza (local, root en origen)
@@ -140,32 +203,7 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
       root._head.rotation.y = Math.atan2(dx, dz);
   }
 
-  // Regenerar TubeGeometry con radio variable
-  const localPts = segs.map(s =>
-    new THREE.Vector3(s.x - root.position.x, s.y, s.z - root.position.z)
-  );
-  root._curve.points = localPts;
-  const tubSegs   = SEG_COUNT * 3;
-  const newGeo    = new THREE.TubeGeometry(root._curve, tubSegs, BASE_R, 8, false);
-
-  // Deformar vértices para radio variable (más grueso en el medio)
-  const pos  = newGeo.attributes.position;
-  const norm = newGeo.attributes.normal;
-  const radSeg = 8;
-  for (let vi = 0; vi < pos.count; vi++) {
-    const ti  = Math.floor(vi / (radSeg + 1));
-    const t   = ti / tubSegs;
-    const extra = Math.sin(t * Math.PI) * BASE_R * 1.0;
-    pos.setXYZ(vi,
-      pos.getX(vi) + norm.getX(vi) * extra,
-      pos.getY(vi) + norm.getY(vi) * extra,
-      pos.getZ(vi) + norm.getZ(vi) * extra
-    );
-  }
-  pos.needsUpdate = true;
-
-  root._tube.geometry.dispose();
-  root._tube.geometry = newGeo;
+  _rebuildTube(root);
 }
 
 // ─── Nombre flotante ──────────────────────────────────────────────────────────
@@ -182,8 +220,8 @@ function makeLabel(name) {
   const tex = new THREE.CanvasTexture(canvas);
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sp  = new THREE.Sprite(mat);
-  sp.scale.set(1.6, 0.32, 1);
-  sp.position.set(0, 1.6, 0);
+  sp.scale.set(3.2, 0.64, 1);
+  sp.position.set(0, HEAD_R * 1.6, 0);  // flotando sobre la cabeza
   sp.visible = false;
   return sp;
 }
@@ -202,14 +240,13 @@ export class CampesinoSystem {
 
       root.position.set(startX, 0, startZ);
 
-      // Inicializar segmentos en posición de spawn
       for (let s = 0; s < SEG_COUNT; s++) {
-        root._segs[s].set(startX, 0.3, startZ - s * SPACING);
+        root._segs[s].set(startX, BASE_R, startZ - s * SPACING);
       }
 
       const label = makeLabel(char.name);
       label._keep = true;
-      root.add(label);
+      root._head.add(label);   // label flota sobre la cabeza
       scene.add(root);
 
       this._npcs.push({
@@ -220,15 +257,77 @@ export class CampesinoSystem {
         pauseT: 0,
         name:   char.name,
         isTalking: false,
+        hp:     NPC_HP,
+        dead:   false,
+        removeT: -1,
       });
     });
   }
 
+  // ── Hit detection (raycast) ────────────────────────────────────────────────
+  getHitboxes() {
+    return this._npcs
+      .filter(n => !n.dead)
+      .map(n => n.root._hitbox);
+  }
+
+  getIndexByHitbox(hb) {
+    return this._npcs.findIndex(n => n.root._hitbox === hb);
+  }
+
+  // ── Recibir impacto de bala ────────────────────────────────────────────────
+  hit(idx, point) {
+    const npc = this._npcs[idx];
+    if (!npc || npc.dead) return;
+    npc.hp -= 1;
+
+    // Impulso: empujar cabeza en dirección opuesta al disparo
+    const head = npc.root._segs[0];
+    const dx = head.x - (point?.x ?? head.x);
+    const dz = head.z - (point?.z ?? head.z);
+    const len = Math.sqrt(dx * dx + dz * dz) || 1;
+    npc.root._impVel.set((dx / len) * 10, 0, (dz / len) * 10);
+
+    if (npc.hp <= 0) {
+      npc.dead = true;
+      npc.root._dead = true;
+      npc.removeT = performance.now() + 4000;
+    }
+  }
+
+  // ── Empuje del jugador (colisión física simple) ────────────────────────────
+  pushFromPlayer(px, pz) {
+    const avoidR = HEAD_R * 2.5;
+    for (const npc of this._npcs) {
+      if (npc.dead) continue;
+      const head = npc.root._segs[0];
+      const dx = head.x - px;
+      const dz = head.z - pz;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < avoidR && dist > 0.01) {
+        const force = (avoidR - dist) / avoidR * 14;
+        npc.root._impVel.x += (dx / dist) * force;
+        npc.root._impVel.z += (dz / dist) * force;
+      }
+    }
+  }
+
   update(dt, playerPos, units) {
+    const now = performance.now();
     for (let i = 0; i < this._npcs.length; i++) {
       const npc  = this._npcs[i];
       const unit = units ? units[i] : null;
       const { root, label } = npc;
+
+      // Limpiar cadáveres después de N segundos
+      if (npc.dead) {
+        if (npc.removeT > 0 && now > npc.removeT) {
+          this._scene.remove(root);
+          npc.removeT = -1;
+        }
+        updateWorm(root, 0, 0, dt, 0, false);
+        continue;
+      }
 
       // ── Posición lógica desde souls ───────────────────────────────────────
       let targetX = root.position.x;
@@ -246,11 +345,26 @@ export class CampesinoSystem {
         isWalking = speed > 0.05;
       }
 
+      // ── Evitación del jugador (steering de repulsión) ─────────────────────
+      if (playerPos) {
+        const head  = root._segs[0];
+        const dx    = head.x - playerPos.x;
+        const dz    = head.z - playerPos.z;
+        const dist  = Math.sqrt(dx * dx + dz * dz);
+        const evadeR = BASE_R * 8;
+        if (dist < evadeR && dist > 0.1) {
+          const repel = (evadeR - dist) / evadeR * 4.0;
+          targetX += (dx / dist) * repel;
+          targetZ += (dz / dist) * repel;
+          isWalking = true;
+        }
+      }
+
       // ── Label de nombre ───────────────────────────────────────────────────
       if (playerPos) {
         const dx = root.position.x - playerPos.x;
         const dz = root.position.z - playerPos.z;
-        label.visible = (dx * dx + dz * dz) < 36;
+        label.visible = (dx * dx + dz * dz) < 144;  // 12m radius
       }
 
       // ── Actualizar gusano ─────────────────────────────────────────────────
@@ -260,6 +374,7 @@ export class CampesinoSystem {
 
   getNearby(px, pz, radius = 5) {
     for (const npc of this._npcs) {
+      if (npc.dead) continue;
       const dx = npc.root.position.x - px;
       const dz = npc.root.position.z - pz;
       if (dx * dx + dz * dz < radius * radius) return npc.name;
@@ -270,6 +385,7 @@ export class CampesinoSystem {
   getNearbyWithId(px, pz, radius = 5) {
     for (let i = 0; i < this._npcs.length; i++) {
       const npc = this._npcs[i];
+      if (npc.dead) continue;
       const dx  = npc.root.position.x - px;
       const dz  = npc.root.position.z - pz;
       if (dx * dx + dz * dz < radius * radius) return { name: npc.name, idx: i };
