@@ -198,15 +198,20 @@ export class PlayerModel {
 
     // Proxy hitboxes — always-visible invisible meshes parented to this.group
     // (immune to _mainModel.visible=false, so PvP raycasting always works)
+    // Player model is 2.8 units tall: legs 0-0.9, torso 0.9-2.0, head 2.0-2.6
     const _hbMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-    this._proxyBody = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.3, 0.4), _hbMat);
-    this._proxyBody.position.set(0, 1.0, 0);
-    this._proxyHead = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), _hbMat);
+    this._proxyLegs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.5), _hbMat);
+    this._proxyLegs.name = 'legs';
+    this._proxyLegs.position.set(0, 0.45, 0);
+    this._proxyBody = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.6), _hbMat);
+    this._proxyBody.position.set(0, 1.45, 0);
+    this._proxyHead = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.5, 0.45), _hbMat);
     this._proxyHead.name = 'head';
-    this._proxyHead.position.set(0, 2.15, 0);
+    this._proxyHead.position.set(0, 2.25, 0);
+    this.group.add(this._proxyLegs);
     this.group.add(this._proxyBody);
     this.group.add(this._proxyHead);
-    this._proxyHitboxes = [this._proxyBody, this._proxyHead];
+    this._proxyHitboxes = [this._proxyLegs, this._proxyBody, this._proxyHead];
 
     this._scene = scene;
 
