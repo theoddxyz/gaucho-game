@@ -107,16 +107,24 @@ export class MotoManager {
         const clone = tpl.clone(true);
         clone.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
 
-        // ── Reflective glass / visor — dark materials get low roughness ──────
+        // ── Material enhancements ─────────────────────────────────────────────
         clone.traverse(o => {
           if (!o.isMesh || !o.material) return;
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           mats.forEach(m => {
             if (!m.color) return;
-            if (m.color.r + m.color.g + m.color.b < 0.25 && (m.roughness ?? 1) > 0.2) {
-              m.roughness        = 0.02;
-              m.metalness        = 0.15;
-              m.envMapIntensity  = 2.0;
+            const { r, g, b } = m.color;
+            // Dark material = glass / visor → high gloss
+            if (r + g + b < 0.25 && (m.roughness ?? 1) > 0.2) {
+              m.roughness       = 0.02;
+              m.metalness       = 0.15;
+              m.envMapIntensity = 2.0;
+            }
+            // Red / warm material → metallic paint look
+            if (r > 0.35 && r > g * 1.8 && r > b * 1.8) {
+              m.metalness       = Math.max(m.metalness ?? 0, 0.5);
+              m.roughness       = Math.min(m.roughness ?? 1, 0.35);
+              m.envMapIntensity = Math.max(m.envMapIntensity ?? 1, 1.8);
             }
           });
         });
@@ -255,23 +263,20 @@ export class MotoManager {
     }
 
     for (const [, moto] of this.motos) {
-      // ── Heading with angular momentum (local player) ──────────────────────
-      // For remote motos we still use the old fast-follow approach.
-      if (moto.riderId !== null && moto === (this.myMotoId !== null ? this.motos.get(this.myMotoId) : null)) {
-        // local rider: _turnRate momentum driven by lean × speed
-        const speedF = Math.max(0, moto._speedFactor ?? 0);
-        const targetTurnRate = -moto._lean * speedF * 3.5;
-        moto._turnRate += (targetTurnRate - moto._turnRate) * Math.min(1, (2 + speedF * 4) * dt);
-        moto._displayRY += moto._turnRate * dt;
-        while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
-        while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
-        moto._targetRY = moto._displayRY;
-      } else {
-        // remote / unmounted: snap to target
+      // ── Heading via spring-damper toward _targetRY ────────────────────────
+      // At low speed: soft/responsive. At high speed: more inertia/weight.
+      {
         let diff = moto._targetRY - moto._displayRY;
         while (diff >  Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
-        moto._displayRY += diff * Math.min(1, 8 * dt);
+        const speedF   = Math.max(0, moto._speedFactor ?? 0);
+        // Stiffness and damping scale with speed → heavier feel at high speed
+        const stiffness = 5  + speedF * 8;
+        const damping   = 3.5 + speedF * 5;
+        moto._turnRate += (diff * stiffness - moto._turnRate * damping) * dt;
+        moto._displayRY += moto._turnRate * dt;
+        while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
+        while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
       }
       moto.mesh.rotation.y = moto._displayRY;
 
@@ -354,6 +359,7 @@ export class MotoManager {
     this._prevAngle = moveAngle;
 
     moto.x = x; moto.z = z;
+    moto._targetRY = moveAngle;   // spring-damper in update() drives toward this
     // Offset moto mesh forward of rider so rider appears to sit toward the rear
     const ry = moto._displayRY;
     moto.mesh.position.set(
@@ -361,7 +367,6 @@ export class MotoManager {
       0,
       z + Math.cos(ry) * SEAT_BACK_OFFSET
     );
-    // _targetRY is managed by the momentum system in update(); don't overwrite.
   }
 
   // ── Mount / dismount ─────────────────────────────────────────────────────────
