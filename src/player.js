@@ -571,19 +571,31 @@ export class PlayerModel {
           const hh = bb.max.y - bb.min.y;
           if (hh > 0.01) sc.scale.setScalar(2.8 / hh);
 
-          // Crear mixer y avanzar un frame para que los huesos queden en la pose
-          // real de la animación — Box3 en T-pose no sirve para SkinnedMesh
+          // Mixer y animación
           this._hurtMixer  = new THREE.AnimationMixer(sc);
           this._hurtAction = this._hurtMixer.clipAction(gltf.animations[0]);
           this._hurtAction.setLoop(THREE.LoopRepeat, Infinity);
           this._hurtAction.play();
-          this._hurtMixer.update(0.016);   // un frame → pose real
 
-          // Ahora medir con la pose real y clavar el pie en y=0
+          // Box3.setFromObject en SkinnedMesh lee la geometría en reposo, NO la
+          // pose animada — es inútil para corregir flotación.
+          // En su lugar, recorremos los huesos tras avanzar varios frames y
+          // buscamos el mínimo Y real de la animación.
           sc.position.y = 0;
-          sc.updateWorldMatrix(true, true);
-          const bb2 = new THREE.Box3().setFromObject(sc);
-          if (bb2.min.y !== 0) sc.position.y -= bb2.min.y;
+          let minBoneY = Infinity;
+          const _tmpV  = new THREE.Vector3();
+          for (let f = 0; f < 12; f++) {
+            this._hurtMixer.update(0.04);          // ~0.5 s de animación total
+            sc.updateWorldMatrix(true, true);
+            sc.traverse(obj => {
+              if (obj.isBone) {
+                obj.getWorldPosition(_tmpV);
+                if (_tmpV.y < minBoneY) minBoneY = _tmpV.y;
+              }
+            });
+          }
+          // Bajar el modelo para que el hueso más bajo quede en y = 0
+          if (minBoneY < Infinity) sc.position.y = -minBoneY;
 
           sc.visible = false;
           this.group.add(sc);
