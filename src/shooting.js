@@ -12,25 +12,26 @@ const MAGAZINE      = 6;
 const RELOAD_TIME   = 1.8;   // seconds
 
 let lastShot    = 0;
-let shotCount   = 0;
-let reloadEnd   = 0;          // performance.now()/1000 when reload finishes
+let shotCount   = 0;          // balas disparadas (0=lleno, MAGAZINE=vacío)
+let reloadEnd   = 0;          // timestamp cuando termina la carga de la bala actual
+let reloadStart = 0;          // timestamp cuando empezó la carga actual
 const activeBullets = [];
 
 export function isReloading(now) { return now < reloadEnd; }
 export function reloadProgress(now) {
-  if (now >= reloadEnd) return 1;
-  const reloadStart = reloadEnd - RELOAD_TIME;
-  return Math.max(0, (now - reloadStart) / RELOAD_TIME);
+  if (now >= reloadEnd || reloadEnd <= reloadStart) return 1;
+  return Math.max(0, (now - reloadStart) / (reloadEnd - reloadStart));
 }
 export function shotsLeft() { return MAGAZINE - shotCount; }
 
-// Carga UNA bala por llamado. Retorna true si se inició la carga.
+// Carga UNA bala por press de R. Retorna true si se inició la carga.
 const SHELL_TIME = 0.45;   // segundos por bala
 export function loadOneShell(now) {
-  if (shotCount <= 0) return false;          // ya lleno
-  if (now < reloadEnd) return false;         // aún cargando la anterior
+  if (shotCount <= 0) return false;      // ya lleno
+  if (now < reloadEnd) return false;     // aún cargando la anterior
   shotCount--;
-  reloadEnd = now + SHELL_TIME;
+  reloadStart = now;
+  reloadEnd   = now + SHELL_TIME;
   return true;
 }
 
@@ -40,11 +41,11 @@ export function loadOneShell(now) {
  * Returns { origin, direction } or null if on cooldown.
  */
 export function tryShoot(playerPos, aimDirection, remotePlayers, now, gunY = 1.55, explicitOrigin = null) {
-  if (now < reloadEnd) return null;                      // reloading
+  if (now < reloadEnd) return null;                      // cargando bala
+  if (shotCount >= MAGAZINE) return null;                // sin munición — presionar R
   if (now - lastShot < COOLDOWN) return null;
   lastShot = now;
   shotCount++;
-  if (shotCount >= MAGAZINE) return null;   // sin munición — no disparar (esperar R)
 
   const origin = explicitOrigin || {
     x: playerPos.x + aimDirection.x * 0.8,
