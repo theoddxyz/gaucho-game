@@ -474,6 +474,13 @@ let _npcDone   = false;   // player already completed dialogue this session
 // --- Network ---
 Network.connect();
 
+// Creature sync — registrar ANTES de onJoined para no perder el snapshot inicial
+Network.onCreatureSync(({ vibora, armadillo, condor }) => {
+  if (vibora)    viboraSystem.applyServerSync(vibora);
+  if (armadillo) armadilloSystem.applyServerSync(armadillo);
+  if (condor)    condorSystem.applyServerSync(condor);
+});
+
 let _musicPlayer = null;
 
 function startGame(name) {
@@ -506,12 +513,7 @@ Network.onJoined((data) => {
   myId   = data.self.id;
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
 
-  // Criaturas: server-authoritative — sincronizadas via creatureSync cada 100ms
-  Network.onCreatureSync(({ vibora, armadillo, condor }) => {
-    if (vibora)    viboraSystem.applyServerSync(vibora);
-    if (armadillo) armadilloSystem.applyServerSync(armadillo);
-    if (condor)    condorSystem.applyServerSync(condor);
-  });
+  // Criaturas: server-authoritative via creatureSync (handler registrado arriba, antes del connect)
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '', local: true });

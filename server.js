@@ -659,6 +659,14 @@ io.on('connection', (socket) => {
     });
 
     socket.to(currentRoom).emit('playerJoined', playerData);
+    // Enviar snapshot inmediato de criaturas al cliente que se acaba de unir
+    // (reliable, no volatile — garantiza que el primer sync no se pierda)
+    const _rcJoin = _csGetRoom(currentRoom);
+    socket.emit('creatureSync', {
+      vibora:    _rcJoin.vibora.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
+      armadillo: _rcJoin.armadillo.entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
+      condor:    _rcJoin.condor.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
+    });
     console.log(`[${currentRoom}] ${playerData.name} joined (${room.size} players)`);
     const humanCount = [...room.values()].filter(p => !p.isBot).length;
     if (humanCount >= 1) {
