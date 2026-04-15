@@ -885,13 +885,14 @@ export class PlayerModel {
     if (this._walkSpd < 0.03) this._walkSpd = 0;
 
     // ── Model swap ────────────────────────────────────────────────────────────
-    const useShootModel  = this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
-    const useHorseModel  = this._isRiding && !!this._horseRideModel;
-    // Idle: basado en walkSpd real (no boolean) → transición suave
-    const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
-    const isHurt         = this._hurtTimer > 0 || this._hunger <= 50 || this._hp <= 100;
     if (this._hurtTimer > 0) this._hurtTimer -= dt;
-    const useHurtModel   = isIdleOnFoot && isHurt && !!this._hurtModel;
+    // Stun override: durante hurtTimer, SIEMPRE usar modelo HERIDO (prioridad máxima)
+    const forceHurt      = this._hurtTimer > 0 && !!this._hurtModel;
+    const useShootModel  = !forceHurt && this._isAimingAnim && !this._isRiding && !!this._shootWalkModel;
+    const useHorseModel  = !forceHurt && this._isRiding && !!this._horseRideModel;
+    const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel;
+    const isHurt         = forceHurt || this._hunger <= 50 || this._hp <= 100;
+    const useHurtModel   = forceHurt || (isIdleOnFoot && isHurt && !!this._hurtModel);
     const useTranquiModel= isIdleOnFoot && !useHurtModel && !!this._tranquiModel;
     if (this._mainModel)      this._mainModel.visible      = !useShootModel && !useHorseModel && !useHurtModel && !useTranquiModel;
     if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;

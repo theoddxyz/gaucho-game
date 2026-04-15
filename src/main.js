@@ -649,7 +649,9 @@ Network.onPlayerMoved((data) => {
   const _rp = remotePlayers.get(data.id);
   if (_rp) {
     _rp.setTarget(data.x, data.y, data.z, data.ry);
-    _rp.setAiming(!!data.aiming);
+    _rp.setAiming(!!data.aiming && !data.stunned);
+    // Sync stun: si el remoto está stunned, forzar hurtTimer para que muestre HERIDO
+    if (data.stunned && _rp._hurtTimer <= 0) _rp._hurtTimer = 0.5;
   }
 });
 
@@ -925,6 +927,7 @@ Network.onNpcRemoved(({ id }) => {
 // --- Shooting (left-click — no right-click required) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || isDead || !myId) return;
+  if (controls?._stunned) return;  // can't shoot during stun
 
   // === COMIDA: click izquierdo con food seleccionado → comer ===
   if (currentWeapon === 'food') {
@@ -1430,7 +1433,7 @@ function gameLoop() {
       _facingAngle += _fd * Math.min(1, 12 * dt); // smooth turn when walking
     }
     const facingAngle = _facingAngle;
-    localPlayerModel?.setAiming(controls.isAiming());
+    localPlayerModel?.setAiming(controls.isAiming() && !controls._stunned);
     if (localPlayerModel) {
       // Y: mount/dismount anim → lomo world-space (localToWorld) → salto → suelo
       const animY   = horseManager?.getAnimY() ?? carrossaSystem?.getAnimY();
@@ -1503,7 +1506,7 @@ function gameLoop() {
     sendTimer += dt;
     if (sendTimer >= SEND_RATE) {
       sendTimer = 0;
-      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: facingAngle, aiming: controls.isAiming() });
+      Network.sendMove({ x: pos.x, y: pos.y, z: pos.z, rx: rot.x, ry: facingAngle, aiming: controls.isAiming(), stunned: !!controls._stunned });
     }
   }
 
