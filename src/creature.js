@@ -202,6 +202,135 @@ export function wormRenderer({ segCount = 8, spacing = 0.5, baseR = 0.22, color 
   };
 }
 
+// ─── Armadillo Renderer ───────────────────────────────────────────────────────
+// Un armadillo con cuerpo elipsoidal, bandas de caparazón, 4 patas y cabeza alargada.
+export function armadilloRenderer({ scale = 1.0, bodyColor = 0xa08060, shellColor = 0x6b5230 } = {}) {
+  const S  = scale;
+  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+
+  return {
+    build(entityIdx, scene, spawnX, spawnZ) {
+      const group  = new THREE.Group();
+      group.position.set(spawnX, 0, spawnZ);
+      const visual = new THREE.Group();
+      group.add(visual);
+
+      const bodyMat  = new THREE.MeshStandardMaterial({ color: bodyColor,  roughness: 0.85 });
+      const shellMat = new THREE.MeshStandardMaterial({ color: shellColor, roughness: 0.70 });
+
+      // Cuerpo principal (elipsoide)
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.28*S, 12, 8), bodyMat);
+      body.scale.set(1.55, 0.72, 1.0);
+      body.position.y = 0.24*S;
+      body.castShadow = true;
+      visual.add(body);
+
+      // Domo del caparazón encima del cuerpo
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.30*S, 12, 6, 0, Math.PI*2, 0, Math.PI*0.55), shellMat);
+      dome.scale.set(1.45, 0.9, 1.0);
+      dome.position.y = 0.30*S;
+      dome.castShadow = true;
+      visual.add(dome);
+
+      // Bandas del caparazón (3 cajas delgadas)
+      for (let i = 0; i < 3; i++) {
+        const t    = (i + 1) / 4;
+        const xPos = (-0.20 + t * 0.40) * S;
+        const hw   = (0.28 - Math.abs(t - 0.5) * 0.06) * S;
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.07*S, 0.13*S, hw * 2), shellMat);
+        band.position.set(xPos, 0.38*S, 0);
+        visual.add(band);
+      }
+
+      // Cabeza (esfera pequeña aplastada)
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13*S, 8, 6), bodyMat);
+      head.scale.set(1.3, 0.75, 0.85);
+      head.position.set(0.38*S, 0.26*S, 0);
+      head.castShadow = true;
+      visual.add(head);
+
+      // Hocico alargado
+      const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.035*S, 0.05*S, 0.18*S, 6), bodyMat);
+      snout.rotation.z = -Math.PI / 2;
+      snout.position.set(0.52*S, 0.24*S, 0);
+      visual.add(snout);
+
+      // Orejas
+      for (const sy of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.038*S, 0.09*S, 5), bodyMat);
+        ear.position.set(0.30*S, 0.40*S, sy * 0.09*S);
+        visual.add(ear);
+      }
+
+      // 4 patas
+      const legGeo = new THREE.CylinderGeometry(0.042*S, 0.036*S, 0.20*S, 5);
+      const legOffsets = [[0.18,0.18],[0.18,-0.18],[-0.18,0.18],[-0.18,-0.18]];
+      const legMeshes = legOffsets.map(([lx, lz]) => {
+        const leg = new THREE.Mesh(legGeo, bodyMat);
+        leg.position.set(lx*S, 0.13*S, lz*S);
+        leg.castShadow = true;
+        visual.add(leg);
+        return leg;
+      });
+
+      // Cola
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.02*S, 0.01*S, 0.22*S, 5), bodyMat);
+      tail.rotation.z = Math.PI / 2.3;
+      tail.position.set(-0.34*S, 0.33*S, 0);
+      visual.add(tail);
+
+      // Hitbox (esfera única sobre el cuerpo)
+      const hitbox = new THREE.Mesh(new THREE.SphereGeometry(0.32*S, 6, 6), hitMat);
+      hitbox.userData.creatureEntityIdx = entityIdx;
+      hitbox.position.y = 0.26*S;
+      group.add(hitbox);
+
+      const rendState = { visual, legMeshes, walkT: Math.random() * 10, hitboxes: [hitbox] };
+      scene.add(group);
+      return { group, hitboxes: [hitbox], rendState };
+    },
+
+    update(group, rendState, entity, dt) {
+      const { visual, legMeshes } = rendState;
+      rendState.walkT += dt * (entity.moving ? Math.min(entity.speed, 5) * 1.8 + 0.5 : 0.4);
+      const wt = rendState.walkT;
+
+      if (entity.dead) {
+        visual.rotation.z = THREE.MathUtils.lerp(visual.rotation.z, Math.PI * 0.45, dt * 3);
+        visual.position.y = THREE.MathUtils.lerp(visual.position.y || 0, -0.05, dt * 2);
+        return;
+      }
+
+      // Orientar hacia el movimiento
+      if (entity.moving) {
+        const targetRY = Math.atan2(entity.vx, entity.vz);
+        let diff = targetRY - visual.rotation.y;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        visual.rotation.y += diff * Math.min(1, dt * 7);
+      }
+
+      // Bob y balanceo del cuerpo al caminar
+      visual.position.y = entity.moving ? Math.abs(Math.sin(wt * 4.5)) * 0.035 : 0;
+      visual.rotation.x = entity.moving ? Math.sin(wt * 4.5) * 0.05 : 0;
+      visual.rotation.z = entity.moving ? Math.cos(wt * 3.5) * 0.03 : 0;
+
+      // Patas (pares diagonales)
+      if (legMeshes.length >= 4) {
+        const swing = entity.moving ? 0.45 : 0;
+        legMeshes[0].rotation.x =  Math.sin(wt * 4.5) * swing;
+        legMeshes[3].rotation.x =  Math.sin(wt * 4.5) * swing;
+        legMeshes[1].rotation.x = -Math.sin(wt * 4.5) * swing;
+        legMeshes[2].rotation.x = -Math.sin(wt * 4.5) * swing;
+      }
+    },
+
+    removeVisuals(scene, group) {
+      scene.remove(group);
+    },
+  };
+}
+
 // ─── CreatureSystem Base ──────────────────────────────────────────────────────
 /**
  * config: {
@@ -386,9 +515,13 @@ export class CreatureSystem {
         if (e.panicTimer <= 0 && nextState === 'flee') nextState = 'wander';
       }
 
-      // Detectar predador (jugador → huir)
-      if (playerPos) {
-        const dx = e.x - playerPos.x, dz = e.z - playerPos.z;
+      // Detectar predadores (jugador + predatorPositions pasados en context)
+      const _threats = [];
+      if (playerPos) _threats.push(playerPos);
+      if (context?.predatorPositions) for (const p of context.predatorPositions) _threats.push(p);
+
+      for (const threat of _threats) {
+        const dx = e.x - threat.x, dz = e.z - threat.z;
         const d2 = dx*dx + dz*dz;
         const fr = cfg.fleeRadius ?? 4;
         if (d2 < fr * fr) {
@@ -401,6 +534,7 @@ export class CreatureSystem {
           e.waypoint.z = e.z + (dz/d) * r;
           const ts = cfg.states?.flee?.timer ?? [3, 6];
           e.wpTimer = ts[0] + Math.random() * (ts[1] - ts[0]);
+          break; // un predador es suficiente
         }
       }
 

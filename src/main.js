@@ -20,7 +20,7 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
-import { CreatureSystem, wormRenderer } from './creature.js';
+import { CreatureSystem, wormRenderer, armadilloRenderer } from './creature.js';
 import { SoulSystem } from './souls.js';
 import { SoulMap } from './soulmap.js';
 import { ConversationUI } from './conversation-ui.js';
@@ -374,6 +374,31 @@ const viboraSystem = new CreatureSystem(scene, {
   { x:  18, z:  -72 }, { x: -22, z:  -68 }, { x:  32, z:  -88 },
   { x: -12, z:  -93 }, { x:  26, z: -108 }, { x: -35, z:  -82 },
   { x:   5, z:  -55 },
+]);
+
+// ── Armadillos ────────────────────────────────────────────────────────────────
+const armadilloSystem = new CreatureSystem(scene, {
+  species:     'armadillo',
+  count:       9,
+  hp:          2,
+  hx: 0.28, hy: 0.18, hz: 0.28, mass: 4,
+  fleeRadius:   5,
+  huntRadius:   0,   // herbívoro — no caza
+  attackRadius: 0,
+  homeRadius:  40,
+  states: {
+    wander: { sigma: 1.2,  speed: 1.0,  wpRadius: [4,  16], timer: [4, 10] },
+    flee:   { sigma: 3.2,  speed: 4.5,  wpRadius: [14, 28], timer: [4,  7] },
+    hunt:   { sigma: 1.2,  speed: 1.0,  wpRadius: [4,  16], timer: [4, 10] }, // no usado
+  },
+  tau:         { wander: 0.55, flee: 0.15, hunt: 0.55 },
+  loot:        [{ hp: 8, hunger: 20, color: 0xa07040, chance: 0.9 }],
+  renderer:    armadilloRenderer({ scale: 1.0, bodyColor: 0xa08060, shellColor: 0x6b5230 }),
+  respawnDelay: 75,
+}, [
+  { x:  8,  z:  -60 }, { x: -15, z:  -75 }, { x:  28, z:  -65 },
+  { x: -28, z:  -80 }, { x:  12, z:  -95 }, { x: -5,  z:  -50 },
+  { x:  35, z: -100 }, { x: -38, z:  -65 }, { x:  0,  z: -115 },
 ]);
 
 // Campesinos + sistema de almas
@@ -1074,6 +1099,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const vi = viboraSystem.getIndexByHitbox(hb);
     if (vi >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: vi, type: 'vibora' }); }
   }
+  for (const hb of armadilloSystem.getHitboxes()) {
+    const ai = armadilloSystem.getIndexByHitbox(hb);
+    if (ai >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: ai, type: 'armadillo' }); }
+  }
   for (const hb of campesinoSystem.getHitboxes()) {
     const ni = hb.userData.campesinoNpcIdx;
     const si = hb.userData.campesinoSegIdx;
@@ -1238,6 +1267,14 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
         viboraSystem.hit(scanHit.target.id, scanHit.point, bDir);
         Network.sendGameEvent('animal_killed', { detail: `Una víbora del desierto fue abatida.` });
+      }
+      else if (scanHit.target.type === 'armadillo') {
+        const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
+        const hpBefore = armadilloSystem._entities[scanHit.target.id]?.hp ?? 0;
+        armadilloSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        const hpAfter = armadilloSystem._entities[scanHit.target.id]?.hp ?? 0;
+        if (hpAfter <= 0 && hpBefore > 0)
+          Network.sendGameEvent('animal_killed', { detail: `Un armadillo quedó patas arriba en la arena.` });
       }
       else if (scanHit.target.type === 'campesino') {
         const { npcIdx, segIdx } = scanHit.target.id;
@@ -1727,6 +1764,16 @@ function gameLoop() {
   if (_viboraLoot && myId && !isDead) {
     if (Inventory.add('snake', _viboraLoot.hunger, _viboraLoot.hp)) _updateInventoryHUD();
   }
+
+  // Armadillos: huyen del jugador Y de las víboras
+  const _viboraPos = viboraSystem._entities
+    .filter(e => !e.dead)
+    .map(e => ({ x: e.x, z: e.z }));
+  armadilloSystem.update(dt, { playerPos: pos, predatorPositions: _viboraPos });
+  const _armadilloLoot = armadilloSystem.updateLoot(dt, pos);
+  if (_armadilloLoot && myId && !isDead) {
+    if (Inventory.add('armadillo', _armadilloLoot.hunger, _armadilloLoot.hp)) _updateInventoryHUD();
+  }
   if (pos) {
     const _cr = campesinoSystem.pushFromPlayer(pos.x, pos.z);
     if (_cr.vx !== 0 || _cr.vz !== 0) {
@@ -1800,6 +1847,7 @@ function gameLoop() {
     chTargets.push(...chickenSystem.getHitboxes());
     chTargets.push(...campesinoSystem.getHitboxes());
     chTargets.push(...viboraSystem.getHitboxes());
+    chTargets.push(...armadilloSystem.getHitboxes());
     const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
     UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }
