@@ -489,7 +489,7 @@ export class OstrichSystem {
     const count = 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + Math.random() * 0.6;
-      const r     = 0.4 + Math.random() * 1.0;
+      const r     = 1.2 + Math.random() * 2.0;
       const c     = buildChurrasco();
       c.position.set(px + Math.cos(angle) * r, 0.12, pz + Math.sin(angle) * r);
       c.rotation.y = Math.random() * Math.PI * 2;

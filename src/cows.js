@@ -467,7 +467,7 @@ export class CowSystem {
     // Soltar pedazos de carne — pickup por proximidad vía updateMeats
     for (let i = 0; i < 7; i++) {
       const ang = (i / 7) * Math.PI * 2 + Math.random() * 0.5;
-      const r   = 0.4 + Math.random() * 1.2;
+      const r   = 1.2 + Math.random() * 2.2;
       const m   = buildMeatPiece();
       m.position.set(wx + Math.cos(ang) * r, 0.12, wz + Math.sin(ang) * r);
       m.rotation.y = Math.random() * Math.PI * 2;

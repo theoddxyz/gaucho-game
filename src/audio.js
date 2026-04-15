@@ -489,6 +489,47 @@ export function eatSound() {
   });
 }
 
+// ── CUCHILLO: silbido de hoja + golpe húmedo de carne ────────────────────────
+export function knifeButcher() {
+  const c = _ctx_(); if (!c) return; const t = _now();
+
+  // 1. Silbido de hoja (ruido filtrado HP descendente — corte de aire)
+  const sr  = c.sampleRate;
+  const len = Math.floor(sr * 0.18);
+  const buf = c.createBuffer(1, len, sr);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const ns   = c.createBufferSource(); ns.buffer = buf;
+  const hp   = c.createBiquadFilter(); hp.type = 'highpass';
+  hp.frequency.setValueAtTime(3800, t);
+  hp.frequency.linearRampToValueAtTime(800, t + 0.16);
+  const gw   = c.createGain();
+  gw.gain.setValueAtTime(0.0001, t);
+  gw.gain.linearRampToValueAtTime(0.18, t + 0.01);
+  gw.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  ns.connect(hp); hp.connect(gw); _toOut(gw, 0.0);
+  ns.start(t); ns.stop(t + 0.20);
+
+  // 2. Impacto húmedo de carne (thud grave + splash de ruido medio)
+  const t2 = t + 0.12;
+  const o  = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(90, t2);
+  o.frequency.exponentialRampToValueAtTime(35, t2 + 0.12);
+  const gth = c.createGain();
+  gth.gain.setValueAtTime(0.0001, t2);
+  gth.gain.linearRampToValueAtTime(0.22, t2 + 0.006);
+  gth.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.14);
+  _toOut(gth, 0.04); o.connect(gth); o.start(t2); o.stop(t2 + 0.16);
+
+  const n2 = _noise(0.10, 520, 0.6);
+  if (n2) {
+    _env(n2.gain, 0.004, 0.012, 0.0, 0.08, 0.14);
+    n2.gain.gain.setValueAtTime(0.0001, t2);
+    n2.src.start(t2);
+    _toOut(n2.gain, 0.02);
+  }
+}
+
 export function sprintExhale() {
   _playFile('player/exhale.mp3', { volume: 0.28, reverb: 0.02 }, () => {
     const c = _ctx_(); if (!c) return; const t = _now();
@@ -762,16 +803,16 @@ function _makeProceduralWind() {
       const t = c.currentTime;
       _nodes = [];
 
-      // Master gain con fade-in
+      // Master gain con fade-in — volumen suave de desierto
       const master = c.createGain(); master.gain.setValueAtTime(0.0001, t);
-      master.gain.linearRampToValueAtTime(0.52, t + 2.5);
+      master.gain.linearRampToValueAtTime(0.22, t + 3.5);
       master.connect(_out);
 
-      // 3 capas de ruido filtradas — frecuencias distintas para profundidad
+      // 3 capas de ruido filtradas — predomina el grave (desierto árido)
       const layers = [
-        { fc: 320,  bw: 1.8, vol: 0.38, lfoF: 0.07, lfoD: 55 },
-        { fc: 680,  bw: 2.2, vol: 0.24, lfoF: 0.13, lfoD: 90 },
-        { fc: 1400, bw: 2.8, vol: 0.14, lfoF: 0.19, lfoD: 130 },
+        { fc: 180,  bw: 1.2, vol: 0.42, lfoF: 0.04, lfoD: 30 },
+        { fc: 420,  bw: 1.6, vol: 0.26, lfoF: 0.07, lfoD: 50 },
+        { fc: 900,  bw: 2.0, vol: 0.12, lfoF: 0.11, lfoD: 70 },
       ];
 
       for (const l of layers) {
@@ -811,10 +852,10 @@ function _makeProceduralWind() {
         const nd = nb.getChannelData(0);
         for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
         const ns2 = gc.createBufferSource(); ns2.buffer = nb;
-        const lp  = gc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260;
+        const lp  = gc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
         const gg  = gc.createGain(); gg.gain.setValueAtTime(0.0001, gt);
-        gg.gain.linearRampToValueAtTime(0.30, gt + 0.8);
-        gg.gain.linearRampToValueAtTime(0.0001, gt + 2.8);
+        gg.gain.linearRampToValueAtTime(0.14, gt + 1.2);
+        gg.gain.linearRampToValueAtTime(0.0001, gt + 4.0);
         ns2.connect(lp); lp.connect(gg); gg.connect(master);
         ns2.start(gt); ns2.stop(gt + 2.9);
         _nodes._gustTimer = setTimeout(_gust, 6000 + Math.random() * 8000);

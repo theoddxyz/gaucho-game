@@ -490,6 +490,7 @@ Network.onJoined((data) => {
       localPlayerModel?.startButcher(2.0);
       Network.sendButcher();
       Audio.eatSound();
+      Audio.knifeButcher();
       // Marcar animal como en proceso para que no sea looteable dos veces
       if (wCow || wOstrich || wChicken || wBird) {
         if (wCow)     wCow._beingButchered     = true;
