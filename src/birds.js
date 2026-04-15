@@ -87,6 +87,7 @@ export class BirdSystem {
 
     // Flat list of all live birds for hitscan
     this._allBirds   = [];
+    this._syncBirds  = [];   // stable index for server sync (never modified after init)
     this._hitboxes   = [];   // THREE.Mesh per bird (invisible)
     this._hitboxMap  = new Map();  // hitbox.uuid → bird object
 
@@ -128,12 +129,25 @@ export class BirdSystem {
         alive: true,
       };
 
+      bird.syncIdx = this._syncBirds.length;
+      this._syncBirds.push(bird);
       this._allBirds.push(bird);
       this._hitboxes.push(hb);
       this._hitboxMap.set(hb.uuid, bird);
       flock.push(bird);
     }
     return flock;
+  }
+
+  applyServerSync(syncArr) {
+    for (const ed of syncArr) {
+      const b = this._syncBirds[ed.idx];
+      if (!b || !b.alive || !b.mesh) continue;
+      b.mesh.position.x = ed.x;
+      b.mesh.position.z = ed.z;
+      if (ed.y !== undefined) b.mesh.position.y = ed.y;
+      b.x = ed.x; b.z = ed.z;
+    }
   }
 
   // ── Hitscan API ───────────────────────────────────────────────────────────

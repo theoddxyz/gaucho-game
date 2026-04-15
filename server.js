@@ -260,6 +260,115 @@ function _csStepOstriches(entities, dt, rng) {
   }
 }
 
+// ─── Chicken server simulation ───────────────────────────────────────────────
+const CS_CHICKEN_GROUPS = [
+  { x: -63, z:  -48, n: 5 }, { x: -54, z:  -86, n: 5 },
+  { x: -55, z:   -2, n: 5 }, { x:  55, z:   28, n: 5 },
+  { x:  71, z:  -26, n: 6 },
+];
+const CS_CHICKEN_CFG = {
+  hp:1, fleeRadius:4.5, homeRadius:6, respawnDelay:60,
+  states:{
+    wander:{ sigma:1.8, speed:0.22, wpRadius:[2,7],   timer:[3,9]  },
+    flee:  { sigma:5.5, speed:5.50, wpRadius:[12,30], timer:[3,6]  },
+    hunt:  { sigma:1.8, speed:0.22, wpRadius:[2,7],   timer:[3,9]  },
+  },
+  tau:{ wander:0.55, flee:0.12, hunt:0.55 },
+};
+function _csInitChickens(rng) {
+  const entities = []; let idx = 0;
+  for (const g of CS_CHICKEN_GROUPS) {
+    for (let i = 0; i < g.n; i++) {
+      const sx = g.x + (rng()-0.5)*7, sz = g.z + (rng()-0.5)*7;
+      entities.push({ idx:idx++, x:sx, z:sz, spawnX:sx, spawnZ:sz,
+        vx:0, vz:0, speed:0, moving:false, hp:1, state:'wander',
+        waypoint:{x:sx,z:sz}, wpTimer:rng()*3, panicTimer:0, dead:false, removeTimer:0 });
+    }
+  }
+  return entities;
+}
+
+// ─── Cow server simulation ────────────────────────────────────────────────────
+const CS_FREE_HERD_ZONES = [
+  { x:  80, z:  30 }, { x: 100, z: -30 }, { x:  20, z:  80 },
+  { x: -30, z:  20 }, { x:  60, z: 120 },
+];
+const CS_VILLAGE_CORRAL  = { x:-137, z:  12, hw:16, hd:12 };
+const CS_VILLAGE_CORRAL2 = { x:-139, z: -39, hw:16, hd:12 };
+const CS_COW_CFG = {
+  hp:3, fleeRadius:8, homeRadius:55, respawnDelay:0,
+  states:{
+    wander:{ sigma:2.2, speed:0.40, wpRadius:[5,20],  timer:[5,15] },
+    flee:  { sigma:3.8, speed:5.0,  wpRadius:[20,40], timer:[4,8]  },
+    hunt:  { sigma:2.2, speed:0.40, wpRadius:[5,20],  timer:[5,15] },
+  },
+  tau:{ wander:0.55, flee:0.15, hunt:0.55 },
+};
+function _csInitCows(rng) {
+  const entities = [];
+  for (let i = 0; i < 33; i++) {
+    let x, z;
+    if (i < 4) {
+      x = CS_VILLAGE_CORRAL.x  + (rng()*2-1)*(CS_VILLAGE_CORRAL.hw -2.5);
+      z = CS_VILLAGE_CORRAL.z  + (rng()*2-1)*(CS_VILLAGE_CORRAL.hd -2.5);
+    } else if (i < 8) {
+      x = CS_VILLAGE_CORRAL2.x + (rng()*2-1)*(CS_VILLAGE_CORRAL2.hw-2.5);
+      z = CS_VILLAGE_CORRAL2.z + (rng()*2-1)*(CS_VILLAGE_CORRAL2.hd-2.5);
+    } else {
+      const zone = CS_FREE_HERD_ZONES[Math.floor((i-8)/5) % 5];
+      x = zone.x + (rng()-0.5)*36; z = zone.z + (rng()-0.5)*36;
+    }
+    entities.push({ idx:i, x, z, spawnX:x, spawnZ:z,
+      vx:0, vz:0, speed:0, moving:false, hp:3, state:'wander',
+      waypoint:{x,z}, wpTimer:rng()*5, panicTimer:0, dead:false, removeTimer:0, corralled:false });
+  }
+  return entities;
+}
+
+// ─── Bird server simulation ───────────────────────────────────────────────────
+const CS_FLOCK_SPAWNS = [
+  { x:   8, z: -55, n:14 }, { x: -35, z: -90, n:11 },
+  { x:  55, z: -40, n:16 }, { x: -15, z:-120, n:10 },
+  { x:  70, z: -75, n:13 }, { x:   0, z: -30, n:12 },
+  { x: -60, z: -50, n: 9 },
+];
+const BIRD_CRUISE_SPD = 5.5, BIRD_FLY_H = 5.0, BIRD_HOME_R = 60;
+function _csInitBirds(rng) {
+  const flocks = []; let bidx = 0;
+  for (const sp of CS_FLOCK_SPAWNS) {
+    const birds = [];
+    for (let i = 0; i < sp.n; i++) {
+      birds.push({ idx:bidx++, x:sp.x+(rng()-0.5)*6, z:sp.z+(rng()-0.5)*6, y:BIRD_FLY_H });
+    }
+    flocks.push({ cx:sp.x, cz:sp.z, homeX:sp.x, homeZ:sp.z,
+      wpX:sp.x, wpZ:sp.z, wpTimer:rng()*5, birds });
+  }
+  return flocks;
+}
+function _csStepBirds(flocks, dt, rng) {
+  for (const f of flocks) {
+    f.wpTimer -= dt;
+    if (f.wpTimer <= 0) {
+      const hdx = f.homeX - f.cx, hdz = f.homeZ - f.cz;
+      const ang = Math.sqrt(hdx*hdx+hdz*hdz) > BIRD_HOME_R
+        ? Math.atan2(hdz, hdx) + (rng()-0.5)*0.8
+        : rng() * Math.PI * 2;
+      const r = 25 + rng() * 35;
+      f.wpX = f.cx + Math.cos(ang)*r; f.wpZ = f.cz + Math.sin(ang)*r;
+      f.wpTimer = 6 + rng() * 10;
+    }
+    const ddx = f.wpX - f.cx, ddz = f.wpZ - f.cz;
+    const dist = Math.sqrt(ddx*ddx+ddz*ddz) || 1;
+    f.cx += (ddx/dist)*BIRD_CRUISE_SPD*dt;
+    f.cz += (ddz/dist)*BIRD_CRUISE_SPD*dt;
+    for (const b of f.birds) {
+      const off = b.idx % f.birds.length;
+      b.x += (f.cx + Math.cos((off/f.birds.length)*Math.PI*2)*4 - b.x) * Math.min(1, dt*3);
+      b.z += (f.cz + Math.sin((off/f.birds.length)*Math.PI*2)*4 - b.z) * Math.min(1, dt*3);
+    }
+  }
+}
+
 function _csInitSpecies(cfg, rng) {
   const entities = [];
   for (let i = 0; i < cfg.count; i++) {
@@ -292,6 +401,9 @@ function _csGetRoom(roomId) {
     armadillo: { entities: _csInitSpecies(CS_CFGS.armadillo, rng), cfg: CS_CFGS.armadillo },
     condor:    { entities: _csInitSpecies(CS_CFGS.condor,    rng), cfg: CS_CFGS.condor    },
     ostrich:   { entities: _csInitOstriches(rng) },
+    chicken:   { entities: _csInitChickens(rng), cfg: CS_CHICKEN_CFG },
+    cow:       { entities: _csInitCows(rng),     cfg: CS_COW_CFG     },
+    bird:      { flocks:   _csInitBirds(rng)                         },
   };
   roomCreatures.set(roomId, rc);
   return rc;
@@ -377,13 +489,20 @@ setInterval(() => {
       _csStep(rc.armadillo.entities, rc.armadillo.cfg, SUB, rc.rng, rc.gaussian, players);
       _csStep(rc.condor.entities,    rc.condor.cfg,    SUB, rc.rng, rc.gaussian, players);
       _csStepOstriches(rc.ostrich.entities, SUB, rc.rng);
+      _csStep(rc.chicken.entities,   rc.chicken.cfg,   SUB, rc.rng, rc.gaussian, players);
+      _csStep(rc.cow.entities,       rc.cow.cfg,       SUB, rc.rng, rc.gaussian, players);
+      _csStepBirds(rc.bird.flocks, SUB, rc.rng);
     }
     // Broadcast compact positions
+    const _allBirds = rc.bird.flocks.flatMap(f => f.birds);
     io.to(roomId).volatile.emit('creatureSync', {
       vibora:    rc.vibora.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       armadillo: rc.armadillo.entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       condor:    rc.condor.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
       ostrich:   rc.ostrich.entities.map(e   => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
+      chicken:   rc.chicken.entities.map(e   => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
+      cow:       rc.cow.entities.map(e       => e.corralled ? { idx:e.idx, corralled:true } : e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
+      bird:      _allBirds.map(b             => ({ idx:b.idx, x:b.x, z:b.z, y:b.y })),
     });
   }
 }, 100);
@@ -720,11 +839,15 @@ io.on('connection', (socket) => {
     // Enviar snapshot inmediato de criaturas al cliente que se acaba de unir
     // (reliable, no volatile — garantiza que el primer sync no se pierda)
     const _rcJoin = _csGetRoom(currentRoom);
+    const _jBirds = _rcJoin.bird.flocks.flatMap(f => f.birds);
     socket.emit('creatureSync', {
       vibora:    _rcJoin.vibora.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       armadillo: _rcJoin.armadillo.entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       condor:    _rcJoin.condor.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
       ostrich:   _rcJoin.ostrich.entities.map(e   => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
+      chicken:   _rcJoin.chicken.entities.map(e   => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
+      cow:       _rcJoin.cow.entities.map(e       => e.corralled ? { idx:e.idx, corralled:true } : e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
+      bird:      _jBirds.map(b                    => ({ idx:b.idx, x:b.x, z:b.z, y:b.y })),
     });
     console.log(`[${currentRoom}] ${playerData.name} joined (${room.size} players)`);
     const humanCount = [...room.values()].filter(p => !p.isBot).length;

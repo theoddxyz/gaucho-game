@@ -387,6 +387,17 @@ export class CowSystem {
     }
   }
 
+  applyServerSync(syncArr) {
+    for (const ed of syncArr) {
+      const cow = this._cows[ed.idx];
+      if (!cow || cow.removed || !cow.mesh) continue;
+      if (ed.corralled || ed.dead) continue;
+      cow.mesh.position.x = ed.x;
+      cow.mesh.position.z = ed.z;
+      if (ed.vx !== undefined) { cow.vx = ed.vx; cow.vz = ed.vz; }
+    }
+  }
+
   /** Retorna todos los hitboxes de vacas vivas con matrixWorld actualizado. */
   getCowHitboxes() {
     const result = [];

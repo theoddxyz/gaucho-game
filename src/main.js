@@ -475,11 +475,14 @@ let _npcDone   = false;   // player already completed dialogue this session
 Network.connect();
 
 // Creature sync — registrar ANTES de onJoined para no perder el snapshot inicial
-Network.onCreatureSync(({ vibora, armadillo, condor, ostrich }) => {
+Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird }) => {
   if (vibora)    viboraSystem.applyServerSync(vibora);
   if (armadillo) armadilloSystem.applyServerSync(armadillo);
   if (condor)    condorSystem.applyServerSync(condor);
   if (ostrich)   ostrichSystem.applyServerSync(ostrich);
+  if (chicken)   chickenSystem?.applyServerSync(chicken);
+  if (cow)       cowSystem?.applyServerSync(cow);
+  if (bird)      birdSystem?.applyServerSync(bird);
 });
 
 let _musicPlayer = null;

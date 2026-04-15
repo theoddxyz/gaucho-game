@@ -304,6 +304,23 @@ export class ChickenSystem {
     }
   }
 
+  applyServerSync(syncArr) {
+    for (const ed of syncArr) {
+      const c = this._chickens[ed.idx];
+      if (!c || c.removed || !c.mesh) continue;
+      if (ed.dead) {
+        if (!c.removed && !c.wounded && !c.dyingPhysics) {
+          c.removed = true;
+          if (c.mesh) { this._scene.remove(c.mesh); c.mesh = null; }
+        }
+      } else {
+        c.mesh.position.x = ed.x;
+        c.mesh.position.z = ed.z;
+        if (ed.vx !== undefined) { c.vx = ed.vx; c.vz = ed.vz; }
+      }
+    }
+  }
+
   // ── Hitboxes activos para hitscan + crosshair ────────────────────────────
   getHitboxes() {
     const result = [];
