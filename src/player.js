@@ -1136,6 +1136,12 @@ export class PlayerModel {
     this.targetRY = ry;
   }
 
+  /** Snaps facing angle immediately — use on impact so HERIDO faces attacker. */
+  snapFacing(ry) {
+    this.group.rotation.y = ry;
+    this.targetRY = ry;
+  }
+
   /** Snaps position immediately — use for mounted riders so they don't lag behind horse. */
   snapTo(x, y, z, ry) {
     this.group.position.set(x, y, z);

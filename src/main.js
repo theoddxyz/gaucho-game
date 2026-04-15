@@ -722,6 +722,12 @@ Network.onPlayerHit((data) => {
         controls._velX = (ax / aLen) * knockStr;
         controls._velZ = (az / aLen) * knockStr;
         controls._vy   = 3.5;   // impulso vertical → vuela
+        // Rotar para mirar hacia el atacante — la animación HERIDO queda bien
+        const faceAttacker = Math.atan2(
+          attacker.group.position.x - myPos.x,
+          attacker.group.position.z - myPos.z
+        );
+        _facingAngle = faceAttacker;
       }
     }
   } else {
@@ -730,6 +736,20 @@ Network.onPlayerHit((data) => {
       if (data.hitZone === 'head') rp.detachHat();
       rp.setHP(data.hp);
       rp.startHurt(1.5);
+      // Rotar remoto para mirar hacia quien disparó
+      const attacker = data.attackerId === myId
+        ? controls   // el atacante es el jugador local
+        : remotePlayers.get(data.attackerId);
+      if (attacker) {
+        const ax = attacker === controls
+          ? controls.getPosition()?.x ?? 0
+          : attacker.group.position.x;
+        const az = attacker === controls
+          ? controls.getPosition()?.z ?? 0
+          : attacker.group.position.z;
+        const faceRY = Math.atan2(ax - rp.group.position.x, az - rp.group.position.z);
+        rp.snapFacing(faceRY);
+      }
     }
   }
   if (data.attackerId === myId) { UI.showHitmarker(); Audio.hitMarker(); Audio.bulletImpactFlesh(); }
