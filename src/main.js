@@ -1844,7 +1844,7 @@ function gameLoop() {
     }
   }
 
-  localPlayerModel?.setRiding((horseManager?.isMounted() ?? false) || _onMoto || _onCarrosa);
+  localPlayerModel?.setRiding((horseManager?.isMounted() ?? false) || (motoManager?.isMounted() ?? false) || _onCarrosa);
   if (localPlayerModel && pos) {
     const _vx = controls._velX ?? 0, _vz = controls._velZ ?? 0;
     const spd  = Math.hypot(_vx, _vz);
