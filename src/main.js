@@ -9,7 +9,7 @@ import { ChunkManager } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
 import { CarrosaSystem } from './carrosa.js';
-import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE, isReloading, reloadProgress, shotsLeft, startReload } from './shooting.js';
+import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE, isReloading, reloadProgress, shotsLeft, loadOneShell } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
 import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
@@ -146,11 +146,11 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Tecla R: recarga manual
+// Tecla R: carga una bala
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyR' || !myId || isDead) return;
   if (currentWeapon !== 'escopeta') return;
-  startReload(performance.now() / 1000);
+  if (loadOneShell(performance.now() / 1000)) Audio.shellLoad();
 });
 
 // Teclas 1/2/3: cambio directo de arma (sin menú radial)

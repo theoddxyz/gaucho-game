@@ -434,15 +434,47 @@ export function hitMarker() {
 
 export function playerHurt() {
   _playRandom(['player/hurt_1.mp3','player/hurt_2.mp3','player/hurt_3.mp3'],
-    { volume: 0.70, reverb: 0.05, pitch: 0.9 + Math.random()*0.2 }, () => {
+    { volume: 0.80, reverb: 0.05, pitch: 0.88 + Math.random()*0.22 }, () => {
+      // Fallback: grunt/groan procedural
       const c = _ctx_(); if (!c) return; const t = _now();
-      const o = c.createOscillator(); o.type = 'sine';
-      o.frequency.setValueAtTime(130,t); o.frequency.exponentialRampToValueAtTime(45,t+0.16);
-      const g = c.createGain();
-      g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.38,t+0.007);
-      g.gain.exponentialRampToValueAtTime(0.0001,t+0.20);
-      const lp = _lp(700); o.connect(lp); lp.connect(g); _toOut(g,0.10); o.start(t); o.stop(t+0.22);
+      // Componente vocal (oscilador FM grave)
+      const car = c.createOscillator(); car.type = 'sawtooth';
+      car.frequency.setValueAtTime(160, t); car.frequency.exponentialRampToValueAtTime(85, t+0.22);
+      const mod = c.createOscillator(); mod.type = 'sine'; mod.frequency.value = 5;
+      const modG = c.createGain(); modG.gain.value = 18;
+      mod.connect(modG); modG.connect(car.frequency);
+      const lp = _lp(900);
+      const g  = c.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.55, t + 0.018);
+      g.gain.exponentialRampToValueAtTime(0.18, t + 0.14);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+      car.connect(lp); lp.connect(g); _toOut(g, 0.12);
+      car.start(t); mod.start(t); car.stop(t+0.32); mod.stop(t+0.32);
+      // Capa de ruido (impacto físico)
+      const n = _noise(0.10, 320, 0.5);
+      if (n) { _env(n.gain, 0.003, 0.015, 0.0, 0.08, 0.28); _toOut(n.gain, 0.04); n.src.start(t); }
     });
+}
+
+// ── CARGA DE BALA (R key) ─────────────────────────────────────────────────────
+export function shellLoad() {
+  _playFile('weapons/shell.mp3', { volume: 0.55, reverb: 0.03, pitch: 0.95+Math.random()*0.1 }, () => {
+    const c = _ctx_(); if (!c) return; const t = _now();
+    // Click metálico de cerrojo
+    const n1 = _noise(0.025, 4200, 3.5);
+    if (n1) { _env(n1.gain,0.001,0.004,0.0,0.018,0.35); _toOut(n1.gain,0.12); n1.src.start(t); }
+    // Thud grave de la bala asentándose
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(220,t); o.frequency.exponentialRampToValueAtTime(80,t+0.06);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.28,t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
+    _toOut(g,0.04); o.connect(g); o.start(t); o.stop(t+0.08);
+    // Segundo click de cierre
+    const n2 = _noise(0.018, 3800, 3.0);
+    if (n2) { _env(n2.gain,0.001,0.003,0.0,0.014,0.30); _toOut(n2.gain,0.09); n2.src.start(t+0.08); }
+  });
 }
 
 export function playerDeath() {

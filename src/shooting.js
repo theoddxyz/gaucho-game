@@ -23,11 +23,15 @@ export function reloadProgress(now) {
   return Math.max(0, (now - reloadStart) / RELOAD_TIME);
 }
 export function shotsLeft() { return MAGAZINE - shotCount; }
-export function startReload(now) {
-  if (shotCount === 0) return;           // ya full
-  if (now < reloadEnd) return;           // ya recargando
-  reloadEnd = now + RELOAD_TIME * ((MAGAZINE - shotCount) / MAGAZINE);
-  shotCount = 0;
+
+// Carga UNA bala por llamado. Retorna true si se inició la carga.
+const SHELL_TIME = 0.45;   // segundos por bala
+export function loadOneShell(now) {
+  if (shotCount <= 0) return false;          // ya lleno
+  if (now < reloadEnd) return false;         // aún cargando la anterior
+  shotCount--;
+  reloadEnd = now + SHELL_TIME;
+  return true;
 }
 
 /**
