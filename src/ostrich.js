@@ -313,7 +313,7 @@ export class OstrichSystem {
     const r2 = radius * radius;
     let nearest = null, nearestD2 = r2;
     for (const e of this._entities) {
-      if ((!e.wounded && !e.dyingPhysics) || e.dead || !e.mesh) continue;
+      if ((!e.wounded && !e.dyingPhysics) || e.dead || e._beingButchered || !e.mesh) continue;
       const dx = e.mesh.position.x - x, dz = e.mesh.position.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < nearestD2) { nearestD2 = d2; nearest = e; }

@@ -441,7 +441,7 @@ export class CowSystem {
     const r2 = radius * radius;
     let nearest = null, nearestD2 = r2;
     for (const cow of this._cows) {
-      if ((!cow.wounded && !cow.dyingPhysics) || cow.removed || !cow.mesh) continue;
+      if ((!cow.wounded && !cow.dyingPhysics) || cow.removed || cow._beingButchered || !cow.mesh) continue;
       const dx = cow.mesh.position.x - x, dz = cow.mesh.position.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < nearestD2) { nearestD2 = d2; nearest = cow; }

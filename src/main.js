@@ -483,25 +483,35 @@ Network.onJoined((data) => {
       localPlayerModel?.startButcher(2.0);
       Network.sendButcher();
       Audio.eatSound();
-      if (wCow)          cowSystem?.lootWounded(wCow);
-      else if (wOstrich) ostrichSystem?.lootWounded(wOstrich);
-      else if (wChicken) {
-        const food = chickenSystem?.lootWounded(wChicken);
-        if (food) {
-          restoreHunger(food.hunger);
-          myData.hp = Math.min(200, myData.hp + food.hp);
-          UI.updateHP(myData.hp); UI.showEatEffect();
-          UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
-        }
-      } else if (wBird) {
-        const food = birdSystem?.lootBird(wBird);
-        if (food) {
-          restoreHunger(food.hunger);
-          myData.hp = Math.min(200, myData.hp + food.hp);
-          UI.updateHP(myData.hp); UI.showEatEffect();
-          UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
-        }
+      // Marcar animal como en proceso para que no sea looteable dos veces
+      if (wCow || wOstrich || wChicken || wBird) {
+        if (wCow)     wCow._beingButchered     = true;
+        if (wOstrich) wOstrich._beingButchered = true;
+        if (wChicken) wChicken._beingButchered = true;
+        if (wBird)    wBird._beingButchered    = true;
       }
+      // Soltar carne después de que termine la animación (~1 s al 1.5x)
+      setTimeout(() => {
+        if (wCow)          cowSystem?.lootWounded(wCow);
+        else if (wOstrich) ostrichSystem?.lootWounded(wOstrich);
+        else if (wChicken) {
+          const food = chickenSystem?.lootWounded(wChicken);
+          if (food) {
+            restoreHunger(food.hunger);
+            myData.hp = Math.min(200, myData.hp + food.hp);
+            UI.updateHP(myData.hp); UI.showEatEffect();
+            UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
+          }
+        } else if (wBird) {
+          const food = birdSystem?.lootBird(wBird);
+          if (food) {
+            restoreHunger(food.hunger);
+            myData.hp = Math.min(200, myData.hp + food.hp);
+            UI.updateHP(myData.hp); UI.showEatEffect();
+            UI.addKillMessage('[ CARNE ]', `+${food.hunger} ham  +${food.hp} vid`);
+          }
+        }
+      }, 1000);
       return;
     }
 
@@ -1749,8 +1759,11 @@ function gameLoop() {
 
     // Pasos — sincronizados con fase de animación de walk
     if (!onHorse && !isDead && localPlayerModel) {
-      const _wAction = localPlayerModel._walkAction;
-      const _wSpd    = localPlayerModel._walkSpd ?? 0;
+      const _isAiming = controls.isAiming();
+      const _wAction  = _isAiming
+        ? (localPlayerModel._shootWalkAction ?? localPlayerModel._walkAction)
+        : localPlayerModel._walkAction;
+      const _wSpd     = localPlayerModel._walkSpd ?? 0;
       if (_wAction && _wSpd > 0.12) {
         const dur  = _wAction.getClip?.()?.duration ?? 0.8;
         const half = dur * 0.5;
@@ -1759,10 +1772,11 @@ function gameLoop() {
         // Detectar: cruce del punto medio O wrap de loop
         const wrapped  = prevT > curT + 0.01;           // el tiempo volvió atrás → loop
         const midCross = prevT < half && curT >= half;   // cruzó el punto medio
-        if (wrapped || (midCross && currentWeapon !== 'shotgun')) {
-          // Pitch levemente más alto a mayor velocidad
-          const pitch = 0.80 + _wSpd * 0.28 + (Math.random() - 0.5) * 0.10;
-          Audio.footstep('sand', pitch);
+        if (wrapped || midCross) {
+          // Pitch levemente más alto a mayor velocidad; volumen reducido al apuntar
+          const pitch  = 0.80 + _wSpd * 0.28 + (Math.random() - 0.5) * 0.10;
+          const vol    = _isAiming ? 0.022 : 0.05;
+          Audio.footstep('sand', pitch, vol);
         }
         _prevWalkTime = curT;
       } else {

@@ -206,10 +206,10 @@ const _stepSand  = ['player/step_sand_1.mp3','player/step_sand_2.mp3',
                     'player/step_sand_3.mp3','player/step_sand_4.mp3'];
 const _stepGrass = ['player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3'];
 
-export function footstep(surface = 'sand', pitch = null) {
+export function footstep(surface = 'sand', pitch = null, volume = 0.05) {
   const p     = pitch ?? (0.88 + Math.random() * 0.24);
   const paths = surface === 'grass' ? _stepGrass : _stepSand;
-  _playRandom(paths, { volume: 0.05, reverb: 0.02, pitch: p }, () => {
+  _playRandom(paths, { volume, reverb: 0.02, pitch: p }, () => {
     // fallback procedural — thud suave de tierra
     const c = _ctx_(); if (!c) return; const t = _now();
     // Golpe bajo (suelo)

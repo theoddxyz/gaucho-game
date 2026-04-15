@@ -177,7 +177,7 @@ export class BirdSystem {
   getNearbyDead(px, pz, radius) {
     const r2 = radius * radius;
     return this._dead.find(b => {
-      if (!b.lootable) return false;
+      if (!b.lootable || b._beingButchered) return false;
       const dx = b.x - px, dz = b.z - pz;
       return dx * dx + dz * dz < r2;
     }) ?? null;

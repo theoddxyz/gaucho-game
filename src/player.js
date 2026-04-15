@@ -1222,6 +1222,7 @@ export class PlayerModel {
     if (!this._butcherModel || !this._butcherAction) return;
     this._butcherTimer = duration;
     this._butcherAction.reset();
+    this._butcherAction.timeScale = 1.5;
     this._butcherAction.play();
   }
 

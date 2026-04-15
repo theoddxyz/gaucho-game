@@ -325,7 +325,7 @@ export class ChickenSystem {
     const r2 = radius * radius;
     let nearest = null, nearestD2 = r2;
     for (const c of this._chickens) {
-      if ((!c.wounded && !c.dyingPhysics) || c.removed || !c.mesh) continue;
+      if ((!c.wounded && !c.dyingPhysics) || c.removed || c._beingButchered || !c.mesh) continue;
       const dx = c.mesh.position.x - x, dz = c.mesh.position.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 < nearestD2) { nearestD2 = d2; nearest = c; }
