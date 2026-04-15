@@ -281,6 +281,33 @@ export class OstrichSystem {
     return this._entities.findIndex(e => e.mesh && e.mesh._hitbox === hitboxMesh);
   }
 
+  /** Aplica posiciones autoritativas del servidor (llamado desde creatureSync). */
+  applyServerSync(syncArr) {
+    for (const ed of syncArr) {
+      const e = this._entities[ed.idx];
+      if (!e) continue;
+      if (ed.dead) {
+        if (!e.dead && !e.dying && !e.dyingPhysics) {
+          e.dead = true;
+          e.respawnTimer = RESPAWN_DELAY;
+          if (e.mesh) { this._scene.remove(e.mesh); e.mesh = null; }
+        }
+      } else {
+        // Server says alive but client thinks dead → respawn
+        if (e.dead && !e.dying && !e.dyingPhysics && ed.x !== undefined) {
+          this._respawn(ed.idx);
+        }
+        // Override position for living entity
+        if (!e.dead && !e.dying && !e.dyingPhysics && e.mesh) {
+          e.mesh.position.x = ed.x;
+          e.mesh.position.z = ed.z;
+          if (ed.vx !== undefined) e.vx = ed.vx;
+          if (ed.vz !== undefined) e.vz = ed.vz;
+        }
+      }
+    }
+  }
+
   _spawnBloodSpot(x, z) {
     if (this._bloodSpots.length > 80) {
       const old = this._bloodSpots.shift();

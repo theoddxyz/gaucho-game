@@ -371,7 +371,7 @@ const viboraSystem = new CreatureSystem(scene, {
   renderer:    wormRenderer({ segCount: 6, spacing: 0.28, baseR: 0.07, color: 0xc8a050, eyeColor: 0x330000 }),
   respawnDelay: 90,
   activeRadius: 230,
-}, _worldSpawns(28, 520, 17));
+}, _worldSpawns(28, 160, 17));
 
 // ── Armadillos ────────────────────────────────────────────────────────────────
 const armadilloSystem = new CreatureSystem(scene, {
@@ -475,10 +475,11 @@ let _npcDone   = false;   // player already completed dialogue this session
 Network.connect();
 
 // Creature sync — registrar ANTES de onJoined para no perder el snapshot inicial
-Network.onCreatureSync(({ vibora, armadillo, condor }) => {
+Network.onCreatureSync(({ vibora, armadillo, condor, ostrich }) => {
   if (vibora)    viboraSystem.applyServerSync(vibora);
   if (armadillo) armadilloSystem.applyServerSync(armadillo);
   if (condor)    condorSystem.applyServerSync(condor);
+  if (ostrich)   ostrichSystem.applyServerSync(ostrich);
 });
 
 let _musicPlayer = null;

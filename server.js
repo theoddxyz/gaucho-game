@@ -205,6 +205,61 @@ const CS_CFGS = {
   condor:    { count:12, hp:2, fleeRadius:7,  huntRadius:60, attackRadius:3,   homeRadius:120, respawnDelay:120, soarHeight:11,         ySpeed:1.8,        states:{ wander:{ sigma:2.5, speed:5.0, wpRadius:[30,80], timer:[6,14] }, flee:{ sigma:4.0, speed:9.0, wpRadius:[30,60], timer:[4,7]  }, hunt:{ sigma:0.8, speed:6.0, wpRadius:[10,30], timer:[8,16] } }, tau:{ wander:0.8, flee:0.18, hunt:0.5  }, spawns: _csWorldSpawns(12,600,43) },
 };
 
+// ─── Avestruz server-side simulation ─────────────────────────────────────────
+const OST_SPAWN_SPOTS = [
+  { x:  13, z: -74 }, { x: -28, z: -82 }, { x:  48, z: -52 },
+  { x: -18, z:-108 }, { x:  62, z: -88 }, { x:   8, z:-138 },
+  { x: -52, z: -62 },
+];
+const OST_WALK_SPEED    = 1.6;
+const OST_WANDER_RADIUS = 28;
+const OST_RESPAWN_DELAY = 120;
+
+function _csInitOstriches(rng) {
+  return OST_SPAWN_SPOTS.map((s, idx) => ({
+    idx, spawnX: s.x, spawnZ: s.z,
+    x: s.x + (rng() - 0.5) * 4, z: s.z + (rng() - 0.5) * 4,
+    vx: 0, vz: 0, dead: false, hp: 2,
+    wanderTimer: rng() * 3, respawnTimer: 0,
+  }));
+}
+
+function _csStepOstriches(entities, dt, rng) {
+  for (const e of entities) {
+    if (e.dead) {
+      e.respawnTimer -= dt;
+      if (e.respawnTimer <= 0) {
+        e.dead = false; e.hp = 2;
+        e.x = e.spawnX + (rng() - 0.5) * 8;
+        e.z = e.spawnZ + (rng() - 0.5) * 8;
+        e.vx = 0; e.vz = 0; e.wanderTimer = 1 + rng() * 2;
+      }
+      continue;
+    }
+    e.wanderTimer -= dt;
+    if (e.wanderTimer <= 0) {
+      if (rng() < 0.22) {
+        e.vx = 0; e.vz = 0; e.wanderTimer = 1.0 + rng() * 1.5;
+      } else {
+        const bx = e.spawnX - e.x, bz = e.spawnZ - e.z;
+        const angle = Math.atan2(bz, bx) + (rng() - 0.5) * Math.PI * 1.4;
+        e.vx = Math.cos(angle) * OST_WALK_SPEED;
+        e.vz = Math.sin(angle) * OST_WALK_SPEED;
+        e.wanderTimer = 2.5 + rng() * 3.0;
+      }
+    }
+    if (e.vx * e.vx + e.vz * e.vz > 0.01) {
+      const nx = e.x + e.vx * dt, nz = e.z + e.vz * dt;
+      const dx = nx - e.spawnX, dz = nz - e.spawnZ;
+      if (dx*dx + dz*dz < OST_WANDER_RADIUS * OST_WANDER_RADIUS) {
+        e.x = nx; e.z = nz;
+      } else {
+        e.vx = -e.vx; e.vz = -e.vz;
+      }
+    }
+  }
+}
+
 function _csInitSpecies(cfg, rng) {
   const entities = [];
   for (let i = 0; i < cfg.count; i++) {
@@ -236,6 +291,7 @@ function _csGetRoom(roomId) {
     vibora:    { entities: _csInitSpecies(CS_CFGS.vibora,    rng), cfg: CS_CFGS.vibora    },
     armadillo: { entities: _csInitSpecies(CS_CFGS.armadillo, rng), cfg: CS_CFGS.armadillo },
     condor:    { entities: _csInitSpecies(CS_CFGS.condor,    rng), cfg: CS_CFGS.condor    },
+    ostrich:   { entities: _csInitOstriches(rng) },
   };
   roomCreatures.set(roomId, rc);
   return rc;
@@ -320,12 +376,14 @@ setInterval(() => {
       _csStep(rc.vibora.entities,    rc.vibora.cfg,    SUB, rc.rng, rc.gaussian, players);
       _csStep(rc.armadillo.entities, rc.armadillo.cfg, SUB, rc.rng, rc.gaussian, players);
       _csStep(rc.condor.entities,    rc.condor.cfg,    SUB, rc.rng, rc.gaussian, players);
+      _csStepOstriches(rc.ostrich.entities, SUB, rc.rng);
     }
     // Broadcast compact positions
     io.to(roomId).volatile.emit('creatureSync', {
       vibora:    rc.vibora.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       armadillo: rc.armadillo.entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       condor:    rc.condor.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
+      ostrich:   rc.ostrich.entities.map(e   => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
     });
   }
 }, 100);
@@ -666,6 +724,7 @@ io.on('connection', (socket) => {
       vibora:    _rcJoin.vibora.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       armadillo: _rcJoin.armadillo.entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
       condor:    _rcJoin.condor.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
+      ostrich:   _rcJoin.ostrich.entities.map(e   => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz }),
     });
     console.log(`[${currentRoom}] ${playerData.name} joined (${room.size} players)`);
     const humanCount = [...room.values()].filter(p => !p.isBot).length;
@@ -880,6 +939,11 @@ io.on('connection', (socket) => {
 
   socket.on('ostrichKill', ({ idx } = {}) => {
     if (!currentRoom) return;
+    const _rcOst = roomCreatures.get(currentRoom);
+    if (_rcOst?.ostrich?.entities[idx]) {
+      const _oe = _rcOst.ostrich.entities[idx];
+      _oe.dead = true; _oe.hp = 0; _oe.respawnTimer = OST_RESPAWN_DELAY;
+    }
     socket.to(currentRoom).emit('ostrichKill', { idx: idx ?? 0 });
   });
 
