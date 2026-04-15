@@ -817,4 +817,61 @@ export class CreatureSystem {
   fastForward(ticks, context = {}) {
     for (let i = 0; i < ticks; i++) this._step(1 / 60, context);
   }
+
+  // Aplicar posiciones del servidor (modo server-authoritative)
+  applyServerSync(syncArr) {
+    const cfg = this._config;
+    for (const ed of syncArr) {
+      const e = this._entities[ed.idx];
+      if (!e) continue;
+      if (ed.dead) {
+        if (!e.dead) {
+          e.dead = true; e.state = 'dead';
+          e.removeTimer = cfg.respawnDelay ?? 60;
+          for (const hb of e.hitboxes) hb.userData.creatureEntityIdx = -1;
+        }
+      } else {
+        if (e.dead) {
+          // Server respawned — reset locally
+          this._spawnEntity(ed.idx);
+          const ne = this._entities[ed.idx];
+          ne.x = ed.x; ne.z = ed.z;
+        } else {
+          e.x = ed.x; e.z = ed.z;
+          if (ed.vx !== undefined) e.vx = ed.vx;
+          if (ed.vz !== undefined) e.vz = ed.vz;
+          if (ed.state) e.state = ed.state;
+          if (ed.y !== undefined) e.y = ed.y;
+          e.speed  = Math.sqrt(e.vx*e.vx + e.vz*e.vz);
+          e.moving = e.speed > 0.15;
+        }
+      }
+    }
+  }
+
+  // Render-only update: no AI, only visuals (use after applyServerSync)
+  renderOnly(realDt, playerPos) {
+    tickFlyingParts(this._scene, this._parts, realDt);
+    const _pPos = playerPos;
+    const _ar2  = (this._config.activeRadius ?? 280) ** 2;
+    for (const e of this._entities) {
+      const _d2 = _pPos ? (e.x - _pPos.x)**2 + (e.z - _pPos.z)**2 : 0;
+      if (e.dead) {
+        if (e.active && e.group) {
+          e.group.position.set(e.x, e.y ?? 0, e.z);
+          this._config.renderer.update(e.group, e.rendState, e, realDt);
+        }
+        continue;
+      }
+      if (_d2 <= _ar2) {
+        if (!e.active) this._activateEntity(e);
+        if (e.group) {
+          e.group.position.set(e.x, e.y ?? 0, e.z);
+          this._config.renderer.update(e.group, e.rendState, e, realDt);
+        }
+      } else if (e.active) {
+        this._deactivateEntity(e);
+      }
+    }
+  }
 }

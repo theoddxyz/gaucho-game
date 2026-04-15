@@ -506,17 +506,12 @@ Network.onJoined((data) => {
   myId   = data.self.id;
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
 
-  // Sincronizar seed de criaturas — todos los clientes en la misma sala
-  // usarán la misma secuencia de números aleatorios.
-  if (data.creatureSeed !== undefined) {
-    setCreatureSeed(data.creatureSeed);
-    const ticks = Math.min(Math.floor((data.roomAge ?? 0) * 60), 7200);
-    if (ticks > 0) {
-      viboraSystem.fastForward(ticks);
-      armadilloSystem.fastForward(ticks);
-      condorSystem.fastForward(ticks);
-    }
-  }
+  // Criaturas: server-authoritative — sincronizadas via creatureSync cada 100ms
+  Network.onCreatureSync(({ vibora, armadillo, condor }) => {
+    if (vibora)    viboraSystem.applyServerSync(vibora);
+    if (armadillo) armadilloSystem.applyServerSync(armadillo);
+    if (condor)    condorSystem.applyServerSync(condor);
+  });
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '', local: true });
@@ -1834,18 +1829,7 @@ function gameLoop() {
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
   // Víboras: cazan gallinas si están cerca
-  const _chickenPos = chickenSystem._chickens
-    .filter(c => !c.dead && !c.removed && !c.wounded)
-    .map(c => ({ x: c.mesh.position.x, z: c.mesh.position.z }));
-  // Todos los jugadores (local + remotos) ordenados por ID — input determinístico
-  const _allPlayers = [];
-  if (pos && myId) _allPlayers.push({ x: pos.x, z: pos.z, id: myId });
-  for (const [_pid, _rp] of remotePlayers) {
-    if (!_rp.dead) _allPlayers.push({ x: _rp.x, z: _rp.z, id: _pid });
-  }
-  _allPlayers.sort((a, b) => (a.id < b.id ? -1 : 1));
-
-  viboraSystem.update(dt, { playerPos: pos, allPlayerPositions: _allPlayers, preyPositions: _chickenPos });
+  viboraSystem.renderOnly(dt, pos);
   // Víboras que alcanzan una gallina: la matan y dejan cadáver
   for (const _vib of viboraSystem._entities) {
     if (_vib.dead || _vib.state !== 'hunt') continue;
@@ -1893,11 +1877,7 @@ function gameLoop() {
     if (Inventory.add('snake', _viboraLoot.hunger, _viboraLoot.hp)) _updateInventoryHUD();
   }
 
-  // Armadillos: huyen del jugador Y de las víboras
-  const _viboraPos = viboraSystem._entities
-    .filter(e => !e.dead)
-    .map(e => ({ x: e.x, z: e.z }));
-  armadilloSystem.update(dt, { playerPos: pos, allPlayerPositions: _allPlayers, predatorPositions: _viboraPos });
+  armadilloSystem.renderOnly(dt, pos);
   const _armadilloLoot = armadilloSystem.updateLoot(dt, pos);
   if (_armadilloLoot && myId && !isDead) {
     if (Inventory.add('armadillo', _armadilloLoot.hunger, _armadilloLoot.hp)) _updateInventoryHUD();
@@ -1927,7 +1907,7 @@ function gameLoop() {
       }
     }
   }
-  condorSystem.update(dt, { playerPos: pos, allPlayerPositions: _allPlayers, preyPositions: _recentCorpses });
+  condorSystem.renderOnly(dt, pos);
   const _condorLoot = condorSystem.updateLoot(dt, pos);
   if (_condorLoot && myId && !isDead) {
     if (Inventory.add('condor', _condorLoot.hunger, _condorLoot.hp)) _updateInventoryHUD();

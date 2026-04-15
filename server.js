@@ -181,6 +181,155 @@ setInterval(() => {
   }
 }, 30_000);
 
+// ─── Server-authoritative creature simulation ─────────────────────────────────
+// The server runs the AI loop at 10 Hz and broadcasts positions to all clients.
+// Clients only render (no AI). This guarantees everyone sees the same world.
+
+const roomCreatures = new Map(); // roomId → { vibora, armadillo, condor, rng, gaussian }
+
+function _csWorldSpawns(count, worldR, seed) {
+  const pts = [], side = Math.ceil(Math.sqrt(count * 1.5));
+  const step = worldR * 2 / side;
+  for (let i = 0; i < count; i++) {
+    const row = Math.floor(i / side), col = i % side;
+    const h1  = Math.abs(Math.sin((seed + i) * 127.1 + 311.7)) % 1;
+    const h2  = Math.abs(Math.sin((seed + i) * 269.5 + 183.3)) % 1;
+    pts.push({ x: -worldR + (col + 0.5 + (h1 - 0.5) * 0.6) * step, z: -worldR + (row + 0.5 + (h2 - 0.5) * 0.6) * step });
+  }
+  return pts;
+}
+
+const CS_CFGS = {
+  vibora:    { count:28, hp:1, fleeRadius:8,  huntRadius:14, attackRadius:1.2, homeRadius:30,  respawnDelay:45,  soarHeight:undefined, ySpeed:undefined, states:{ wander:{ sigma:2.8, speed:1.6, wpRadius:[5,14],  timer:[3,7]  }, flee:{ sigma:4.5, speed:4.5, wpRadius:[12,22], timer:[3,6]  }, hunt:{ sigma:1.2, speed:3.5, wpRadius:[4,10],  timer:[4,9]  } }, tau:{ wander:0.3, flee:0.12, hunt:0.25 }, spawns: _csWorldSpawns(28,460,17) },
+  armadillo: { count:22, hp:2, fleeRadius:5,  huntRadius:0,  attackRadius:0,   homeRadius:40,  respawnDelay:75,  soarHeight:undefined, ySpeed:undefined, states:{ wander:{ sigma:1.2, speed:1.0, wpRadius:[4,16],  timer:[4,10] }, flee:{ sigma:3.2, speed:4.5, wpRadius:[14,28], timer:[4,7]  }, hunt:{ sigma:1.2, speed:1.0, wpRadius:[4,16],  timer:[4,10] } }, tau:{ wander:0.55,flee:0.15, hunt:0.55 }, spawns: _csWorldSpawns(22,480,31) },
+  condor:    { count:12, hp:2, fleeRadius:7,  huntRadius:60, attackRadius:3,   homeRadius:120, respawnDelay:120, soarHeight:11,         ySpeed:1.8,        states:{ wander:{ sigma:2.5, speed:5.0, wpRadius:[30,80], timer:[6,14] }, flee:{ sigma:4.0, speed:9.0, wpRadius:[30,60], timer:[4,7]  }, hunt:{ sigma:0.8, speed:6.0, wpRadius:[10,30], timer:[8,16] } }, tau:{ wander:0.8, flee:0.18, hunt:0.5  }, spawns: _csWorldSpawns(12,600,43) },
+};
+
+function _csInitSpecies(cfg, rng) {
+  const entities = [];
+  for (let i = 0; i < cfg.count; i++) {
+    const sp = cfg.spawns[i % cfg.spawns.length];
+    const sx = sp.x + (rng() - 0.5) * 6, sz = sp.z + (rng() - 0.5) * 6;
+    entities.push({ idx:i, x:sx, z:sz, spawnX:sx, spawnZ:sz, vx:0, vz:0, speed:0, moving:false, hp:cfg.hp, state:'wander', waypoint:{x:sx, z:sz}, wpTimer:rng()*3, panicTimer:0, dead:false, removeTimer:0 });
+  }
+  return entities;
+}
+
+function _csGetRoom(roomId) {
+  if (roomCreatures.has(roomId)) return roomCreatures.get(roomId);
+  const meta = getRoomMeta(roomId);
+  let s = (meta.seed | 0) || 12345;
+  function rng() {
+    s |= 0; s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  function gaussian() {
+    let u = 0, v = 0;
+    while (u === 0) u = rng();
+    while (v === 0) v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+  const rc = {
+    rng, gaussian,
+    vibora:    { entities: _csInitSpecies(CS_CFGS.vibora,    rng), cfg: CS_CFGS.vibora    },
+    armadillo: { entities: _csInitSpecies(CS_CFGS.armadillo, rng), cfg: CS_CFGS.armadillo },
+    condor:    { entities: _csInitSpecies(CS_CFGS.condor,    rng), cfg: CS_CFGS.condor    },
+  };
+  roomCreatures.set(roomId, rc);
+  return rc;
+}
+
+function _csStep(entities, cfg, dt, rng, gaussian, players) {
+  for (const e of entities) {
+    if (e.dead) {
+      e.removeTimer -= dt;
+      if (e.removeTimer <= 0) {
+        const sp = cfg.spawns[e.idx % cfg.spawns.length];
+        const sx = sp.x + (rng() - 0.5) * 6, sz = sp.z + (rng() - 0.5) * 6;
+        e.x = sx; e.z = sz; e.spawnX = sx; e.spawnZ = sz;
+        e.vx = 0; e.vz = 0; e.speed = 0; e.moving = false; e.hp = cfg.hp;
+        e.state = 'wander'; e.waypoint = { x: sx, z: sz };
+        e.wpTimer = rng() * 3; e.panicTimer = 0; e.dead = false; e.removeTimer = 0;
+      }
+      continue;
+    }
+
+    let nextState = e.state;
+    if (e.panicTimer > 0) { e.panicTimer -= dt; if (e.panicTimer <= 0 && nextState === 'flee') nextState = 'wander'; }
+
+    for (const p of (players || [])) {
+      const dx = e.x - p.x, dz = e.z - p.z, d2 = dx*dx + dz*dz, fr = cfg.fleeRadius ?? 4;
+      if (d2 < fr * fr) {
+        nextState = 'flee'; e.panicTimer = 4.0;
+        const d = Math.sqrt(d2) || 1, wr = cfg.states?.flee?.wpRadius ?? [15,30], r = wr[0] + rng()*(wr[1]-wr[0]);
+        e.waypoint.x = e.x + (dx/d)*r; e.waypoint.z = e.z + (dz/d)*r;
+        const ts = cfg.states?.flee?.timer ?? [3,6]; e.wpTimer = ts[0] + rng()*(ts[1]-ts[0]);
+        break;
+      }
+    }
+
+    e.state = nextState;
+    const sKey = nextState === 'flee' ? 'flee' : nextState === 'hunt' ? 'hunt' : 'wander';
+    const sp   = cfg.states?.[sKey] ?? cfg.states?.wander ?? { sigma:1.5, speed:1.0, wpRadius:[5,15], timer:[3,8] };
+
+    e.wpTimer -= dt;
+    const wpDx = e.waypoint.x - e.x, wpDz = e.waypoint.z - e.z;
+    const wpDist = Math.sqrt(wpDx*wpDx + wpDz*wpDz);
+
+    if (e.wpTimer <= 0 || (wpDist < 1.2 && nextState !== 'hunt')) {
+      const wr = sp.wpRadius, r = wr[0] + rng()*(wr[1]-wr[0]);
+      let ang = rng() * Math.PI * 2;
+      if (nextState === 'wander') {
+        const hdx = e.spawnX - e.x, hdz = e.spawnZ - e.z;
+        if (Math.sqrt(hdx*hdx + hdz*hdz) > (cfg.homeRadius ?? 25)) ang = Math.atan2(hdz, hdx) + (rng()-0.5)*0.8;
+      }
+      e.waypoint.x = e.x + Math.cos(ang)*r; e.waypoint.z = e.z + Math.sin(ang)*r;
+      const ts = sp.timer; e.wpTimer = ts[0] + rng()*(ts[1]-ts[0]);
+    }
+
+    const wl = Math.sqrt(wpDx*wpDx + wpDz*wpDz) || 1;
+    const sig = sp.sigma * Math.sqrt(dt);
+    let tvx = (wpDx/wl)*sp.speed + gaussian()*sig, tvz = (wpDz/wl)*sp.speed + gaussian()*sig;
+    const spd2 = Math.sqrt(tvx*tvx + tvz*tvz); if (spd2 > sp.speed*1.5) { tvx = tvx/spd2*sp.speed*1.5; tvz = tvz/spd2*sp.speed*1.5; }
+    const tau = cfg.tau?.[sKey] ?? 0.35, alpha = 1 - Math.exp(-dt/tau);
+    e.vx += (tvx - e.vx) * alpha; e.vz += (tvz - e.vz) * alpha;
+    e.x += e.vx*dt; e.z += e.vz*dt;
+    e.speed = Math.sqrt(e.vx*e.vx + e.vz*e.vz); e.moving = e.speed > 0.15;
+
+    if (cfg.soarHeight !== undefined) {
+      if (e.y === undefined) e.y = cfg.soarHeight;
+      const wd = Math.sqrt((e.waypoint.x-e.x)**2 + (e.waypoint.z-e.z)**2);
+      e.targetY = (nextState === 'hunt' && wd < 18) ? Math.max(0.4, wd*0.04) : cfg.soarHeight;
+      e.y += ((e.targetY ?? cfg.soarHeight) - e.y) * Math.min(1, dt*(cfg.ySpeed ?? 2.5));
+    }
+  }
+}
+
+// 10 Hz broadcast loop
+setInterval(() => {
+  for (const [roomId, room] of rooms) {
+    const humans = [...room.values()].filter(p => !p.isBot && p.hp > 0);
+    if (humans.length === 0) continue;
+    const rc = _csGetRoom(roomId);
+    const players = humans.map(p => ({ x: p.x, z: p.z }));
+    // Run 6 sub-steps of 1/60s = 100ms of simulation
+    const SUB = 1/60;
+    for (let i = 0; i < 6; i++) {
+      _csStep(rc.vibora.entities,    rc.vibora.cfg,    SUB, rc.rng, rc.gaussian, players);
+      _csStep(rc.armadillo.entities, rc.armadillo.cfg, SUB, rc.rng, rc.gaussian, players);
+      _csStep(rc.condor.entities,    rc.condor.cfg,    SUB, rc.rng, rc.gaussian, players);
+    }
+    // Broadcast compact positions
+    io.to(roomId).volatile.emit('creatureSync', {
+      vibora:    rc.vibora.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
+      armadillo: rc.armadillo.entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
+      condor:    rc.condor.entities.map(e    => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
+    });
+  }
+}, 100);
+
 function getRoom(roomId) {
   if (!rooms.has(roomId)) rooms.set(roomId, new Map());
   return rooms.get(roomId);
@@ -704,9 +853,21 @@ io.on('connection', (socket) => {
     if (player) player.invincible = !player.invincible;
   });
 
-  socket.on('creatureHit', (data) => {
+  socket.on('creatureHit', ({ species, idx } = {}) => {
     if (!currentRoom) return;
-    socket.to(currentRoom).emit('creatureHit', data);
+    // Apply hit to server-side creature state
+    const rc = roomCreatures.get(currentRoom);
+    if (rc && rc[species]) {
+      const e = rc[species].entities[idx];
+      if (e && !e.dead) {
+        e.hp -= 1;
+        if (e.hp <= 0) {
+          e.dead = true; e.state = 'dead';
+          e.removeTimer = rc[species].cfg.respawnDelay ?? 60;
+        }
+      }
+    }
+    socket.to(currentRoom).emit('creatureHit', { species, idx });
   });
 
   socket.on('ostrichKill', ({ idx } = {}) => {
@@ -863,6 +1024,7 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
         npcSessions.delete(currentRoom);
         corralledCows.delete(currentRoom);
         roomMeta.delete(currentRoom);
+        roomCreatures.delete(currentRoom);
       }
     }
   });

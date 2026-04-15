@@ -50,6 +50,7 @@ export function onBottleHit(cb)         { socket.on('bottleHit', cb); }
 
 export function sendCreatureHit(species, idx) { socket.emit('creatureHit', { species, idx }); }
 export function onCreatureHit(cb)             { socket.on('creatureHit', cb); }
+export function onCreatureSync(cb)            { socket.on('creatureSync', cb); }
 
 export function sendOstrichKill(idx) { socket.emit('ostrichKill', { idx }); }
 export function onOstrichKill(cb)    { socket.on('ostrichKill', cb); }
