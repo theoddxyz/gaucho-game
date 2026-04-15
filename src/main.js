@@ -2151,6 +2151,15 @@ function gameLoop() {
     }
   }
 
+  // ── Debug: mostrar posición de criaturas para verificar sync ────────────────
+  const _dbg = document.getElementById('creature-debug');
+  if (_dbg && myId) {
+    const _v0 = viboraSystem._entities[0];
+    const _a0 = armadilloSystem._entities[0];
+    _dbg.style.display = 'block';
+    _dbg.textContent = `VIB[0]:(${_v0?.x?.toFixed(0)},${_v0?.z?.toFixed(0)}) ARM[0]:(${_a0?.x?.toFixed(0)},${_a0?.z?.toFixed(0)})`;
+  }
+
   _aberration = Math.max(0, _aberration - dt * 3.5);
   _fxPass.uniforms.aberration.value = _aberration;
   // Day-for-night: smooth transition based on day progress
