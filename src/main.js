@@ -20,7 +20,7 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
-import { CreatureSystem, wormRenderer, armadilloRenderer, condorRenderer } from './creature.js';
+import { CreatureSystem, wormRenderer, armadilloRenderer, condorRenderer, setCreatureSeed } from './creature.js';
 import { SoulSystem } from './souls.js';
 import { SoulMap } from './soulmap.js';
 import { ConversationUI } from './conversation-ui.js';
@@ -368,7 +368,7 @@ const viboraSystem = new CreatureSystem(scene, {
   },
   tau:         { wander: 0.30, flee: 0.10, hunt: 0.20 },
   loot:        [{ hp: 4, hunger: 10, color: 0xc8a050, chance: 0.75 }],
-  renderer:    wormRenderer({ segCount: 6, spacing: 0.30, baseR: 0.14, color: 0xc8a050, eyeColor: 0x330000 }),
+  renderer:    wormRenderer({ segCount: 6, spacing: 0.28, baseR: 0.07, color: 0xc8a050, eyeColor: 0x330000 }),
   respawnDelay: 90,
 }, [
   { x:  18, z:  -72 }, { x: -22, z:  -68 }, { x:  32, z:  -88 },
@@ -497,6 +497,18 @@ function startGame(name) {
 Network.onJoined((data) => {
   myId   = data.self.id;
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
+
+  // Sincronizar seed de criaturas — todos los clientes en la misma sala
+  // usarán la misma secuencia de números aleatorios.
+  if (data.creatureSeed !== undefined) {
+    setCreatureSeed(data.creatureSeed);
+    const ticks = Math.min(Math.floor((data.roomAge ?? 0) * 60), 7200);
+    if (ticks > 0) {
+      viboraSystem.fastForward(ticks);
+      armadilloSystem.fastForward(ticks);
+      condorSystem.fastForward(ticks);
+    }
+  }
 
   controls.setPosition(data.self.x, data.self.y, data.self.z);
   localPlayerModel = new PlayerModel(scene, { ...data.self, name: '', local: true });
@@ -682,6 +694,13 @@ Network.onJoined((data) => {
 
   // Avestruz sincronizada
   Network.onOstrichKill(({ idx } = {}) => { ostrichSystem.kill(idx ?? 0); Audio.ostrichCall(); });
+
+  // Criaturas ecosistema — hits remotos (sin loot, sin impulso)
+  Network.onCreatureHit(({ species, idx }) => {
+    if (species === 'vibora')    viboraSystem.hit(idx, null, null, false);
+    else if (species === 'armadillo') armadilloSystem.hit(idx, null, null, false);
+    else if (species === 'condor')    condorSystem.hit(idx, null, null, false);
+  });
 
   // Vacas — init with already-corralled state from server
   cowSystem = new CowSystem(scene);
@@ -1302,14 +1321,16 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       }
       else if (scanHit.target.type === 'vibora') {
         const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
-        viboraSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        viboraSystem.hit(scanHit.target.id, scanHit.point, bDir, true);
+        Network.sendCreatureHit('vibora', scanHit.target.id);
         _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 180 });
         Network.sendGameEvent('animal_killed', { detail: `Una víbora del desierto fue abatida.` });
       }
       else if (scanHit.target.type === 'armadillo') {
         const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
         const hpBefore = armadilloSystem._entities[scanHit.target.id]?.hp ?? 0;
-        armadilloSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        armadilloSystem.hit(scanHit.target.id, scanHit.point, bDir, true);
+        Network.sendCreatureHit('armadillo', scanHit.target.id);
         const hpAfter = armadilloSystem._entities[scanHit.target.id]?.hp ?? 0;
         if (hpAfter <= 0 && hpBefore > 0) {
           _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 200 });
@@ -1319,7 +1340,8 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       else if (scanHit.target.type === 'condor') {
         const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
         const hpBefore = condorSystem._entities[scanHit.target.id]?.hp ?? 0;
-        condorSystem.hit(scanHit.target.id, scanHit.point, bDir);
+        condorSystem.hit(scanHit.target.id, scanHit.point, bDir, true);
+        Network.sendCreatureHit('condor', scanHit.target.id);
         const hpAfter = condorSystem._entities[scanHit.target.id]?.hp ?? 0;
         if (hpAfter <= 0 && hpBefore > 0)
           Network.sendGameEvent('animal_killed', { detail: `Un cóndor cayó del cielo pampeano.` });

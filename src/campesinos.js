@@ -212,10 +212,12 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
       curr.y  -= dy * f;
       curr.z  -= dz * f;
     }
-    // Ondulación vertical del cuerpo
-    const t   = i / (SEG_COUNT - 1);
-    const amp = Math.sin(t * Math.PI) * BASE_R * 0.55;
-    curr.y = BASE_R * 0.7 + amp * Math.sin(wt * 3.5 - i * 0.55);
+    // Ondulación vertical del cuerpo (mínimo: tubo no clip con suelo)
+    const t    = i / (SEG_COUNT - 1);
+    const tSin = Math.sin(t * Math.PI);
+    const amp  = tSin * BASE_R * 0.55;
+    const minY = BASE_R * (1.05 + tSin); // asegura fondo del tubo ≥ 0
+    curr.y = Math.max(minY, BASE_R * 1.0 + amp * Math.sin(wt * 3.5 - i * 0.55));
   }
 
   // Actualizar posición de la mesh de cabeza

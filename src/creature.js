@@ -13,11 +13,23 @@
 import * as THREE from 'three';
 import { createRagdollBody, removeRagdollBody, syncMeshFromBody, bodyIsAsleep } from './physics.js';
 
+// ─── PRNG determinístico (mulberry32) ─────────────────────────────────────────
+// Todos los clientes en la misma sala usan la misma seed → misma simulación.
+let _rngState = 12345;
+function _rng() {
+  _rngState |= 0;
+  _rngState = (_rngState + 0x6D2B79F5) | 0;
+  let t = Math.imul(_rngState ^ (_rngState >>> 15), 1 | _rngState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+export function setCreatureSeed(seed) { _rngState = ((seed | 0) || 12345); }
+
 // ─── Utilidades matemáticas compartidas ──────────────────────────────────────
 export function gaussian() {
   let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
+  while (u === 0) u = _rng();
+  while (v === 0) v = _rng();
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
@@ -115,17 +127,19 @@ export function wormRenderer({ segCount = 8, spacing = 0.5, baseR = 0.22, color 
       head.castShadow = true;
       group.add(head);
 
-      // Ojos
-      if (baseR >= 0.14) {
+      // Ojos — pupila vertical (ojito de serpiente)
+      if (baseR >= 0.05) {
         const eyeR     = HEAD_R * 0.28;
         const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
         const pupilMat = new THREE.MeshStandardMaterial({ color: eyeColor });
         for (const sx of [-1, 1]) {
-          const eye   = new THREE.Mesh(new THREE.SphereGeometry(eyeR,   8, 8), eyeWhite);
-          const pupil = new THREE.Mesh(new THREE.SphereGeometry(eyeR*.55, 6, 6), pupilMat);
-          pupil.position.set(0, 0, eyeR * 0.72);
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 8, 6), eyeWhite);
+          eye.scale.set(0.9, 1.25, 0.65); // óvalo vertical
+          // pupila: ranura delgada vertical
+          const pupil = new THREE.Mesh(new THREE.BoxGeometry(eyeR*0.28, eyeR*1.0, eyeR*0.35), pupilMat);
+          pupil.position.set(0, 0, eyeR * 0.6);
           eye.add(pupil);
-          eye.position.set(sx * HEAD_R * 0.50, HEAD_R * 0.32, HEAD_R * 0.82);
+          eye.position.set(sx * HEAD_R * 0.50, HEAD_R * 0.30, HEAD_R * 0.82);
           head.add(eye);
         }
       }
@@ -145,7 +159,7 @@ export function wormRenderer({ segCount = 8, spacing = 0.5, baseR = 0.22, color 
       for (let i = 0; i < segCount; i++)
         segs.push(new THREE.Vector3(spawnX, baseR, spawnZ - i * spacing));
 
-      const rendState = { segs, tube, head, curve, walkT: Math.random() * 10, hitboxes };
+      const rendState = { segs, tube, head, curve, walkT: _rng() * 10, hitboxes };
       scene.add(group);
       return { group, hitboxes, rendState };
     },
@@ -176,8 +190,11 @@ export function wormRenderer({ segCount = 8, spacing = 0.5, baseR = 0.22, color 
           const d    = Math.sqrt(ddx*ddx + ddy*ddy + ddz*ddz);
           if (d > spacing) { const f = (d - spacing) / d; curr.x -= ddx*f; curr.y -= ddy*f; curr.z -= ddz*f; }
           const t   = i / (segCount - 1);
-          const amp = Math.sin(t * Math.PI) * baseR * 0.55;
-          curr.y = baseR * 0.7 + amp * Math.sin(wt * 3.5 - i * 0.55);
+          const tSin = Math.sin(t * Math.PI);
+          const amp  = tSin * baseR * 0.55;
+          // Mínimo: asegurar que el tubo no clip con el suelo (radio efectivo = baseR*(1+tSin))
+          const minY = baseR * (1.05 + tSin);
+          curr.y = Math.max(minY, baseR * 1.0 + amp * Math.sin(wt * 3.5 - i * 0.55));
         }
       }
 
@@ -285,7 +302,7 @@ export function armadilloRenderer({ scale = 1.0, bodyColor = 0xa08060, shellColo
       hitbox.position.y = 0.26*S;
       group.add(hitbox);
 
-      const rendState = { visual, legMeshes, walkT: Math.random() * 10, hitboxes: [hitbox] };
+      const rendState = { visual, legMeshes, walkT: _rng() * 10, hitboxes: [hitbox] };
       scene.add(group);
       return { group, hitboxes: [hitbox], rendState };
     },
@@ -301,9 +318,9 @@ export function armadilloRenderer({ scale = 1.0, bodyColor = 0xa08060, shellColo
         return;
       }
 
-      // Orientar hacia el movimiento
+      // Orientar hacia el movimiento (modelo face +X → atan2(-vz, vx))
       if (entity.moving) {
-        const targetRY = Math.atan2(entity.vx, entity.vz);
+        const targetRY = Math.atan2(-entity.vz, entity.vx);
         let diff = targetRY - visual.rotation.y;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff >  Math.PI) diff -= Math.PI * 2;
@@ -412,7 +429,7 @@ export function condorRenderer({ scale = 1.0 } = {}) {
       hitbox.position.set(0, 0, 0);
       group.add(hitbox);
 
-      const rendState = { visual, wingL, wingR, walkT: Math.random() * 10, hitboxes: [hitbox] };
+      const rendState = { visual, wingL, wingR, walkT: _rng() * 10, hitboxes: [hitbox] };
       scene.add(group);
       return { group, hitboxes: [hitbox], rendState };
     },
@@ -433,9 +450,9 @@ export function condorRenderer({ scale = 1.0 } = {}) {
         return;
       }
 
-      // Orientar hacia el movimiento
+      // Orientar hacia el movimiento (modelo face +X → atan2(-vz, vx))
       if (entity.moving) {
-        const targetRY = Math.atan2(entity.vx, entity.vz);
+        const targetRY = Math.atan2(-entity.vz, entity.vx);
         let diff = targetRY - visual.rotation.y;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff >  Math.PI) diff -= Math.PI * 2;
@@ -495,12 +512,14 @@ export function condorRenderer({ scale = 1.0 } = {}) {
  */
 export class CreatureSystem {
   constructor(scene, config, spawnPoints) {
-    this._scene    = scene;
-    this._config   = config;
-    this._spawns   = spawnPoints;
-    this._entities = [];
-    this._loot     = [];
-    this._parts    = [];
+    this._scene       = scene;
+    this._config      = config;
+    this._spawns      = spawnPoints;
+    this._entities    = [];
+    this._loot        = [];
+    this._parts       = [];
+    this._acc         = 0;        // acumulador para timestep fijo
+    this._lastContext = {};
 
     for (let i = 0; i < config.count; i++) this._spawnEntity(i);
   }
@@ -509,8 +528,8 @@ export class CreatureSystem {
   _spawnEntity(i) {
     const cfg   = this._config;
     const spawn = this._spawns[i % this._spawns.length];
-    const sx    = spawn.x + (Math.random() - 0.5) * 6;
-    const sz    = spawn.z + (Math.random() - 0.5) * 6;
+    const sx    = spawn.x + (_rng() - 0.5) * 6;
+    const sz    = spawn.z + (_rng() - 0.5) * 6;
 
     const { group, hitboxes, rendState } = cfg.renderer.build(i, this._scene, sx, sz);
 
@@ -524,7 +543,7 @@ export class CreatureSystem {
       hp: cfg.hp,
       state: 'wander',
       waypoint: { x: sx, z: sz },
-      wpTimer:    Math.random() * 3,
+      wpTimer:    _rng() * 3,
       panicTimer: 0,
       dead: false,
       removeTimer: 0,
@@ -557,13 +576,15 @@ export class CreatureSystem {
   }
 
   // ── Recibir impacto de bala ────────────────────────────────────────────────
-  hit(entityIdx, hitPoint, bulletDir) {
+  // isLocal=true → el jugador local disparó (genera loot, impulso)
+  // isLocal=false → evento remoto (solo aplica daño/muerte, sin loot)
+  hit(entityIdx, hitPoint, bulletDir, isLocal = true) {
     const e = this._entities[entityIdx];
     if (!e || e.dead) return;
     e.hp -= 1;
 
-    // Impulso en la dirección del disparo
-    if (bulletDir) {
+    // Impulso en la dirección del disparo (solo local)
+    if (isLocal && bulletDir) {
       const len = Math.sqrt(bulletDir.x*bulletDir.x + bulletDir.z*bulletDir.z) || 1;
       const f   = 18;
       e.vx = (bulletDir.x / len) * f;
@@ -576,8 +597,8 @@ export class CreatureSystem {
       e.dead = true;
       e.state = 'dead';
       e.removeTimer = this._config.respawnDelay ?? 60;
-      for (const hb of e.hitboxes) hb.userData.creatureEntityIdx = -1; // desregistrar del raycast
-      this._spawnLoot(e, hitPoint);
+      for (const hb of e.hitboxes) hb.userData.creatureEntityIdx = -1;
+      if (isLocal) this._spawnLoot(e, hitPoint);
     }
   }
 
@@ -590,12 +611,12 @@ export class CreatureSystem {
         new THREE.SphereGeometry(0.18, 6, 6),
         new THREE.MeshStandardMaterial({ color: def.color ?? 0x8b4513, roughness: 0.8 })
       );
-      const ox = (Math.random() - 0.5) * 2;
-      const oz = (Math.random() - 0.5) * 2;
+      const ox = (_rng() - 0.5) * 2;
+      const oz = (_rng() - 0.5) * 2;
       mesh.position.set(e.x + ox, 0.3, e.z + oz);
       mesh.castShadow = true;
       this._scene.add(mesh);
-      this._loot.push({ mesh, t: 0, baseY: 0.3, bobPhase: Math.random()*Math.PI*2, def, life: 120 });
+      this._loot.push({ mesh, t: 0, baseY: 0.3, bobPhase: _rng()*Math.PI*2, def, life: 120 });
     }
   }
 
@@ -619,20 +640,14 @@ export class CreatureSystem {
     return null;
   }
 
-  // ── Update principal (llamar cada frame desde main.js) ────────────────────
-  // context: { playerPos: {x,z}, preyPositions: [{x,z}] }
-  update(dt, context) {
+  // ── Paso de simulación determinístico (timestep fijo) ────────────────────
+  _step(dt, context) {
     const cfg       = this._config;
     const playerPos = context?.playerPos;
 
-    tickFlyingParts(this._scene, this._parts, dt);
-
     for (const e of this._entities) {
-      // Muerto — colapso visual + respawn
       if (e.dead) {
         e.removeTimer -= dt;
-        e.group.position.set(e.x, e.y ?? 0, e.z);
-        cfg.renderer.update(e.group, e.rendState, e, dt);
         if (e.removeTimer <= 0) {
           cfg.renderer.removeVisuals(this._scene, e.group);
           this._spawnEntity(e.idx);
@@ -640,16 +655,12 @@ export class CreatureSystem {
         continue;
       }
 
-      // ── Determinar estado AI ───────────────────────────────────────────────
       let nextState = e.state;
-
-      // Pánico — cooldown
       if (e.panicTimer > 0) {
         e.panicTimer -= dt;
         if (e.panicTimer <= 0 && nextState === 'flee') nextState = 'wander';
       }
 
-      // Detectar predadores (jugador + predatorPositions pasados en context)
       const _threats = [];
       if (playerPos) _threats.push(playerPos);
       if (context?.predatorPositions) for (const p of context.predatorPositions) _threats.push(p);
@@ -663,16 +674,15 @@ export class CreatureSystem {
           e.panicTimer = 4.0;
           const d  = Math.sqrt(d2) || 1;
           const wr = cfg.states?.flee?.wpRadius ?? [15, 30];
-          const r  = wr[0] + Math.random() * (wr[1] - wr[0]);
+          const r  = wr[0] + _rng() * (wr[1] - wr[0]);
           e.waypoint.x = e.x + (dx/d) * r;
           e.waypoint.z = e.z + (dz/d) * r;
           const ts = cfg.states?.flee?.timer ?? [3, 6];
-          e.wpTimer = ts[0] + Math.random() * (ts[1] - ts[0]);
-          break; // un predador es suficiente
+          e.wpTimer = ts[0] + _rng() * (ts[1] - ts[0]);
+          break;
         }
       }
 
-      // Detectar presa (hunt)
       if (nextState === 'wander') {
         const prey = context?.preyPositions;
         if (prey?.length) {
@@ -688,88 +698,87 @@ export class CreatureSystem {
             e.waypoint.x = best.x;
             e.waypoint.z = best.z;
             const ts = cfg.states?.hunt?.timer ?? [4, 8];
-            e.wpTimer = ts[0] + Math.random() * (ts[1] - ts[0]);
+            e.wpTimer = ts[0] + _rng() * (ts[1] - ts[0]);
           }
         }
       }
 
       e.state = nextState;
 
-      // ── dBBMM ─────────────────────────────────────────────────────────────
-      const sKey  = nextState === 'flee' ? 'flee' : nextState === 'hunt' ? 'hunt' : 'wander';
-      const sp    = cfg.states?.[sKey] ?? cfg.states?.wander ?? { sigma: 1.5, speed: 1.0, wpRadius: [5, 15], timer: [3, 8] };
+      const sKey = nextState === 'flee' ? 'flee' : nextState === 'hunt' ? 'hunt' : 'wander';
+      const sp   = cfg.states?.[sKey] ?? cfg.states?.wander ?? { sigma: 1.5, speed: 1.0, wpRadius: [5, 15], timer: [3, 8] };
 
-      // Timer de waypoint
       e.wpTimer -= dt;
       const wpDx   = e.waypoint.x - e.x, wpDz = e.waypoint.z - e.z;
       const wpDist = Math.sqrt(wpDx*wpDx + wpDz*wpDz);
 
       if (e.wpTimer <= 0 || (wpDist < 1.2 && nextState !== 'hunt')) {
-        // Nuevo waypoint — con leash de home si wander
         const wr = sp.wpRadius;
-        const r  = wr[0] + Math.random() * (wr[1] - wr[0]);
-        let ang  = Math.random() * Math.PI * 2;
-
+        const r  = wr[0] + _rng() * (wr[1] - wr[0]);
+        let ang  = _rng() * Math.PI * 2;
         if (nextState === 'wander') {
-          const hdx   = e.spawnX - e.x, hdz = e.spawnZ - e.z;
-          const hDist = Math.sqrt(hdx*hdx + hdz*hdz);
-          const homeR = cfg.homeRadius ?? 25;
-          if (hDist > homeR) {
-            // Forzar retorno al home
-            ang = Math.atan2(hdz, hdx) + (Math.random() - 0.5) * 0.8;
-          }
+          const hdx = e.spawnX - e.x, hdz = e.spawnZ - e.z;
+          if (Math.sqrt(hdx*hdx + hdz*hdz) > (cfg.homeRadius ?? 25))
+            ang = Math.atan2(hdz, hdx) + (_rng() - 0.5) * 0.8;
         }
-
         e.waypoint.x = e.x + Math.cos(ang) * r;
         e.waypoint.z = e.z + Math.sin(ang) * r;
         const ts = sp.timer;
-        e.wpTimer = ts[0] + Math.random() * (ts[1] - ts[0]);
+        e.wpTimer = ts[0] + _rng() * (ts[1] - ts[0]);
       }
 
-      // Drift hacia waypoint
-      const wl   = Math.sqrt(wpDx*wpDx + wpDz*wpDz) || 1;
-      const drift = sp.speed;
-      const driftX = (wpDx / wl) * drift;
-      const driftZ = (wpDz / wl) * drift;
-
-      // Ruido browniano
+      const wl     = Math.sqrt(wpDx*wpDx + wpDz*wpDz) || 1;
+      const driftX = (wpDx / wl) * sp.speed;
+      const driftZ = (wpDz / wl) * sp.speed;
       const sig    = sp.sigma * Math.sqrt(dt);
       const noiseX = gaussian() * sig;
       const noiseZ = gaussian() * sig;
-
-      // Cap de velocidad
       let tvx = driftX + noiseX, tvz = driftZ + noiseZ;
       const spd = Math.sqrt(tvx*tvx + tvz*tvz);
       if (spd > sp.speed * 1.5) { tvx = tvx/spd*sp.speed*1.5; tvz = tvz/spd*sp.speed*1.5; }
 
-      // Suavizado exponencial
       const tau   = cfg.tau?.[sKey] ?? 0.35;
       const alpha = 1 - Math.exp(-dt / tau);
       e.vx += (tvx - e.vx) * alpha;
       e.vz += (tvz - e.vz) * alpha;
-
-      // Mover
-      e.x += e.vx * dt;
-      e.z += e.vz * dt;
+      e.x  += e.vx * dt;
+      e.z  += e.vz * dt;
       e.speed  = Math.sqrt(e.vx*e.vx + e.vz*e.vz);
       e.moving = e.speed > 0.15;
 
-      // Altura de vuelo (soarHeight) — solo si el config lo define
       if (cfg.soarHeight !== undefined) {
         if (e.y === undefined) e.y = cfg.soarHeight;
-        const wpDist = Math.sqrt((e.waypoint.x-e.x)**2 + (e.waypoint.z-e.z)**2);
-        if (nextState === 'flee' || nextState === 'wander') {
-          e.targetY = cfg.soarHeight;
-        } else if (nextState === 'hunt') {
-          e.targetY = wpDist < 18 ? Math.max(0.4, wpDist * 0.04) : cfg.soarHeight;
-        }
+        const wd = Math.sqrt((e.waypoint.x-e.x)**2 + (e.waypoint.z-e.z)**2);
+        e.targetY = (nextState === 'hunt' && wd < 18)
+          ? Math.max(0.4, wd * 0.04) : cfg.soarHeight;
         e.y += ((e.targetY ?? cfg.soarHeight) - e.y) * Math.min(1, dt * (cfg.ySpeed ?? 2.5));
       }
-
-      // Group position (para frustum culling)
-      e.group.position.set(e.x, e.y ?? 0, e.z);
-
-      cfg.renderer.update(e.group, e.rendState, e, dt);
     }
+  }
+
+  // ── Update principal (llamar cada frame desde main.js) ────────────────────
+  // context: { playerPos: {x,z}, preyPositions: [{x,z}] }
+  update(realDt, context) {
+    this._lastContext = context;
+
+    // Simulación a timestep fijo (determinístico, sincronizado entre clientes)
+    const FIXED = 1 / 60;
+    this._acc += realDt;
+    while (this._acc >= FIXED) {
+      this._step(FIXED, context);
+      this._acc -= FIXED;
+    }
+
+    // Actualización visual a frame rate real (animaciones suaves)
+    tickFlyingParts(this._scene, this._parts, realDt);
+    for (const e of this._entities) {
+      e.group.position.set(e.x, e.y ?? 0, e.z);
+      this._config.renderer.update(e.group, e.rendState, e, realDt);
+    }
+  }
+
+  // Avance rápido para jugadores que se unen tarde (consume la misma secuencia RNG)
+  fastForward(ticks, context = {}) {
+    for (let i = 0; i < ticks; i++) this._step(1 / 60, context);
   }
 }

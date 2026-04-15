@@ -32,6 +32,17 @@ if (IS_PROD) {
 // --- Game state ---
 const rooms         = new Map();
 const corralledCows = new Map();   // roomId → Set<cowId>
+const roomMeta      = new Map();   // roomId → { seed, createdAt }
+
+function getRoomMeta(roomId) {
+  if (!roomMeta.has(roomId)) {
+    // Seed determinístico derivado del roomId
+    let h = 0x811c9dc5;
+    for (let i = 0; i < roomId.length; i++) h = Math.imul(h ^ roomId.charCodeAt(i), 0x01000193) >>> 0;
+    roomMeta.set(roomId, { seed: h, createdAt: Date.now() });
+  }
+  return roomMeta.get(roomId);
+}
 
 // ─── Bot system ───────────────────────────────────────────────────────────────
 const BOTS_ENABLED       = false;            // ← set true to re-enable enemies
@@ -488,11 +499,14 @@ io.on('connection', (socket) => {
       botWaveStates.delete(currentRoom);
     }
 
+    const meta = getRoomMeta(currentRoom);
     socket.emit('joined', {
       self: playerData,
       players: Object.fromEntries(room),
       roomId: currentRoom,
       corralledCows: [...(corralledCows.get(currentRoom) ?? [])],
+      creatureSeed: meta.seed,
+      roomAge: (Date.now() - meta.createdAt) / 1000,
     });
 
     socket.to(currentRoom).emit('playerJoined', playerData);
@@ -690,6 +704,11 @@ io.on('connection', (socket) => {
     if (player) player.invincible = !player.invincible;
   });
 
+  socket.on('creatureHit', (data) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('creatureHit', data);
+  });
+
   socket.on('ostrichKill', ({ idx } = {}) => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('ostrichKill', { idx: idx ?? 0 });
@@ -843,6 +862,7 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
         rooms.delete(currentRoom);
         npcSessions.delete(currentRoom);
         corralledCows.delete(currentRoom);
+        roomMeta.delete(currentRoom);
       }
     }
   });
