@@ -497,9 +497,10 @@ Network.onBecomeHost(() => {
 });
 
 // Host sends immediate snapshot when server requests it (new player joined)
+// reliable=true so the first snapshot is never dropped
 Network.onRequestCreatureSync(() => {
   if (!isHost) return;
-  _sendHostCreatureSync();
+  _sendHostCreatureSync(true);
 });
 
 let _musicPlayer = null;
@@ -1570,9 +1571,9 @@ let _wasDawn       = false;   // para pajaros al amanecer
 let _wasInAir      = false;
 
 // ── Host creature sync: serialize all animal positions and send to server ─────
-function _sendHostCreatureSync() {
+function _sendHostCreatureSync(reliable = false) {
   if (!isHost) return;
-  Network.sendHostCreatureSync({
+  const payload = {
     vibora:    viboraSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
     armadillo: armadilloSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
     condor:    condorSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
@@ -1580,7 +1581,8 @@ function _sendHostCreatureSync() {
     chicken:   (chickenSystem?._chickens ?? []).map((c,i) => c.removed ? { idx:i, dead:true } : { idx:i, x:c.mesh?.position.x ?? 0, z:c.mesh?.position.z ?? 0, vx:c.vx, vz:c.vz }),
     cow:       (cowSystem?._cows ?? []).map((c,i) => c.removed ? { idx:i, dead:true } : { idx:i, x:c.mesh?.position.x ?? 0, z:c.mesh?.position.z ?? 0, vx:c.vx, vz:c.vz }),
     bird:      (birdSystem?._syncBirds ?? []).map(b => ({ idx:b.syncIdx, x:b.x, z:b.z, y:b.mesh?.position.y ?? 0 })),
-  });
+  };
+  Network.sendHostCreatureSync(payload, reliable);
 }
 
 function gameLoop() {
@@ -2189,13 +2191,14 @@ function gameLoop() {
     }
   }
 
-  // ── Debug: mostrar posición de criaturas para verificar sync ────────────────
+  // ── Debug: HOST/VIEWER + coords para verificar sync ─────────────────────────
   const _dbg = document.getElementById('creature-debug');
   if (_dbg && myId) {
-    const _v0 = viboraSystem._entities[0];
-    const _a0 = armadilloSystem._entities[0];
+    const _v0  = viboraSystem._entities[0];
+    const _ch0 = chickenSystem?._chickens?.[0];
+    const _ost0 = ostrichSystem._entities[0];
     _dbg.style.display = 'block';
-    _dbg.textContent = `VIB[0]:(${_v0?.x?.toFixed(0)},${_v0?.z?.toFixed(0)}) ARM[0]:(${_a0?.x?.toFixed(0)},${_a0?.z?.toFixed(0)})`;
+    _dbg.textContent = `[${isHost ? 'HOST' : 'VIEWER'}] VIB[0]:(${_v0?.x?.toFixed(0)},${_v0?.z?.toFixed(0)}) CHK[0]:(${_ch0?.mesh?.position.x?.toFixed(0)},${_ch0?.mesh?.position.z?.toFixed(0)}) OST[0]:(${_ost0?.mesh?.position.x?.toFixed(0)},${_ost0?.mesh?.position.z?.toFixed(0)})`;
   }
 
   // ── Host: broadcast creature positions to server for relay ───────────────

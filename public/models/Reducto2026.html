@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reducto — Replanteo de Contenido 2026 — ODD</title>
+<style>
+/* ── Aileron (Body / Labels) ── */
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-Thin.woff') format('woff'); font-weight: 100; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-UltraLight.woff') format('woff'); font-weight: 200; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-Light.woff') format('woff'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-Regular.woff') format('woff'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-SemiBold.woff') format('woff'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-Bold.woff') format('woff'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Aileron'; src: url('https://odd-enterprises.com/assets/fonts/Aileron-Heavy.woff') format('woff'); font-weight: 900; font-style: normal; font-display: swap; }
+
+/* ── Redaction (Headlines / Titles / Display) ── */
+@font-face { font-family: 'Redaction'; src: url('https://odd-enterprises.com/assets/fonts/Redaction-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Redaction'; src: url('https://odd-enterprises.com/assets/fonts/Redaction-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Redaction'; src: url('https://odd-enterprises.com/assets/fonts/Redaction-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Redaction 35'; src: url('https://odd-enterprises.com/assets/fonts/Redaction_35-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Redaction 35'; src: url('https://odd-enterprises.com/assets/fonts/Redaction_35-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --neon: #D4F000;
+  --dark: #1A1A18;
+  --sand: #EDE8DF;
+  --rust: #C05A35;
+  --white: #F5F2EC;
+}
+html { scroll-behavior: smooth; }
+body { font-family: 'Aileron', sans-serif; background: var(--dark); color: var(--dark); overflow: hidden; cursor: none; }
+
+.cursor { position: fixed; width: 12px; height: 12px; background: var(--neon); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%, -50%); transition: width 0.2s, height 0.2s; mix-blend-mode: difference; }
+.cursor.big { width: 40px; height: 40px; }
+
+.progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--neon); z-index: 1000; transition: width 0.2s; width: 0%; }
+
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 500; padding: 1.5rem 4.5rem; display: flex; justify-content: flex-end; align-items: center; }
+.nav-logo { position: fixed; top: 1.5rem; left: 4.5rem; z-index: 600; mix-blend-mode: difference; pointer-events: none; }
+.nav-logo svg { width: 52px; height: 24px; display: block; }
+.nav-logo svg path { fill: #ffffff; }
+.nav-right { font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.3); }
+.nav-right span { color: var(--neon); }
+
+.slide { width: 100vw; height: 100vh; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+.slide-num { position: absolute; bottom: 2rem; right: 3rem; font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.25; z-index: 10; }
+
+.tag { display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; border-radius: 100px; font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.tag-dark { background: var(--dark); color: var(--white); }
+.tag-neon { background: var(--neon); color: var(--dark); }
+.tag-sand { background: var(--sand); color: var(--dark); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot-neon { background: var(--neon); }
+.dot-dark { background: var(--dark); }
+.dot-sand { background: var(--sand); }
+
+.split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+.col-l { padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 1.75rem; }
+.col-r { display: flex; flex-direction: column; justify-content: center; padding: 4rem 4.5rem 4rem 2rem; gap: 1.5rem; }
+
+.headline-xl { font-family: 'Redaction', serif; font-size: clamp(48px, 5.5vw, 76px); line-height: 1.0; }
+.headline-lg { font-family: 'Redaction', serif; font-size: clamp(36px, 4vw, 56px); line-height: 1.05; }
+.headline-sm { font-family: 'Redaction', serif; font-size: clamp(28px, 3vw, 42px); line-height: 1.1; }
+.body-text { font-family: 'Aileron', sans-serif; font-size: 15px; line-height: 1.7; max-width: 420px; }
+.label-xs { font-family: 'Aileron', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.45; }
+
+.reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.65s ease, transform 0.65s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+.reveal-d1 { transition-delay: 0.08s; }
+.reveal-d2 { transition-delay: 0.18s; }
+.reveal-d3 { transition-delay: 0.3s; }
+.reveal-d4 { transition-delay: 0.44s; }
+.reveal-d5 { transition-delay: 0.58s; }
+.reveal-d6 { transition-delay: 0.72s; }
+
+/* ── COVER ── */
+#s1 { background: var(--sand); }
+.cover-wrap { flex: 1; padding: 5rem 4.5rem 4rem; display: flex; flex-direction: column; justify-content: space-between; }
+.cover-meta { display: flex; justify-content: space-between; align-items: flex-start; }
+.cover-label { font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(26,26,24,0.38); }
+.cover-headline { font-family: 'Redaction', serif; font-size: clamp(60px, 8vw, 108px); line-height: 0.93; color: var(--dark); }
+.cover-headline em { font-style: italic; }
+.cover-bottom { background: var(--neon); border-radius: 10px; padding: 20px 28px; display: flex; align-items: center; justify-content: space-between; }
+.cover-bottom-l { font-family: 'Aileron', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dark); }
+.cover-arrow { width: 38px; height: 38px; border-radius: 50%; background: var(--dark); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+/* ── STATEMENT (sand) ── */
+.statement-inner { flex: 1; display: flex; align-items: center; padding: 5rem 4.5rem; position: relative; }
+.statement-h { font-family: 'Redaction', serif; font-size: clamp(46px, 6.5vw, 86px); line-height: 0.97; color: var(--dark); max-width: 820px; }
+.statement-h em { font-style: italic; color: var(--rust); }
+.statement-sub { font-family: 'Aileron', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(26,26,24,0.38); margin-top: 2rem; }
+
+/* ── SECTION DIVIDER (dark) ── */
+.section-inner { flex: 1; padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: flex-end; }
+.section-num { font-family: 'Aileron', sans-serif; font-size: 130px; font-weight: 900; color: rgba(212,240,0,0.06); line-height: 1; position: absolute; top: 3rem; right: 4rem; letter-spacing: -0.04em; }
+.section-label { font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(212,240,0,0.45); margin-bottom: 1.25rem; }
+.section-h { font-family: 'Redaction', serif; font-size: clamp(64px, 9vw, 120px); line-height: 0.9; color: var(--white); }
+.section-h em { font-style: italic; color: var(--neon); }
+
+/* ── CARDS GRID ── */
+.cards-inner { flex: 1; padding: 4.5rem 4.5rem 5rem; display: flex; flex-direction: column; gap: 2rem; }
+.cards-header { display: flex; flex-direction: column; gap: 0.75rem; }
+.cards-title { font-family: 'Redaction', serif; font-size: clamp(32px, 3.5vw, 46px); line-height: 1.05; color: var(--white); }
+.cards-grid { display: grid; gap: 12px; flex: 1; }
+.cards-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.cards-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.cards-grid-4 { grid-template-columns: repeat(4, 1fr); }
+.card { background: rgba(255,255,255,0.04); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 2rem; display: flex; flex-direction: column; gap: 1rem; transition: background 0.2s; }
+.card:hover { background: rgba(212,240,0,0.06); }
+.card-num { font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--neon); }
+.card-title { font-family: 'Aileron', sans-serif; font-size: 16px; font-weight: 700; color: var(--white); line-height: 1.3; }
+.card-body { font-family: 'Aileron', sans-serif; font-size: 13.5px; line-height: 1.65; color: rgba(245,242,236,0.65); }
+.card-tag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 100px; font-family: 'Aileron', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(212,240,0,0.12); color: var(--neon); align-self: flex-start; margin-top: auto; }
+
+/* ── SPLIT CONTENT (dark) ── */
+.split-inner { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+.split-left { padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 2rem; border-right: 0.5px solid rgba(255,255,255,0.06); }
+.split-right { padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 2rem; }
+.content-label { font-family: 'Aileron', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--neon); opacity: 0.7; }
+.content-title { font-family: 'Redaction', serif; font-size: clamp(28px, 3.2vw, 44px); line-height: 1.05; color: var(--white); }
+.content-body { font-family: 'Aileron', sans-serif; font-size: 14px; line-height: 1.7; color: rgba(245,242,236,0.68); max-width: 380px; }
+.content-format { display: flex; flex-direction: column; gap: 8px; }
+.format-row { display: flex; align-items: flex-start; gap: 10px; font-family: 'Aileron', sans-serif; font-size: 13px; color: rgba(245,242,236,0.6); line-height: 1.5; }
+.format-row .dot { margin-top: 6px; flex-shrink: 0; }
+
+/* ── PILARES ── */
+.pilares-inner { flex: 1; padding: 4.5rem 4.5rem 5rem; display: flex; flex-direction: column; gap: 2.5rem; }
+.pilar-item { display: flex; align-items: center; gap: 20px; padding: 18px 22px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.07); transition: background 0.2s; }
+.pilar-item:hover { background: rgba(212,240,0,0.07); }
+.pilar-num { font-family: 'Aileron', sans-serif; font-size: 32px; font-weight: 900; color: var(--neon); min-width: 48px; line-height: 1; opacity: 0.85; }
+.pilar-text { font-family: 'Aileron', sans-serif; font-size: 16px; font-weight: 600; color: var(--white); line-height: 1.3; }
+.pilar-sub { font-family: 'Aileron', sans-serif; font-size: 12px; color: rgba(245,242,236,0.4); margin-top: 3px; font-weight: 400; }
+
+/* ── OBJETIVOS COMERCIALES: tachado ── */
+#s4 .card-title,
+#s4 .card-body { text-decoration: line-through; text-decoration-color: currentColor; }
+
+/* ── OBJETIVOS SPLIT (sand + dark) ── */
+.obj-inner { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+.obj-left { background: var(--sand); padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 2rem; }
+.obj-right { background: var(--dark); padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 2rem; }
+.obj-item { display: flex; align-items: flex-start; gap: 14px; }
+.obj-bullet { width: 8px; height: 8px; border-radius: 50%; background: var(--neon); flex-shrink: 0; margin-top: 6px; }
+.obj-bullet-dark { background: var(--dark); }
+.obj-text { font-family: 'Aileron', sans-serif; font-size: 14px; line-height: 1.65; color: rgba(26,26,24,0.8); }
+.obj-text-light { color: rgba(245,242,236,0.75); }
+
+/* ── THANKS ── */
+.thanks-inner { flex: 1; padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; }
+.thanks-h { font-family: 'Redaction', serif; font-size: clamp(96px, 14vw, 170px); color: var(--neon); line-height: 0.88; }
+.thanks-sub { font-family: 'Aileron', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(245,242,236,0.35); margin-top: 2.5rem; }
+
+/* ── NAV DOTS ── */
+.nav-dots { position: fixed; right: 1.75rem; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 14px; z-index: 400; }
+.nav-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.18); cursor: pointer; transition: background 0.2s, transform 0.2s; }
+.nav-dot.active { background: var(--neon); transform: scale(1.5); }
+.nav-dot:hover { background: rgba(255,255,255,0.5); }
+
+/* ── NEXT ARROW ── */
+.next-arrow-btn { position: fixed; bottom: 2.5rem; right: 4.5rem; z-index: 400; width: 44px; height: 44px; border-radius: 50%; background: var(--dark); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; mix-blend-mode: difference; transition: transform 0.2s, opacity 0.2s; }
+.next-arrow-btn:hover { transform: scale(1.12); }
+.next-arrow-btn.hidden { opacity: 0; pointer-events: none; }
+
+/* ── BACK TO MENU ── */
+.back-menu-btn { position: fixed; top: 1.5rem; right: 4.5rem; z-index: 600; display: flex; align-items: center; gap: 8px; padding: 7px 16px 7px 12px; border-radius: 100px; background: rgba(212,240,0,0.1); border: 0.5px solid rgba(212,240,0,0.2); cursor: pointer; font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--neon); transition: background 0.2s, opacity 0.2s, transform 0.2s; }
+.back-menu-btn:hover { background: rgba(212,240,0,0.18); }
+.back-menu-btn.hidden { opacity: 0; pointer-events: none; transform: translateY(-4px); }
+
+.key-hint { position: fixed; bottom: 1.75rem; left: 50%; transform: translateX(-50%); font-family: 'Aileron', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.18); z-index: 400; display: flex; gap: 8px; align-items: center; transition: opacity 0.6s; }
+.key { padding: 3px 9px; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; }
+
+/* ── PASSWORD GATE ── */
+#pw-gate{position:fixed;inset:0;z-index:9999;background:var(--dark);display:flex;align-items:center;justify-content:center;transition:opacity .5s ease,visibility .5s ease}
+#pw-gate.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.pw-box{text-align:center;max-width:380px;padding:0 24px}
+.pw-logo{margin-bottom:40px;opacity:.12}
+.pw-logo svg{width:64px;height:auto}
+.pw-title{font-family:'Redaction',serif;font-size:clamp(22px,3vw,30px);font-weight:400;font-style:italic;color:var(--white);margin-bottom:8px;letter-spacing:-.01em}
+.pw-sub{font-family:'Aileron',sans-serif;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:rgba(245,242,236,.3);margin-bottom:32px}
+.pw-field{display:flex;border:1px solid rgba(255,255,255,.1);border-radius:6px;overflow:hidden;transition:border-color .2s}
+.pw-field:focus-within{border-color:var(--neon)}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.pw-field.error{border-color:#e74c3c;animation:shake .4s ease}
+.pw-input{flex:1;background:transparent;border:none;outline:none;color:var(--white);font-family:'Aileron',sans-serif;font-size:14px;font-weight:400;padding:14px 18px;letter-spacing:.04em}
+.pw-input::placeholder{color:rgba(245,242,236,.2)}
+.pw-btn{background:var(--neon);border:none;color:var(--dark);font-family:'Aileron',sans-serif;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:14px 22px;cursor:pointer;transition:opacity .2s}
+.pw-btn:hover{opacity:.85}
+.pw-error-msg{font-family:'Aileron',sans-serif;font-size:11px;color:#e74c3c;margin-top:12px;opacity:0;transition:opacity .2s}
+.pw-error-msg.show{opacity:1}
+.pw-footer{font-family:'Aileron',sans-serif;font-size:10px;color:rgba(245,242,236,.15);letter-spacing:.08em;text-transform:uppercase;margin-top:48px}
+
+/* ── SECTION MINI HEADER (for strategy sub-sections) ── */
+.mini-section-inner { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+.mini-left { padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 1.5rem; border-right: 0.5px solid rgba(255,255,255,0.06); }
+.mini-right { padding: 5rem 4.5rem; display: flex; flex-direction: column; justify-content: center; gap: 1rem; }
+.mini-eyebrow { font-family: 'Aileron', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(212,240,0,0.5); }
+.mini-headline { font-family: 'Redaction', serif; font-size: clamp(38px, 5vw, 64px); line-height: 0.97; color: var(--white); }
+.mini-headline em { font-style: italic; color: var(--neon); }
+.mini-desc { font-family: 'Aileron', sans-serif; font-size: 14px; line-height: 1.7; color: rgba(245,242,236,0.6); max-width: 360px; }
+</style>
+</head>
+<body>
+
+<!-- PASSWORD GATE -->
+<div id="pw-gate">
+  <div class="pw-box">
+    <div class="pw-logo">
+      <svg width="70" height="32" viewBox="0 0 70 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M69.8495 16C69.8495 7.16332 54.2131 0 34.9247 0C34.6519 0 34.3798 0.00171187 34.1087 0.00427968C17.3199 0.180602 3.45815 5.78441 0.558624 13.136C0.192215 14.0656 0 15.0225 0 16C0 16.9775 0.186208 17.9079 0.54232 18.8246C3.42554 26.2413 17.4632 31.8887 34.4245 31.9983C34.5909 31.9991 34.7574 32 34.9247 32C54.1625 32 69.7662 24.8743 69.8486 16.0702C69.8486 16.0479 69.8495 16.0257 69.8495 16.0034C69.8495 16.0034 69.8495 16.0026 69.8495 16.0017C69.8495 16.0009 69.8495 16.0009 69.8495 16ZM52.3167 16.0026C52.1631 24.5808 47.9773 30.0356 33.363 30.0836C18.5487 30.1324 18.2141 24.1699 18.2776 16.0026C18.3462 7.21554 18.6019 2.10475 33.363 2.13299C48.1361 2.16124 52.4626 7.83609 52.3167 16.0026Z" fill="#ffffff"/>
+        <path d="M28.4787 3.78516C25.3967 3.78516 20.6328 5.36295 20.6465 13.742V18.1782C20.9129 26.9824 25.8634 28.5594 28.4787 28.5594C39.1265 28.5594 49.8938 27.551 49.8938 16.0361C49.8938 4.52112 40.995 3.78516 28.4787 3.78516ZM27.4182 27.6313C27.2892 27.6313 27.1835 27.5314 27.1835 27.4085C27.1835 27.2855 27.291 27.277 27.4199 27.2787C34.2723 27.3581 38.9607 26.2789 38.9607 16.0361C38.9607 6.3337 36.2835 5.51065 27.5058 5.0923C27.3821 5.08632 27.1706 5.08461 27.1835 4.93093C27.1835 4.80799 27.2291 4.70297 27.358 4.70297C35.8537 4.71236 41.386 4.49465 41.386 16.0361C41.386 27.5775 35.9165 27.6168 27.4182 27.6313ZM27.6382 6.29015C27.523 6.17575 27.6133 5.95462 27.8341 5.97852C31.9441 6.41907 33.8667 7.75439 33.8624 16.0361C33.8581 24.112 32.5878 26.0842 27.8341 26.3865C27.6992 26.395 27.6494 26.3395 27.6382 26.2405C27.6047 25.9502 28.1049 26.2405 28.1126 25.7325V6.62996C28.1126 6.21673 27.731 6.38321 27.6382 6.29015Z" fill="#ffffff"/>
+      </svg>
+    </div>
+    <div class="pw-title">Documento confidencial</div>
+    <div class="pw-sub">Ingrese la clave para acceder</div>
+    <div class="pw-field" id="pw-field">
+      <input type="password" class="pw-input" id="pw-input" placeholder="Contraseña" autocomplete="off">
+      <button class="pw-btn" onclick="checkPw()">Entrar</button>
+    </div>
+    <div class="pw-error-msg" id="pw-error">Contraseña incorrecta</div>
+    <div class="pw-footer">ODD Enterprises · 2026</div>
+  </div>
+</div>
+
+<div class="cursor" id="cursor"></div>
+<div class="progress" id="progress"></div>
+
+<div class="nav-logo">
+  <svg width="70" height="32" viewBox="0 0 70 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M69.8495 16C69.8495 7.16332 54.2131 0 34.9247 0C34.6519 0 34.3798 0.00171187 34.1087 0.00427968C17.3199 0.180602 3.45815 5.78441 0.558624 13.136C0.192215 14.0656 0 15.0225 0 16C0 16.9775 0.186208 17.9079 0.54232 18.8246C3.42554 26.2413 17.4632 31.8887 34.4245 31.9983C34.5909 31.9991 34.7574 32 34.9247 32C54.1625 32 69.7662 24.8743 69.8486 16.0702C69.8486 16.0479 69.8495 16.0257 69.8495 16.0034C69.8495 16.0034 69.8495 16.0026 69.8495 16.0017C69.8495 16.0009 69.8495 16.0009 69.8495 16ZM52.3167 16.0026C52.1631 24.5808 47.9773 30.0356 33.363 30.0836C18.5487 30.1324 18.2141 24.1699 18.2776 16.0026C18.3462 7.21554 18.6019 2.10475 33.363 2.13299C48.1361 2.16124 52.4626 7.83609 52.3167 16.0026Z" fill="#ffffff"/>
+    <path d="M28.4787 3.78516C25.3967 3.78516 20.6328 5.36295 20.6465 13.742V18.1782C20.9129 26.9824 25.8634 28.5594 28.4787 28.5594C39.1265 28.5594 49.8938 27.551 49.8938 16.0361C49.8938 4.52112 40.995 3.78516 28.4787 3.78516ZM27.4182 27.6313C27.2892 27.6313 27.1835 27.5314 27.1835 27.4085C27.1835 27.2855 27.291 27.277 27.4199 27.2787C34.2723 27.3581 38.9607 26.2789 38.9607 16.0361C38.9607 6.3337 36.2835 5.51065 27.5058 5.0923C27.3821 5.08632 27.1706 5.08461 27.1835 4.93093C27.1835 4.80799 27.2291 4.70297 27.358 4.70297C35.8537 4.71236 41.386 4.49465 41.386 16.0361C41.386 27.5775 35.9165 27.6168 27.4182 27.6313ZM27.6382 6.29015C27.523 6.17575 27.6133 5.95462 27.8341 5.97852C31.9441 6.41907 33.8667 7.75439 33.8624 16.0361C33.8581 24.112 32.5878 26.0842 27.8341 26.3865C27.6992 26.395 27.6494 26.3395 27.6382 26.2405C27.6047 25.9502 28.1049 26.2405 28.1126 25.7325V6.62996C28.1126 6.21673 27.731 6.38321 27.6382 6.29015Z" fill="#ffffff"/>
+  </svg>
+</div>
+
+<nav>
+</nav>
+
+<div class="nav-dots" id="navDots"></div>
+<button class="back-menu-btn hidden" id="backMenuBtn" onclick="if(window.goTo)goTo(6)">
+  <svg width="14" height="14" viewBox="0 0 18 18" fill="none"><path d="M14 9H4M9 14l-5-5 5-5" stroke="#D4F000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  Menú
+</button>
+<div class="key-hint" id="keyHint"><span class="key">↑</span><span class="key">↓</span>navegar</div>
+
+
+<!-- 1. COVER -->
+<section class="slide" id="s1">
+  <div class="slide-num" style="color:rgba(26,26,24,0.2);">01 / 20</div>
+  <div class="cover-wrap">
+    <div class="cover-meta">
+      <div class="cover-label">Reducto · Montevideo · 2026</div>
+    </div>
+    <div class="cover-headline reveal reveal-d1">Replanteo de<br><em>contenido.</em></div>
+    <div class="cover-bottom reveal reveal-d3">
+      <div class="cover-bottom-l">Reducto</div>
+      <div class="cover-bottom-l">Estrategia 2026 · ODD</div>
+      <div class="cover-arrow" onclick="if(window.goTo)goTo(1)" style="cursor:pointer;"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 9h10M9 4l5 5-5 5" stroke="#D4F000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 2. PUNTO DE PARTIDA -->
+<section class="slide" id="s2" style="background:var(--sand);">
+  <div class="slide-num" style="color:rgba(26,26,24,0.2);">02 / 20</div>
+  <div class="statement-inner">
+    <div>
+      <div class="tag tag-dark reveal reveal-d1" style="margin-bottom:2.5rem;"><span class="dot dot-neon"></span>Punto de partida</div>
+      <div class="statement-h reveal reveal-d2">Reducto es un espacio donde convergen <em>empresas, talento</em> e innovación.</div>
+      <div class="statement-sub reveal reveal-d3">La comunicación tiene que hacer visible esa convergencia ante el sector.</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 3. SECCIÓN: OBJETIVOS -->
+<section class="slide" id="s3">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">03 / 20</div>
+  <div class="section-inner">
+    <div class="section-num">01</div>
+    <div class="section-label reveal reveal-d1">Bloque 01</div>
+    <div class="section-h reveal reveal-d2">Objetivos<em>.</em></div>
+  </div>
+</section>
+
+
+<!-- 4. OBJETIVOS COMERCIALES -->
+<section class="slide" id="s4">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">04 / 20</div>
+  <div class="cards-inner">
+    <div class="cards-header">
+      <div class="tag tag-neon reveal reveal-d1"><span class="dot dot-dark"></span>Objetivos comerciales</div>
+      <div class="cards-title reveal reveal-d2">Qué necesita<br>lograr Reducto.</div>
+    </div>
+    <div class="cards-grid cards-grid-3" style="flex:1;">
+      <div class="card reveal reveal-d3">
+        <div class="card-num">01</div>
+        <div class="card-title">Contribuir al ecosistema</div>
+        <div class="card-body">Impulsar el crecimiento de las empresas instaladas, la comunidad ampliada y Uruguay como hub. Una simbiosis.</div>
+      </div>
+      <div class="card reveal reveal-d4">
+        <div class="card-num">02</div>
+        <div class="card-title">Crecer en Virtual Production</div>
+        <div class="card-body">Aumentar el uso del servicio de Virtual Production una vez que esté disponible en su totalidad.</div>
+        <div class="card-tag">Próximamente</div>
+      </div>
+      <div class="card reveal reveal-d5">
+        <div class="card-num">03</div>
+        <div class="card-title">Aumentar la ocupación del estudio</div>
+        <div class="card-body">Incrementar la frecuencia y diversidad de rodajes que se realizan en Reducto.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 5. OBJETIVOS DE COMUNICACIÓN -->
+<section class="slide" id="s5">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">05 / 20</div>
+  <div class="cards-inner">
+    <div class="cards-header">
+      <div class="tag tag-neon reveal reveal-d1"><span class="dot dot-dark"></span>Objetivos de comunicación</div>
+      <div class="cards-title reveal reveal-d2">Cómo queremos<br>ser percibidos.</div>
+    </div>
+    <div class="cards-grid cards-grid-3" style="flex:1;">
+      <div class="card reveal reveal-d3">
+        <div class="card-num">01</div>
+        <div class="card-title">Poner en valor el talento</div>
+        <div class="card-body">Visibilizar el talento que trabaja en las empresas instaladas en Reducto y la comunidad ampliada del ecosistema.</div>
+      </div>
+      <div class="card reveal reveal-d4">
+        <div class="card-num">02</div>
+        <div class="card-title">Referentes en innovación</div>
+        <div class="card-body">Posicionarnos como referentes en nuevas tecnologías y el futuro de la industria, incluyendo el servicio de Virtual Production.</div>
+      </div>
+      <div class="card reveal reveal-d5">
+        <div class="card-num">03</div>
+        <div class="card-title"><s>Instalar la idea</s></div>
+        <div class="card-body"><s>Producir en Reducto es producir mejor. La calidad, la experiencia y el detalle son el respaldo — nunca lo diremos de forma literal.</s></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 6. SECCIÓN: ESTRATEGIA -->
+<section class="slide" id="s6">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">06 / 20</div>
+  <div class="section-inner">
+    <div class="section-num">02</div>
+    <div class="section-label reveal reveal-d1">Bloque 02</div>
+    <div class="section-h reveal reveal-d2">Estrategia<em>.</em></div>
+  </div>
+</section>
+
+
+<!-- 7. LAS 4 LÍNEAS -->
+<section class="slide" id="s7">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">07 / 20</div>
+  <div class="pilares-inner">
+    <div>
+      <div class="tag tag-neon reveal reveal-d1" style="margin-bottom:1.5rem;"><span class="dot dot-dark"></span>3 líneas de acción</div>
+      <div style="font-family:'Redaction',serif; font-size:clamp(28px,3.2vw,42px); color:var(--white); line-height:1.05;" class="reveal reveal-d2">Del concepto a lo que se toca.</div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px; flex:1; justify-content:center;">
+      <div class="pilar-item reveal reveal-d2" onclick="if(window.goTo)goTo(7)" style="cursor:pointer;">
+        <div class="pilar-num">1</div>
+        <div style="flex:1;">
+          <div class="pilar-text">Construcción de Atmósfera</div>
+          <div class="pilar-sub">Nueva tradición · Estudio vivo · Open Studio · Micro-videos</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="opacity:0.3;flex-shrink:0;"><path d="M4 9h10M9 4l5 5-5 5" stroke="#D4F000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="pilar-item reveal reveal-d3" onclick="if(window.goTo)goTo(12)" style="cursor:pointer;">
+        <div class="pilar-num">2</div>
+        <div style="flex:1;">
+          <div class="pilar-text">Talento del ecosistema Reducto</div>
+          <div class="pilar-sub">Perfiles · Reducto Talk · Newsletter B2B</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="opacity:0.3;flex-shrink:0;"><path d="M4 9h10M9 4l5 5-5 5" stroke="#D4F000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="pilar-item reveal reveal-d4" onclick="if(window.goTo)goTo(16)" style="cursor:pointer;">
+        <div class="pilar-num">3</div>
+        <div style="flex:1;">
+          <div class="pilar-text">Amplificar el servicio de VP y nuevas tecnologías</div>
+          <div class="pilar-sub">Blog técnico · Workshop VP</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="opacity:0.3;flex-shrink:0;"><path d="M4 9h10M9 4l5 5-5 5" stroke="#D4F000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 8. SECCIÓN: ATMÓSFERA -->
+<section class="slide" id="s8">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">08 / 20</div>
+  <div class="mini-section-inner">
+    <div class="mini-left">
+      <div class="mini-eyebrow reveal reveal-d1">Línea 01 / Estrategia de contenido</div>
+      <div class="mini-headline reveal reveal-d2">Construcción<br>de <em>atmósfera.</em></div>
+      <div class="mini-desc reveal reveal-d3">Mostrar Reducto como un espacio vivo, dinámico y con identidad propia. Sin decirlo. Construyendo desde la imagen, el movimiento y la tradición.</div>
+    </div>
+    <div class="mini-right" style="padding: 5rem 4.5rem; display:flex; flex-direction:column; justify-content:center; gap:12px;">
+      <div style="font-family:'Aileron',sans-serif; font-size:10px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:rgba(212,240,0,0.45);" class="reveal reveal-d2">Acciones</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="format-row reveal reveal-d3"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">1A — Nueva tradición de rodaje</span></div>
+        <div class="format-row reveal reveal-d3"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">1B — Estudio vivo, funcional y flexible</span></div>
+        <div class="format-row reveal reveal-d4"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">1C — Open Studio</span></div>
+        <div class="format-row reveal reveal-d4"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);"><s><s>1D — Calendario de ventanas</s></s></span></div>
+        <div class="format-row reveal reveal-d5"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">1F — Micro-videos de atmósfera</span></div>
+        <div class="format-row reveal reveal-d5"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">1G — Captación y fidelización</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 9. 1A + 1B -->
+<section class="slide" id="s9">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">09 / 20</div>
+  <div class="split-inner">
+    <div class="split-left">
+      <div class="content-label reveal reveal-d1">1A — Nueva tradición</div>
+      <div class="content-title reveal reveal-d2">Crear un ritual<br>de pertenencia.</div>
+      <div class="content-body reveal reveal-d3">Crear una tradición que no perjudique la confidencialidad e invite a sentirse parte de algo más grande. Una foto de fin de rodaje, un espacio preparado para hacerla.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Foto de fin de rodaje expuesta en Reducto</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Espacio preparado para la foto</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Invitación a compartir para generaciones jóvenes</span></div>
+      </div>
+    </div>
+    <div class="split-right">
+      <div class="content-label reveal reveal-d1">1B — Estudio vivo</div>
+      <div class="content-title reveal reveal-d2">Dinamismo en<br>la presencia digital.</div>
+      <div class="content-body reveal reveal-d3">Mostrar el estudio y a Reducto en acción como algo vivo y flexible. Nuevas fotos en la web cada trimestre: cafetería, últimas producciones, detalles del set.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Actualización trimestral de fotos en web</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 10. 1C + 1D -->
+<section class="slide" id="s10">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">10 / 20</div>
+  <div class="split-inner">
+    <div class="split-left">
+      <div class="content-label reveal reveal-d1">1C — Open Studio</div>
+      <div class="content-title reveal reveal-d2">El estudio<br>se abre.</div>
+      <div class="content-body reveal reveal-d3">Visita guiada + mini demo de set (30–45 min) + Q&A técnico. Cupos limitados con registro por formulario.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Establecer una frecuencia para darle coherencia.</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Cupos limitados + registro</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Atrae jóvenes antes del Open Day</span></div>
+      </div>
+    </div>
+    <div class="split-right">
+      <div class="content-label reveal reveal-d1"><s>1D — Calendario de ventanas</s></div>
+      <div class="content-title reveal reveal-d2"><s>Convertir baja<br>ocupación en oportunidad.</s></div>
+      <div class="content-body reveal reveal-d3"><s>Comunicación dirigida y lista para activar en momentos de baja ocupación. Mover fechas disponibles, atraer nuevos públicos y generar contenido del estudio en uso real.</s></div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);"><s>Piezas para estudiantes y proyectos independientes</s></span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);"><s>Lista de espera o convocatoria</s></span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);"><s>Formatos de menor escala</s></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 11. 1F — Micro-videos (full width) -->
+<section class="slide" id="s11">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">11 / 20</div>
+  <div class="split-inner" style="grid-template-columns:1fr;">
+    <div class="split-right" style="padding:5rem 4.5rem; border-right:none;">
+      <div class="content-label reveal reveal-d1">1F — Micro-videos</div>
+      <div class="content-title reveal reveal-d2">Sensación de<br>actividad permanente.</div>
+      <div class="content-body reveal reveal-d3">Videos muy cortos (2–3 segundos). Texturas, luces, movimiento y fragmentos que construyen atmósfera. Una biblioteca visual de Reducto y las empresas instaladas.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Texturas del estudio · Planos de detalle</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Fragmentos de rodajes</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Momentos de producción · Empresas instaladas</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 12. 1G — Cosas que no sepamos (full width) -->
+<section class="slide" id="s12">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">12 / 20</div>
+  <div class="split-inner" style="grid-template-columns:1fr;">
+    <div class="split-left" style="border-right:none;">
+      <div class="tag tag-neon reveal reveal-d1" style="align-self:flex-start;"><span class="dot dot-dark"></span>Diseño de servicio</div>
+      <div class="content-label reveal reveal-d2" style="margin-top:0.5rem;">1G — Captación y fidelización</div>
+      <div class="content-title reveal reveal-d2">Cosas que<br>no sepamos.</div>
+      <div class="content-body reveal reveal-d3">Encuesta ajena a Reducto sobre la industria audiovisual en Uruguay para detectar insights. Reuniones informales con productoras que no están filmando en Reducto.</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 13. SECCIÓN: TALENTO (was s16) -->
+<section class="slide" id="s13">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">13 / 20</div>
+  <div class="section-inner">
+    <div class="section-num">02</div>
+    <div class="section-label reveal reveal-d1">Línea 02</div>
+    <div class="section-h reveal reveal-d2">Talento del<br>ecosistema<em>.</em></div>
+  </div>
+</section>
+
+
+<!-- 14. 2A: PERFILES (was s17, split-right removed) -->
+<section class="slide" id="s14">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">14 / 20</div>
+  <div class="split-inner" style="grid-template-columns:1fr;">
+    <div class="split-left" style="border-right:none;">
+      <div class="content-label reveal reveal-d1">2A — Perfiles y Reducto Talk</div>
+      <div class="content-title reveal reveal-d2">El talento<br>que hay adentro.</div>
+      <div class="content-body reveal reveal-d3">Entrevistas escritas, perfiles cortos de profesionales y posts editoriales donde los integrantes del hub explican algo de su trabajo.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Cómo se diseña un entorno para VP</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Diferencias entre rodar en estudio y en locación</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Cómo funciona el tracking de cámara</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Criterio creativo y uso legal de la IA</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 15. 2B + 2C (was s18) -->
+<section class="slide" id="s15">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">15 / 20</div>
+  <div class="split-inner">
+    <div class="split-left">
+      <div class="content-label reveal reveal-d1">2B — Visibilidad estructurada</div>
+      <div class="content-title reveal reveal-d2">La oferta<br>del ecosistema.</div>
+      <div class="content-body reveal reveal-d3">Ampliar la información de las empresas instaladas en la web de Reducto, haciéndola más visible y comprensible.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Qué hace cada empresa</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Proyectos destacados y especialidades</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Contacto directo</span></div>
+      </div>
+    </div>
+    <div class="split-right">
+      <div class="content-label reveal reveal-d1">2C — Referral interno</div>
+      <div class="content-title reveal reveal-d2">Canalizar desde<br>la web de Reducto.</div>
+      <div class="content-body reveal reveal-d3">Formularios dentro de la web que redireccionen a las empresas instaladas. Filtrar CVs de solicitudes de presupuesto y medir oportunidades generadas desde Reducto.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Formularios propios (sin redirigir afuera)</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Derivación a empresas instaladas</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Medición de oportunidades</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 16. 2D: NEWSLETTER B2B (was s19) -->
+<section class="slide" id="s16">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">16 / 20</div>
+  <div class="split-inner">
+    <div class="split-left">
+      <div class="content-label reveal reveal-d1">2D — Newsletter B2B mensual</div>
+      <div class="content-title reveal reveal-d2">Reducto presente<br>cada mes.</div>
+      <div class="content-body reveal reveal-d3">Mantener a Reducto en la cabeza de productores y agencias. Mostrar actividad constante y disponibilidad. Generar oportunidades concretas de trabajo.</div>
+      <div class="content-format reveal reveal-d4">
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Envío mensual o bimensual vía Mailchimp</span></div>
+        <div class="format-row"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif;font-size:13px;color:rgba(245,242,236,0.6);">Dirigido a productores y agencias (B2B)</span></div>
+      </div>
+    </div>
+    <div class="split-right" style="gap:10px;">
+      <div style="font-family:'Aileron',sans-serif; font-size:10px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:rgba(212,240,0,0.5);" class="reveal reveal-d2">Contenido potencial</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="card reveal reveal-d3" style="padding:1.25rem 1.5rem; flex-direction:row; align-items:center; gap:14px;">
+          <span class="dot dot-neon" style="flex-shrink:0;"></span>
+          <span style="font-family:'Aileron',sans-serif;font-size:13.5px;font-weight:600;color:var(--white);">Reducto Talk del mes</span>
+        </div>
+        <div class="card reveal reveal-d4" style="padding:1.25rem 1.5rem; flex-direction:row; align-items:center; gap:14px;">
+          <span class="dot dot-neon" style="flex-shrink:0;"></span>
+          <span style="font-family:'Aileron',sans-serif;font-size:13.5px;font-weight:600;color:var(--white);">Open Day y eventos próximos</span>
+        </div>
+        <div class="card reveal reveal-d5" style="padding:1.25rem 1.5rem; flex-direction:row; align-items:center; gap:14px;">
+          <span class="dot dot-neon" style="flex-shrink:0;"></span>
+          <span style="font-family:'Aileron',sans-serif;font-size:13.5px;font-weight:600;color:var(--white);">Casos y entrevistas</span>
+        </div>
+        <div class="card reveal reveal-d6" style="padding:1.25rem 1.5rem; flex-direction:row; align-items:center; gap:14px;">
+          <span class="dot dot-neon" style="flex-shrink:0;"></span>
+          <span style="font-family:'Aileron',sans-serif;font-size:13.5px;font-weight:600;color:var(--white);">Novedades técnicas del ecosistema</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 17. SECCIÓN: VP Y NUEVAS TECNOLOGÍAS (was s13) -->
+<section class="slide" id="s17">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">17 / 20</div>
+  <div class="mini-section-inner">
+    <div class="mini-left">
+      <div class="mini-eyebrow reveal reveal-d1">Línea 03 / Estrategia de contenido</div>
+      <div class="mini-headline reveal reveal-d2">Amplificar VP y<br><em>nuevas tecnologías.</em></div>
+      <div class="mini-desc reveal reveal-d3">Posicionarnos como referentes. Explicar, educar y demostrar. Sin vender directamente, aportando información y conocimiento relevante para el sector.</div>
+    </div>
+    <div class="mini-right" style="padding: 5rem 4.5rem; display:flex; flex-direction:column; justify-content:center; gap:12px;">
+      <div style="font-family:'Aileron',sans-serif; font-size:10px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:rgba(212,240,0,0.45);" class="reveal reveal-d2">Acciones</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="format-row reveal reveal-d3"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">3A — Workshop VP para agencias y DPs</span></div>
+        <div class="format-row reveal reveal-d4"><span class="dot dot-neon" style="margin-top:6px;"></span><span style="font-family:'Aileron',sans-serif; font-size:13px; color:rgba(245,242,236,0.65);">Notas de blog técnicas y de talento</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 18. VP: ACCIONES (was s14) -->
+<section class="slide" id="s18">
+  <div class="slide-num" style="color:rgba(212,240,0,0.2);">18 / 20</div>
+  <div class="cards-inner">
+    <div class="cards-header">
+      <div class="tag tag-neon reveal reveal-d1"><span class="dot dot-dark"></span>VP y nuevas tecnologías · Acciones</div>
+      <div class="cards-title reveal reveal-d2">Dos formatos para<br>instalar el servicio.</div>
+    </div>
+    <div class="cards-grid cards-grid-2" style="flex:1;">
+      <div class="card reveal reveal-d3">
+        <div class="card-num">3A</div>
+        <div class="card-title">Workshop VP</div>
+        <div class="card-body">Workshop cerrado para agencias y DPs: "cómo vender VP a un cliente" y "cómo planear un rodaje VP". Posiciona a Reducto como referente técnico y formador.</div>
+        <div class="card-tag">Encuentro presencial</div>
+      </div>
+      <div class="card reveal reveal-d4">
+        <div class="card-num">3B</div>
+        <div class="card-title">Notas de blog técnicas y de talento</div>
+        <div class="card-body">Considerando el SEO técnico del sector y entrevistando a los referentes. Posiciona a Reducto como fuente de conocimiento para la industria.</div>
+        <div class="card-tag">Educativo</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<!-- 20. GRACIAS -->
+<section class="slide" id="s20">
+  <div class="slide-num" style="color:rgba(212,240,0,0.25);">20 / 20</div>
+  <div class="thanks-inner">
+    <div class="thanks-h reveal reveal-d1">Gracias.</div>
+    <div class="thanks-sub reveal reveal-d2">ODD · Reducto · 2026</div>
+  </div>
+</section>
+
+
+<script>
+/* ── PASSWORD GATE ── */
+const HASHED_PW = '951cd92444b4171c5d6b731f12929c68e5b2f3fc7feee29a4b9c363030b2f0f1';
+async function sha256(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function checkPw(){
+  const input = document.getElementById('pw-input').value;
+  const hash = await sha256(input);
+  if(hash === HASHED_PW){
+    sessionStorage.setItem('pw_ok','1');
+    document.getElementById('pw-gate').classList.add('hidden');
+  } else {
+    document.getElementById('pw-field').classList.add('error');
+    document.getElementById('pw-error').classList.add('show');
+    setTimeout(()=>{
+      document.getElementById('pw-field').classList.remove('error');
+    },400);
+  }
+}
+document.getElementById('pw-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter') checkPw();
+});
+if(sessionStorage.getItem('pw_ok')==='1'){
+  document.getElementById('pw-gate').classList.add('hidden');
+}
+
+const cursor = document.getElementById('cursor');
+document.addEventListener('mousemove', e => { cursor.style.left = e.clientX+'px'; cursor.style.top = e.clientY+'px'; });
+document.querySelectorAll('.nav-dot').forEach(el => {
+  el.addEventListener('mouseenter', () => cursor.classList.add('big'));
+  el.addEventListener('mouseleave', () => cursor.classList.remove('big'));
+});
+
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+let current = 0, animating = false;
+
+const dotsEl = document.getElementById('navDots');
+slides.forEach((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'nav-dot' + (i === 0 ? ' active' : '');
+  d.addEventListener('click', () => goTo(i));
+  dotsEl.appendChild(d);
+});
+
+function updateDots() {
+  document.querySelectorAll('.nav-dot').forEach((d, i) => d.classList.toggle('active', i === current));
+}
+function updateProgress() {
+  document.getElementById('progress').style.width = ((current + 1) / total * 100) + '%';
+}
+function updateNextArrow() {
+  const btn = document.getElementById('nextArrowBtn');
+  if (btn) btn.classList.toggle('hidden', current === 0 || current === total - 1);
+  window.currentSlide = current;
+  const backBtn = document.getElementById('backMenuBtn');
+  if (backBtn) backBtn.classList.toggle('hidden', current < 7 || current > 17);
+}
+function revealSlide(idx) {
+  slides[idx].querySelectorAll('.reveal').forEach(el => {
+    el.classList.remove('visible');
+    void el.offsetWidth;
+    setTimeout(() => el.classList.add('visible'), 50);
+  });
+}
+function goTo(idx) {
+  if (animating || idx === current) return;
+  animating = true;
+  window.goTo = goTo;
+  const dir = idx > current ? 1 : -1;
+  const cur = slides[current];
+  cur.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+  cur.style.opacity = '0';
+  cur.style.transform = `translateY(${dir * -30}px)`;
+  setTimeout(() => {
+    cur.style.display = 'none';
+    cur.style.opacity = ''; cur.style.transform = ''; cur.style.transition = '';
+    current = idx;
+    const next = slides[current];
+    next.style.display = 'flex';
+    next.style.opacity = '0';
+    next.style.transform = `translateY(${dir * 30}px)`;
+    next.style.transition = 'none';
+    void next.offsetWidth;
+    next.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
+    next.style.opacity = '1';
+    next.style.transform = 'translateY(0)';
+    updateDots(); updateProgress(); updateNextArrow(); revealSlide(current);
+    setTimeout(() => { animating = false; next.style.transition = ''; }, 380);
+  }, 300);
+}
+
+window.goTo = goTo;
+slides.forEach((s, i) => { s.style.display = i === 0 ? 'flex' : 'none'; });
+revealSlide(0); updateProgress(); updateNextArrow();
+
+document.addEventListener('keydown', e => {
+  if (['ArrowDown','ArrowRight',' '].includes(e.key)) { e.preventDefault(); if (current < total-1) goTo(current+1); }
+  if (['ArrowUp','ArrowLeft'].includes(e.key)) { e.preventDefault(); if (current > 0) goTo(current-1); }
+});
+
+let ty = 0;
+document.addEventListener('touchstart', e => { ty = e.touches[0].clientY; });
+document.addEventListener('touchend', e => {
+  const d = ty - e.changedTouches[0].clientY;
+  if (Math.abs(d) > 50) { if (d > 0 && current < total-1) goTo(current+1); else if (d < 0 && current > 0) goTo(current-1); }
+});
+
+let wc = false;
+document.addEventListener('wheel', e => {
+  if (wc) return; wc = true;
+  if (e.deltaY > 0 && current < total-1) goTo(current+1);
+  else if (e.deltaY < 0 && current > 0) goTo(current-1);
+  setTimeout(() => { wc = false; }, 800);
+});
+
+setTimeout(() => { document.getElementById('keyHint').style.opacity = '0'; }, 4000);
+</script>
+</body>
+</html>

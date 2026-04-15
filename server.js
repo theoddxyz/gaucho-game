@@ -735,7 +735,13 @@ io.on('connection', (socket) => {
   socket.on('hostCreatureSync', (data) => {
     if (!currentRoom) return;
     if (roomHosts.get(currentRoom) !== socket.id) return;
-    socket.to(currentRoom).volatile.emit('creatureSync', data);
+    // _reliable flag = first snapshot for a new viewer → send reliably (no volatile)
+    if (data && data._reliable) {
+      const { _reliable, ...payload } = data;
+      socket.to(currentRoom).emit('creatureSync', payload);
+    } else {
+      socket.to(currentRoom).volatile.emit('creatureSync', data);
+    }
   });
 
   socket.on('cowCorralled', ({ id }) => {
