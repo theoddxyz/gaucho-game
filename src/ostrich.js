@@ -288,18 +288,26 @@ export class OstrichSystem {
       const e = this._entities[ed.idx];
       if (!e) continue;
       if (ed.dead) {
-        if (!e.dead && !e.dying && !e.dyingPhysics) {
+        // Force-kill unconditionally: overrides local dying/dyingPhysics state
+        if (!e.dead) {
           e.dead = true;
+          e.dying = false;
+          e.dyingPhysics = false;
           e.respawnTimer = RESPAWN_DELAY;
+          if (e._physBody) { removeRagdollBody(e._physBody); e._physBody = null; }
           if (e.mesh) { this._scene.remove(e.mesh); e.mesh = null; }
         }
       } else {
         // Server says alive but client thinks dead → respawn
-        if (e.dead && !e.dying && !e.dyingPhysics && ed.x !== undefined) {
+        if (e.dead && ed.x !== undefined) {
+          e.dying = false;
+          e.dyingPhysics = false;
           this._respawn(ed.idx);
         }
-        // Override position for living entity
-        if (!e.dead && !e.dying && !e.dyingPhysics && e.mesh) {
+        // Override position for living entity (even if dying locally — host is authority)
+        if (!e.dead && e.mesh) {
+          e.dying = false;
+          e.dyingPhysics = false;
           e.mesh.position.x = ed.x;
           e.mesh.position.z = ed.z;
           if (ed.vx !== undefined) e.vx = ed.vx;
@@ -437,15 +445,22 @@ export class OstrichSystem {
 
       // ── Physics death (cannon ragdoll) ───────────────────────────────────
       if (e.dyingPhysics) {
-        _tickDeathPhysics(e, dt);
-        if (e._phy.t >= DEATH_PHYSICS_LIFE) {
+        if (this.serverMode) {
+          // Viewer: host is authority — cancel local ragdoll and wait for authoritative dead:true
           e.dyingPhysics = false;
-          e.dead = true;
-          e.respawnTimer = RESPAWN_DELAY;
-          removeRagdollBody(e._physBody); e._physBody = null;
-          if (e.mesh) { this._scene.remove(e.mesh); e.mesh = null; }
+          if (e._physBody) { removeRagdollBody(e._physBody); e._physBody = null; }
+          // Don't continue — fall through to normal update so position is still rendered
+        } else {
+          _tickDeathPhysics(e, dt);
+          if (e._phy.t >= DEATH_PHYSICS_LIFE) {
+            e.dyingPhysics = false;
+            e.dead = true;
+            e.respawnTimer = RESPAWN_DELAY;
+            removeRagdollBody(e._physBody); e._physBody = null;
+            if (e.mesh) { this._scene.remove(e.mesh); e.mesh = null; }
+          }
+          continue;
         }
-        continue;
       }
 
       // ── Wander (skipped when server controls positions) ───────────────────
@@ -478,6 +493,10 @@ export class OstrichSystem {
           } else {
             e.vx = -e.vx; e.vz = -e.vz;
           }
+        } else {
+          // Dead-reckoning: smoothly extrapolate between host snapshots
+          e.mesh.position.x += e.vx * dt;
+          e.mesh.position.z += e.vz * dt;
         }
         e.mesh.rotation.y = Math.atan2(e.vx, e.vz);
         e.walkT += dt;

@@ -308,13 +308,19 @@ export class ChickenSystem {
   applyServerSync(syncArr) {
     for (const ed of syncArr) {
       const c = this._chickens[ed.idx];
-      if (!c || c.removed || !c.mesh) continue;
+      if (!c) continue;
       if (ed.dead) {
-        if (!c.removed && !c.wounded && !c.dyingPhysics) {
+        // Force-kill unconditionally: overrides local dying/dyingPhysics
+        if (!c.removed) {
           c.removed = true;
+          c.dyingPhysics = false;
+          if (c._physBody) { removeRagdollBody(c._physBody); c._physBody = null; }
+          c._phy = null;
           if (c.mesh) { this._scene.remove(c.mesh); c.mesh = null; }
         }
-      } else {
+      } else if (!c.removed && c.mesh) {
+        // Override position — host is authority
+        c.dyingPhysics = false;
         c.mesh.position.x = ed.x;
         c.mesh.position.z = ed.z;
         if (ed.vx !== undefined) { c.vx = ed.vx; c.vz = ed.vz; }
@@ -473,41 +479,51 @@ export class ChickenSystem {
 
       // ── Physics death (cannon ragdoll) ───────────────────────────────────
       if (c.dyingPhysics) {
-        _tickDeathPhysics(c, dt);
-        if (c._phy.t >= DEATH_PHYSICS_LIFE) {
-          c.removed = true;
+        if (this.serverMode) {
+          // Viewer: cancel local ragdoll, wait for authoritative dead:true from host
           c.dyingPhysics = false;
-          removeRagdollBody(c._physBody); c._physBody = null;
-          this._scene.remove(c.mesh);
+          if (c._physBody) { removeRagdollBody(c._physBody); c._physBody = null; }
+          c._phy = null;
+          // Fall through to normal update
+        } else {
+          _tickDeathPhysics(c, dt);
+          if (c._phy.t >= DEATH_PHYSICS_LIFE) {
+            c.removed = true;
+            c.dyingPhysics = false;
+            removeRagdollBody(c._physBody); c._physBody = null;
+            this._scene.remove(c.mesh);
+          }
+          continue;
         }
-        continue;
       }
 
       const cx = c.mesh.position.x;
       const cz = c.mesh.position.z;
 
-      // ── Proximity player → flee ─────────────────────────────────────────
-      for (const pp of (playerPositions || [])) {
-        if (!pp) continue;
-        const pdx = cx - pp.x, pdz = cz - pp.z;
-        if (pdx*pdx + pdz*pdz < FLEE_RADIUS*FLEE_RADIUS) {
-          const d = Math.sqrt(pdx*pdx+pdz*pdz) || 1;
-          c.bbState     = 'fleeing';
-          c.panicTimer  = Math.max(c.panicTimer, 3.5);
-          c.waypointTimer = c.panicTimer + 2;
-          c.waypoint    = { x: cx + (pdx/d)*25, z: cz + (pdz/d)*25 };
-          break;
+      // ── Proximity player → flee (host only — viewer follows synced positions) ──
+      if (!this.serverMode) {
+        for (const pp of (playerPositions || [])) {
+          if (!pp) continue;
+          const pdx = cx - pp.x, pdz = cz - pp.z;
+          if (pdx*pdx + pdz*pdz < FLEE_RADIUS*FLEE_RADIUS) {
+            const d = Math.sqrt(pdx*pdx+pdz*pdz) || 1;
+            c.bbState     = 'fleeing';
+            c.panicTimer  = Math.max(c.panicTimer, 3.5);
+            c.waypointTimer = c.panicTimer + 2;
+            c.waypoint    = { x: cx + (pdx/d)*25, z: cz + (pdz/d)*25 };
+            break;
+          }
         }
-      }
 
-      // ── Panic cooldown ─────────────────────────────────────────────────
-      if (c.panicTimer > 0) {
-        c.panicTimer -= dt;
-        if (c.panicTimer <= 0 && c.bbState === 'fleeing') {
-          c.bbState = 'grazing';
-          const ang = Math.random() * Math.PI * 2;
-          c.waypoint      = { x: cx + Math.cos(ang)*5, z: cz + Math.sin(ang)*5 };
-          c.waypointTimer = 3 + Math.random() * 6;
+        // ── Panic cooldown ───────────────────────────────────────────────
+        if (c.panicTimer > 0) {
+          c.panicTimer -= dt;
+          if (c.panicTimer <= 0 && c.bbState === 'fleeing') {
+            c.bbState = 'grazing';
+            const ang = Math.random() * Math.PI * 2;
+            c.waypoint      = { x: cx + Math.cos(ang)*5, z: cz + Math.sin(ang)*5 };
+            c.waypointTimer = 3 + Math.random() * 6;
+          }
         }
       }
 
@@ -549,6 +565,10 @@ export class ChickenSystem {
 
       // ── Mover ─────────────────────────────────────────────────────────
       if (!this.serverMode) {
+        c.mesh.position.x += c.vx * dt;
+        c.mesh.position.z += c.vz * dt;
+      } else {
+        // Dead-reckoning: extrapolate between host snapshots
         c.mesh.position.x += c.vx * dt;
         c.mesh.position.z += c.vz * dt;
       }

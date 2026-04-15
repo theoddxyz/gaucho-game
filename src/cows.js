@@ -391,11 +391,23 @@ export class CowSystem {
   applyServerSync(syncArr) {
     for (const ed of syncArr) {
       const cow = this._cows[ed.idx];
-      if (!cow || cow.removed || !cow.mesh) continue;
-      if (ed.corralled || ed.dead) continue;
-      cow.mesh.position.x = ed.x;
-      cow.mesh.position.z = ed.z;
-      if (ed.vx !== undefined) { cow.vx = ed.vx; cow.vz = ed.vz; }
+      if (!cow) continue;
+      if (ed.corralled) continue; // corralled state handled separately via cowCorral events
+      if (ed.dead) {
+        // Force-kill unconditionally: overrides local dying/dyingPhysics
+        if (!cow.removed) {
+          cow.removed = true;
+          cow.dyingPhysics = false;
+          if (cow._physBody) { removeRagdollBody(cow._physBody); cow._physBody = null; }
+          if (cow.mesh) { this._scene.remove(cow.mesh); cow.mesh = null; }
+        }
+      } else if (!cow.removed && cow.mesh) {
+        // Override position — host is authority
+        cow.dyingPhysics = false;
+        cow.mesh.position.x = ed.x;
+        cow.mesh.position.z = ed.z;
+        if (ed.vx !== undefined) { cow.vx = ed.vx; cow.vz = ed.vz; }
+      }
     }
   }
 
@@ -714,15 +726,23 @@ export class CowSystem {
 
       // ── Physics death (cannon ragdoll) ───────────────────────────────────
       if (cow.dyingPhysics) {
-        _tickDeathPhysics(cow, dt);
-        if (cow._phy.t >= DEATH_PHYSICS_LIFE) {
-          cow.removed = true;
+        if (this.serverMode) {
+          // Viewer: cancel local ragdoll, wait for authoritative dead:true from host
           cow.dyingPhysics = false;
-          removeRagdollBody(cow._physBody);
-          cow._physBody = null;
-          this._scene.remove(cow.mesh);
+          if (cow._physBody) { removeRagdollBody(cow._physBody); cow._physBody = null; }
+          cow._phy = null;
+          // Fall through to normal update
+        } else {
+          _tickDeathPhysics(cow, dt);
+          if (cow._phy.t >= DEATH_PHYSICS_LIFE) {
+            cow.removed = true;
+            cow.dyingPhysics = false;
+            removeRagdollBody(cow._physBody);
+            cow._physBody = null;
+            this._scene.remove(cow.mesh);
+          }
+          continue;
         }
-        continue;
       }
 
       const cx = cow.mesh.position.x;
@@ -823,10 +843,14 @@ export class CowSystem {
       if (!this.serverMode) {
         cow.mesh.position.x += cow.vx * dt;
         cow.mesh.position.z += cow.vz * dt;
+      } else {
+        // Dead-reckoning: extrapolate between host snapshots
+        cow.mesh.position.x += cow.vx * dt;
+        cow.mesh.position.z += cow.vz * dt;
       }
 
-      // ── Corral boundary (repulsión suave + escape por puerta sur) ─────────
-      if (cow.corrHW < 9999 && !cow.escaped) {
+      // ── Corral boundary (host only — viewer follows synced positions) ────────
+      if (!this.serverMode && cow.corrHW < 9999 && !cow.escaped) {
         const minX = cow.corrX - cow.corrHW, maxX = cow.corrX + cow.corrHW;
         const minZ = cow.corrZ - cow.corrHD, maxZ = cow.corrZ + cow.corrHD;
         // Puerta sur del corral: gateZ = corrZ + corrHD (para vacas corrHD == fenceHD)

@@ -1590,8 +1590,8 @@ function _sendHostCreatureSync(reliable = false) {
     armadillo: armadilloSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
     condor:    condorSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
     ostrich:   ostrichSystem._entities.map((e,i) => (e.dead || e.dying || e.dyingPhysics) ? { idx:i, dead:true } : { idx:i, x:e.mesh?.position.x ?? 0, z:e.mesh?.position.z ?? 0, vx:e.vx, vz:e.vz }),
-    chicken:   (chickenSystem?._chickens ?? []).map((c,i) => c.removed ? { idx:i, dead:true } : { idx:i, x:c.mesh?.position.x ?? 0, z:c.mesh?.position.z ?? 0, vx:c.vx, vz:c.vz }),
-    cow:       (cowSystem?._cows ?? []).map((c,i) => c.removed ? { idx:i, dead:true } : { idx:i, x:c.mesh?.position.x ?? 0, z:c.mesh?.position.z ?? 0, vx:c.vx, vz:c.vz }),
+    chicken:   (chickenSystem?._chickens ?? []).map((c,i) => (c.removed || c.dyingPhysics || !c.mesh) ? { idx:i, dead:true } : { idx:i, x:c.mesh.position.x, z:c.mesh.position.z, vx:c.vx, vz:c.vz }),
+    cow:       (cowSystem?._cows ?? []).map((c,i) => (c.removed || c.dyingPhysics || !c.mesh) ? { idx:i, dead:true } : { idx:i, x:c.mesh.position.x, z:c.mesh.position.z, vx:c.vx, vz:c.vz }),
     bird:      (birdSystem?._syncBirds ?? []).map(b => ({ idx:b.syncIdx, x:b.x, z:b.z, y:b.mesh?.position.y ?? 0 })),
   };
   Network.sendHostCreatureSync(payload, reliable);
