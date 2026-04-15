@@ -110,12 +110,14 @@ export class MotoManager {
         // ── Material enhancements ─────────────────────────────────────────────
         clone.traverse(o => {
           if (!o.isMesh || !o.material) return;
+          const meshName = o.name.toLowerCase();
+          const isWheel  = meshName.includes('rueda') || meshName.includes('tire') || meshName.includes('wheel');
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           mats.forEach(m => {
             if (!m.color) return;
             const { r, g, b } = m.color;
-            // Dark material = glass / visor → high gloss
-            if (r + g + b < 0.25 && (m.roughness ?? 1) > 0.2) {
+            // Dark material = glass / visor → high gloss (skip wheel rubber)
+            if (!isWheel && r + g + b < 0.25 && (m.roughness ?? 1) > 0.2) {
               m.roughness       = 0.02;
               m.metalness       = 0.15;
               m.envMapIntensity = 2.0;
@@ -147,8 +149,9 @@ export class MotoManager {
         const find = (arr, kw) => arr.find(o => o.name.toLowerCase().includes(kw)) ?? null;
         const ejeR  = find(ejeNodes,   'trasero');
         const ejeF  = find(ejeNodes,   'delanero') ?? find(ejeNodes, 'delantera');
-        const ruedaR = find(ruedaNodes, 'trasera')  ?? find(ruedaNodes, 'trasero');
-        const ruedaF = find(ruedaNodes, 'delantera')?? find(ruedaNodes, 'delanero');
+        // GLB typo: "TRASCERA" (with C) instead of "TRASERA" — search both spellings
+        const ruedaR = find(ruedaNodes, 'trasera') ?? find(ruedaNodes, 'trascera') ?? find(ruedaNodes, 'trasero');
+        const ruedaF = find(ruedaNodes, 'delantera') ?? find(ruedaNodes, 'delanero');
 
         // ── Reset EJE scale (Blender visual-only scale breaks attach math) ──
         // Then attach each RUEDA to its EJE so it spins around the axle center.
@@ -233,6 +236,7 @@ export class MotoManager {
 
   isMounted()           { return this.myMotoId !== null; }
   isMountAnimating()    { return this._anim?.type === 'mount'; }
+  getMotoHeading()      { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._displayRY ?? 0; }
   speedMultiplier(spr) {
     const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
     const sf   = Math.max(0.15, moto?._speedFactor ?? 0);  // min 15% so it starts

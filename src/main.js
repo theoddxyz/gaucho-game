@@ -1726,7 +1726,14 @@ function gameLoop() {
 
     // Local player model — smooth rotation (snaps when aiming so gun always tracks mouse)
     const rawFacing = controls.isAiming() ? rot.y : controls.getMovementAngle();
-    if (controls.isAiming()) {
+    if (_onMoto && motoManager?.isMounted()) {
+      // On moto: character snaps to moto heading — very small residual rotation
+      const motoRY = motoManager.getMotoHeading();
+      let _fd = motoRY - _facingAngle;
+      while (_fd >  Math.PI) _fd -= Math.PI * 2;
+      while (_fd < -Math.PI) _fd += Math.PI * 2;
+      _facingAngle += _fd * Math.min(1, 18 * dt);
+    } else if (controls.isAiming()) {
       _facingAngle = rawFacing;                 // snap to mouse — no lag when shooting
     } else {
       let _fd = rawFacing - _facingAngle;
