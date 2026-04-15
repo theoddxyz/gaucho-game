@@ -1,12 +1,12 @@
 // --- Blood particle system ---
 import * as THREE from 'three';
 
-const POOL_SIZE = 120;
-const GRAVITY = 12;
-const LIFETIME = 0.9;
+const POOL_SIZE = 180;
+const GRAVITY = 10;
+const LIFETIME = 1.2;
 
 const _mat = new THREE.MeshBasicMaterial({ color: 0x8b0000 });
-const _geo = new THREE.SphereGeometry(0.12, 5, 4);
+const _geo = new THREE.SphereGeometry(0.25, 5, 4);
 
 export class BloodSystem {
   constructor(scene) {

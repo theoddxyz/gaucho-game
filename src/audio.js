@@ -346,20 +346,73 @@ export function bulletImpactDirt() {
   });
 }
 export function bulletImpactFlesh() {
-  // Procedural only — agudo, seco, chasquido de carne
+  // Procedural — impacto agudo multicapa
   const c = _ctx_(); if (!c) return; const t = _now();
-  // 1) Crack agudo principal (3500 Hz, muy corto)
-  const n1 = _noise(0.04, 3500, 3.0);
-  if (n1) { _env(n1.gain,0.001,0.003,0.0,0.03,0.90); _toOut(n1.gain,0.04); n1.src.start(t); }
-  // 2) Snap medio-agudo (1800 Hz)
-  const n2 = _noise(0.06, 1800, 2.0);
-  if (n2) { _env(n2.gain,0.001,0.005,0.0,0.05,0.70); _toOut(n2.gain,0.05); n2.src.start(t); }
-  // 3) Thud corto de cuerpo (400 Hz, bajo volumen)
-  const n3 = _noise(0.08, 400, 1.5);
-  if (n3) { _env(n3.gain,0.001,0.008,0.0,0.06,0.25); _toOut(n3.gain,0.03); n3.src.start(t); }
-  // 4) Click transiente ultra agudo (5000 Hz, ultra corto)
-  const n4 = _noise(0.02, 5000, 4.0);
-  if (n4) { _env(n4.gain,0.001,0.002,0.0,0.015,0.60); _toOut(n4.gain,0.03); n4.src.start(t); }
+  // 1) Crack agudo principal (3500 Hz)
+  const n1 = _noise(0.05, 3500, 3.0);
+  if (n1) { _env(n1.gain,0.001,0.003,0.0,0.04,1.0); _toOut(n1.gain,0.05); n1.src.start(t); }
+  // 2) Snap medio (1800 Hz)
+  const n2 = _noise(0.07, 1800, 2.0);
+  if (n2) { _env(n2.gain,0.001,0.005,0.0,0.06,0.80); _toOut(n2.gain,0.06); n2.src.start(t); }
+  // 3) Thud cuerpo (350 Hz)
+  const n3 = _noise(0.10, 350, 1.2);
+  if (n3) { _env(n3.gain,0.001,0.010,0.0,0.08,0.35); _toOut(n3.gain,0.04); n3.src.start(t); }
+  // 4) Click transiente (5500 Hz, ultra corto)
+  const n4 = _noise(0.02, 5500, 4.5);
+  if (n4) { _env(n4.gain,0.001,0.002,0.0,0.015,0.70); _toOut(n4.gain,0.04); n4.src.start(t); }
+  // 5) Wet squelch (800 Hz, resonante)
+  const n5 = _noise(0.08, 800, 5.0);
+  if (n5) { _env(n5.gain,0.002,0.008,0.0,0.06,0.40); _toOut(n5.gain,0.05); n5.src.start(t); }
+}
+
+// Gritos de dolor por tipo de animal — procedural
+export function painCow() {
+  const c = _ctx_(); if (!c) return; const t = _now();
+  // Mugido de dolor: tono bajo que sube y baja
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(120, t);
+  o.frequency.linearRampToValueAtTime(220, t + 0.15);
+  o.frequency.linearRampToValueAtTime(90, t + 0.5);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.45, t + 0.02);
+  g.gain.linearRampToValueAtTime(0.30, t + 0.2);
+  g.gain.linearRampToValueAtTime(0.0001, t + 0.55);
+  const lp = _lp(600); o.connect(lp); lp.connect(g); _toOut(g, 0.12); o.start(t); o.stop(t + 0.6);
+}
+export function painOstrich() {
+  const c = _ctx_(); if (!c) return; const t = _now();
+  // Graznido agudo
+  const o = c.createOscillator(); o.type = 'square';
+  o.frequency.setValueAtTime(800, t);
+  o.frequency.linearRampToValueAtTime(1200, t + 0.05);
+  o.frequency.linearRampToValueAtTime(600, t + 0.2);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.30, t + 0.01);
+  g.gain.linearRampToValueAtTime(0.0001, t + 0.25);
+  const lp = _lp(2000); o.connect(lp); lp.connect(g); _toOut(g, 0.08); o.start(t); o.stop(t + 0.3);
+}
+export function painChicken() {
+  const c = _ctx_(); if (!c) return; const t = _now();
+  // Cacareo de dolor — corto y agudo
+  const o = c.createOscillator(); o.type = 'square';
+  o.frequency.setValueAtTime(1400, t);
+  o.frequency.linearRampToValueAtTime(1800, t + 0.02);
+  o.frequency.linearRampToValueAtTime(900, t + 0.12);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.005);
+  g.gain.linearRampToValueAtTime(0.0001, t + 0.15);
+  const lp = _lp(3000); o.connect(lp); lp.connect(g); _toOut(g, 0.06); o.start(t); o.stop(t + 0.18);
+}
+export function painBird() {
+  const c = _ctx_(); if (!c) return; const t = _now();
+  // Pío de dolor
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(2200, t);
+  o.frequency.linearRampToValueAtTime(1600, t + 0.08);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.20, t + 0.005);
+  g.gain.linearRampToValueAtTime(0.0001, t + 0.10);
+  o.connect(g); _toOut(g, 0.05); o.start(t); o.stop(t + 0.12);
 }
 export function bulletImpactWood() {
   _playFile('weapons/impact_wood.mp3', { volume: 0.60, reverb: 0.12, pitch: 1.1+Math.random()*0.2 }, () => {

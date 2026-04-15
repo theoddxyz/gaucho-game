@@ -1102,10 +1102,16 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     }
 
     setTimeout(() => {
-      // Sonido de impacto + sangre para cualquier entidad viva
+      // Sonido de impacto + sangre + grito de dolor para entidades vivas
       if (['player','cow','ostrich','chicken','bird'].includes(scanHit.target.type)) {
         Audio.bulletImpactFlesh();
-        const bCount = scanHit.target.type === 'chicken' ? 6 : 14;
+        // Grito de dolor por tipo
+        if (scanHit.target.type === 'cow')     Audio.painCow();
+        if (scanHit.target.type === 'ostrich') Audio.painOstrich();
+        if (scanHit.target.type === 'chicken') Audio.painChicken();
+        if (scanHit.target.type === 'bird')    Audio.painBird();
+        // playerHurt ya se llama en onPlayerHit para jugadores
+        const bCount = scanHit.target.type === 'chicken' ? 8 : 18;
         bloodSystem.spawn(scanHit.point, result.direction.x, result.direction.z, bCount);
         Network.sendBloodSplat(scanHit.point.x, scanHit.point.y, scanHit.point.z,
           result.direction.x, result.direction.z);
