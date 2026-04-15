@@ -79,7 +79,7 @@ export class MotoManager {
     this.network  = network;
     this.motos    = new Map();
     this.myMotoId = null;
-    this._nearestId    = null;
+    this._nearestMotoId = null;
     this._mountPrompt  = this._createPrompt();
     this._anim         = null;
     this._mountLandPos = null;
@@ -151,7 +151,7 @@ export class MotoManager {
         const box = new THREE.Box3().setFromObject(inner);
         const sz  = box.getSize(new THREE.Vector3());
         const longest = Math.max(sz.x, sz.y, sz.z);
-        if (longest > 0.01) inner.scale.setScalar(2.0 / longest);
+        if (longest > 0.01) inner.scale.setScalar(8.0 / longest);
 
         // ── Seat height (for rider Y offset) ─────────────────────────────────
         // We use a fixed constant (RIDER_HEIGHT) but log it for calibration
@@ -283,7 +283,7 @@ export class MotoManager {
         if (d < bestD) { bestD = d; nearest = id; }
       }
       this._mountPrompt.style.display = nearest !== null ? 'block' : 'none';
-      this._nearestId = nearest;
+      this._nearestMotoId = nearest;
     } else {
       this._mountPrompt.style.display = 'none';
     }
@@ -309,15 +309,15 @@ export class MotoManager {
 
     moto.x = x; moto.z = z;
     moto.mesh.position.set(x, 0, z);
-    moto._targetRY = moveAngle + Math.PI;  // same convention as horse
+    moto._targetRY = moveAngle;  // GLB front = +Z after PI/2 correction, no flip needed
   }
 
   // ── Mount / dismount ─────────────────────────────────────────────────────────
 
   tryMount(playerId, startY, fromX, fromZ) {
     if (this.myMotoId !== null) { this._dismount(playerId); return null; }
-    if (this._nearestId === null) return null;
-    return this._mount(this._nearestId, playerId, startY, fromX, fromZ);
+    if (this._nearestMotoId === null) return null;
+    return this._mount(this._nearestMotoId, playerId, startY, fromX, fromZ);
   }
 
   _mount(id, playerId, startY, fromX, fromZ) {
@@ -325,7 +325,7 @@ export class MotoManager {
     if (!moto || moto.riderId !== null) return null;
     moto.riderId  = playerId;
     this.myMotoId = id;
-    this._nearestId  = null;
+    this._nearestMotoId = null;
     this._lean = moto._lean = 0;
     this._prevAngle  = null;
     this._anim = {
@@ -398,6 +398,6 @@ export class MotoManager {
     if (!m) return;
     m.x = x; m.z = z;
     m.mesh.position.set(x, 0, z);
-    m._targetRY = ry + Math.PI;
+    m._targetRY = ry;
   }
 }
