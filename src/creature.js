@@ -678,7 +678,9 @@ export class CreatureSystem {
       }
 
       const _threats = [];
-      if (playerPos) _threats.push(playerPos);
+      // Usar TODOS los jugadores (local + remotos, ya ordenados por ID desde main.js)
+      const _players = context?.allPlayerPositions ?? (playerPos ? [playerPos] : []);
+      for (const p of _players) _threats.push(p);
       if (context?.predatorPositions) for (const p of context.predatorPositions) _threats.push(p);
 
       for (const threat of _threats) {

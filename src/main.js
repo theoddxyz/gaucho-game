@@ -1837,7 +1837,15 @@ function gameLoop() {
   const _chickenPos = chickenSystem._chickens
     .filter(c => !c.dead && !c.removed && !c.wounded)
     .map(c => ({ x: c.mesh.position.x, z: c.mesh.position.z }));
-  viboraSystem.update(dt, { playerPos: pos, preyPositions: _chickenPos });
+  // Todos los jugadores (local + remotos) ordenados por ID — input determinístico
+  const _allPlayers = [];
+  if (pos && myId) _allPlayers.push({ x: pos.x, z: pos.z, id: myId });
+  for (const [_pid, _rp] of remotePlayers) {
+    if (!_rp.dead) _allPlayers.push({ x: _rp.x, z: _rp.z, id: _pid });
+  }
+  _allPlayers.sort((a, b) => (a.id < b.id ? -1 : 1));
+
+  viboraSystem.update(dt, { playerPos: pos, allPlayerPositions: _allPlayers, preyPositions: _chickenPos });
   // Víboras que alcanzan una gallina: la matan y dejan cadáver
   for (const _vib of viboraSystem._entities) {
     if (_vib.dead || _vib.state !== 'hunt') continue;
@@ -1889,7 +1897,7 @@ function gameLoop() {
   const _viboraPos = viboraSystem._entities
     .filter(e => !e.dead)
     .map(e => ({ x: e.x, z: e.z }));
-  armadilloSystem.update(dt, { playerPos: pos, predatorPositions: _viboraPos });
+  armadilloSystem.update(dt, { playerPos: pos, allPlayerPositions: _allPlayers, predatorPositions: _viboraPos });
   const _armadilloLoot = armadilloSystem.updateLoot(dt, pos);
   if (_armadilloLoot && myId && !isDead) {
     if (Inventory.add('armadillo', _armadilloLoot.hunger, _armadilloLoot.hp)) _updateInventoryHUD();
@@ -1919,7 +1927,7 @@ function gameLoop() {
       }
     }
   }
-  condorSystem.update(dt, { playerPos: pos, preyPositions: _recentCorpses });
+  condorSystem.update(dt, { playerPos: pos, allPlayerPositions: _allPlayers, preyPositions: _recentCorpses });
   const _condorLoot = condorSystem.updateLoot(dt, pos);
   if (_condorLoot && myId && !isDead) {
     if (Inventory.add('condor', _condorLoot.hunger, _condorLoot.hp)) _updateInventoryHUD();
