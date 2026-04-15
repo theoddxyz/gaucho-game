@@ -370,7 +370,7 @@ const viboraSystem = new CreatureSystem(scene, {
   loot:        [{ hp: 4, hunger: 10, color: 0xc8a050, chance: 0.75 }],
   renderer:    wormRenderer({ segCount: 6, spacing: 0.28, baseR: 0.07, color: 0xc8a050, eyeColor: 0x330000 }),
   respawnDelay: 90,
-  activeRadius: 230,
+  activeRadius: 1200,
 }, _worldSpawns(28, 160, 17));
 
 // ── Armadillos ────────────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ const armadilloSystem = new CreatureSystem(scene, {
   loot:        [{ hp: 8, hunger: 20, color: 0xa07040, chance: 0.9 }],
   renderer:    armadilloRenderer({ scale: 1.0, bodyColor: 0xa08060, shellColor: 0x6b5230 }),
   respawnDelay: 75,
-  activeRadius: 240,
+  activeRadius: 1200,
 }, _worldSpawns(22, 480, 31));
 
 // ── Cóndores ──────────────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ const condorSystem = new CreatureSystem(scene, {
   loot:        [{ hp: 6, hunger: 15, color: 0x1a1008, chance: 0.7 }],
   renderer:    condorRenderer({ scale: 1.0 }),
   respawnDelay: 120,
-  activeRadius: 380,
+  activeRadius: 1200,
 }, _worldSpawns(12, 600, 43));
 
 // Cadáveres recientes — los cóndores los detectan
