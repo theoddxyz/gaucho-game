@@ -1,0 +1,6 @@
+{
+  "name": "Remix: Remix: Procedural Worm Physics",
+  "description": "A 3D game character featuring a worm with procedural animations and physics-driven movement using Three.js and Cannon.js.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
