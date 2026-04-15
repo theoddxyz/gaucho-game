@@ -531,8 +531,6 @@ export class CreatureSystem {
     const sx    = spawn.x + (_rng() - 0.5) * 6;
     const sz    = spawn.z + (_rng() - 0.5) * 6;
 
-    const { group, hitboxes, rendState } = cfg.renderer.build(i, this._scene, sx, sz);
-
     const e = {
       idx: i,
       x: sx, z: sz,
@@ -547,16 +545,34 @@ export class CreatureSystem {
       panicTimer: 0,
       dead: false,
       removeTimer: 0,
-      group, hitboxes, rendState,
+      // Visuals — lazy: solo se crean cuando el jugador está cerca
+      group: null, hitboxes: [], rendState: null, active: false,
     };
 
     if (this._entities[i]) {
-      // Reuse slot on respawn
+      const old = this._entities[i];
+      if (old.active && old.group) {
+        cfg.renderer.removeVisuals(this._scene, old.group);
+        old.group = null; old.hitboxes = []; old.rendState = null; old.active = false;
+      }
       this._entities[i] = e;
     } else {
       this._entities.push(e);
     }
     return e;
+  }
+
+  _activateEntity(e) {
+    if (e.active || e.dead) return;
+    const { group, hitboxes, rendState } = this._config.renderer.build(e.idx, this._scene, e.x, e.z);
+    e.group = group; e.hitboxes = hitboxes; e.rendState = rendState; e.active = true;
+    group.position.set(e.x, e.y ?? 0, e.z);
+  }
+
+  _deactivateEntity(e) {
+    if (!e.active || !e.group) return;
+    this._config.renderer.removeVisuals(this._scene, e.group);
+    e.group = null; e.hitboxes = []; e.rendState = null; e.active = false;
   }
 
   // ── Hitboxes (para hitscan + crosshair en main.js) ─────────────────────────
@@ -649,7 +665,7 @@ export class CreatureSystem {
       if (e.dead) {
         e.removeTimer -= dt;
         if (e.removeTimer <= 0) {
-          cfg.renderer.removeVisuals(this._scene, e.group);
+          // _spawnEntity handles deactivation of old visuals
           this._spawnEntity(e.idx);
         }
         continue;
@@ -769,11 +785,29 @@ export class CreatureSystem {
       this._acc -= FIXED;
     }
 
-    // Actualización visual a frame rate real (animaciones suaves)
+    // Actualización visual a frame rate real — solo entidades dentro del radio activo
     tickFlyingParts(this._scene, this._parts, realDt);
+    const _pPos    = context?.playerPos;
+    const _ar2     = (this._config.activeRadius ?? 280) ** 2;
     for (const e of this._entities) {
-      e.group.position.set(e.x, e.y ?? 0, e.z);
-      this._config.renderer.update(e.group, e.rendState, e, realDt);
+      const _d2 = _pPos ? (e.x - _pPos.x)**2 + (e.z - _pPos.z)**2 : 0;
+      if (e.dead) {
+        // Mantener animación de muerte si ya está activo
+        if (e.active && e.group) {
+          e.group.position.set(e.x, e.y ?? 0, e.z);
+          this._config.renderer.update(e.group, e.rendState, e, realDt);
+        }
+        continue;
+      }
+      if (_d2 <= _ar2) {
+        if (!e.active) this._activateEntity(e);
+        if (e.group) {
+          e.group.position.set(e.x, e.y ?? 0, e.z);
+          this._config.renderer.update(e.group, e.rendState, e, realDt);
+        }
+      } else if (e.active) {
+        this._deactivateEntity(e);
+      }
     }
   }
 

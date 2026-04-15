@@ -354,7 +354,7 @@ const chickenSystem = new ChickenSystem(scene);
 // ── Víboras del desierto (CreatureSystem) ─────────────────────────────────────
 const viboraSystem = new CreatureSystem(scene, {
   species:     'vibora',
-  count:       7,
+  count:       28,
   hp:          1,
   hx: 0.18, hy: 0.1, hz: 0.18, mass: 1,
   fleeRadius:   3.5,
@@ -370,16 +370,13 @@ const viboraSystem = new CreatureSystem(scene, {
   loot:        [{ hp: 4, hunger: 10, color: 0xc8a050, chance: 0.75 }],
   renderer:    wormRenderer({ segCount: 6, spacing: 0.28, baseR: 0.07, color: 0xc8a050, eyeColor: 0x330000 }),
   respawnDelay: 90,
-}, [
-  { x:  18, z:  -72 }, { x: -22, z:  -68 }, { x:  32, z:  -88 },
-  { x: -12, z:  -93 }, { x:  26, z: -108 }, { x: -35, z:  -82 },
-  { x:   5, z:  -55 },
-]);
+  activeRadius: 230,
+}, _worldSpawns(28, 520, 17));
 
 // ── Armadillos ────────────────────────────────────────────────────────────────
 const armadilloSystem = new CreatureSystem(scene, {
   species:     'armadillo',
-  count:       9,
+  count:       22,
   hp:          2,
   hx: 0.28, hy: 0.18, hz: 0.28, mass: 4,
   fleeRadius:   5,
@@ -395,16 +392,13 @@ const armadilloSystem = new CreatureSystem(scene, {
   loot:        [{ hp: 8, hunger: 20, color: 0xa07040, chance: 0.9 }],
   renderer:    armadilloRenderer({ scale: 1.0, bodyColor: 0xa08060, shellColor: 0x6b5230 }),
   respawnDelay: 75,
-}, [
-  { x:  8,  z:  -60 }, { x: -15, z:  -75 }, { x:  28, z:  -65 },
-  { x: -28, z:  -80 }, { x:  12, z:  -95 }, { x: -5,  z:  -50 },
-  { x:  35, z: -100 }, { x: -38, z:  -65 }, { x:  0,  z: -115 },
-]);
+  activeRadius: 240,
+}, _worldSpawns(22, 480, 31));
 
 // ── Cóndores ──────────────────────────────────────────────────────────────────
 const condorSystem = new CreatureSystem(scene, {
   species:     'condor',
-  count:       4,
+  count:       12,
   hp:          2,
   hx: 0.5, hy: 0.15, hz: 0.5, mass: 6,
   fleeRadius:   7,       // huyen si el jugador se acerca demasiado mientras comen
@@ -422,13 +416,27 @@ const condorSystem = new CreatureSystem(scene, {
   loot:        [{ hp: 6, hunger: 15, color: 0x1a1008, chance: 0.7 }],
   renderer:    condorRenderer({ scale: 1.0 }),
   respawnDelay: 120,
-}, [
-  { x:  0,  z:  -80 }, { x: -30, z: -110 },
-  { x: 40,  z:  -70 }, { x: -15, z:  -50 },
-]);
+  activeRadius: 380,
+}, _worldSpawns(12, 600, 43));
 
 // Cadáveres recientes — los cóndores los detectan
 const _recentCorpses = [];
+
+// ── Generador de spawn points distribuidos por el mundo ──────────────────────
+function _worldSpawns(count, worldR, seed) {
+  const pts = [], side = Math.ceil(Math.sqrt(count * 1.5));
+  const step = worldR * 2 / side;
+  for (let i = 0; i < count; i++) {
+    const row = Math.floor(i / side), col = i % side;
+    const h1 = Math.abs(Math.sin((seed + i) * 127.1 + 311.7)) % 1;
+    const h2 = Math.abs(Math.sin((seed + i) * 269.5 + 183.3)) % 1;
+    pts.push({
+      x: -worldR + (col + 0.5 + (h1 - 0.5) * 0.6) * step,
+      z: -worldR + (row + 0.5 + (h2 - 0.5) * 0.6) * step,
+    });
+  }
+  return pts;
+}
 
 // Campesinos + sistema de almas
 const soulSystem      = new SoulSystem(scene);
@@ -1830,6 +1838,48 @@ function gameLoop() {
     .filter(c => !c.dead && !c.removed && !c.wounded)
     .map(c => ({ x: c.mesh.position.x, z: c.mesh.position.z }));
   viboraSystem.update(dt, { playerPos: pos, preyPositions: _chickenPos });
+  // Víboras que alcanzan una gallina: la matan y dejan cadáver
+  for (const _vib of viboraSystem._entities) {
+    if (_vib.dead || _vib.state !== 'hunt') continue;
+    const _cks = chickenSystem._chickens;
+    for (let _ci = 0; _ci < _cks.length; _ci++) {
+      const _ck = _cks[_ci];
+      if (_ck.dead || _ck.removed || _ck.wounded) continue;
+      const _cdx = _ck.mesh.position.x - _vib.x, _cdz = _ck.mesh.position.z - _vib.z;
+      if (_cdx*_cdx + _cdz*_cdz < 1.4*1.4) {
+        chickenSystem.hit(_ci, new THREE.Vector3(_vib.x, 0, _vib.z), 'body');
+        // Spawn cadáver visible
+        const _cMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.55, 0.40, 0.12, 8),
+          new THREE.MeshStandardMaterial({ color: 0x3a1a05, roughness: 0.9, transparent: true })
+        );
+        _cMesh.position.set(_vib.x, 0.06, _vib.z);
+        _cMesh.receiveShadow = true;
+        scene.add(_cMesh);
+        _recentCorpses.push({ x: _vib.x, z: _vib.z, life: 180, mesh: _cMesh });
+        _vib.state = 'wander';
+        _vib.wpTimer = 10 + Math.random() * 8;
+        break;
+      }
+    }
+  }
+  // Víboras que tocan al jugador: muerden (15 HP, cooldown 3s)
+  if (pos && myId && !isDead) {
+    for (const _vib of viboraSystem._entities) {
+      if (_vib.dead) continue;
+      if ((_vib.x-pos.x)**2 + (_vib.z-pos.z)**2 < 1.3*1.3) {
+        _vib._biteCd = (_vib._biteCd ?? 0) - dt;
+        if (_vib._biteCd <= 0) {
+          _vib._biteCd = 3.5;
+          myData.hp = Math.max(0, myData.hp - 15);
+          UI.updateHP(myData.hp);
+          UI.showDamageFlash();
+        }
+      } else {
+        _vib._biteCd = (_vib._biteCd ?? 0) - dt;
+      }
+    }
+  }
   const _viboraLoot = viboraSystem.updateLoot(dt, pos);
   if (_viboraLoot && myId && !isDead) {
     if (Inventory.add('snake', _viboraLoot.hunger, _viboraLoot.hp)) _updateInventoryHUD();
@@ -1845,10 +1895,29 @@ function gameLoop() {
     if (Inventory.add('armadillo', _armadilloLoot.hunger, _armadilloLoot.hp)) _updateInventoryHUD();
   }
 
-  // Cóndores: atraídos por cadáveres recientes
+  // Cadáveres visibles + atracción de cóndores
   for (let _ci = _recentCorpses.length - 1; _ci >= 0; _ci--) {
-    _recentCorpses[_ci].life -= dt;
-    if (_recentCorpses[_ci].life <= 0) _recentCorpses.splice(_ci, 1);
+    const _c = _recentCorpses[_ci];
+    _c.life -= dt;
+    if (_c.life <= 0) {
+      if (_c.mesh) { scene.remove(_c.mesh); _c.mesh.geometry?.dispose(); _c.mesh.material?.dispose(); }
+      _recentCorpses.splice(_ci, 1);
+      continue;
+    }
+    if (_c.mesh && _c.life < 12) _c.mesh.material.opacity = Math.max(0, _c.life / 12);
+  }
+  // Cóndor que aterrizó come el cadáver más cercano
+  for (const _cnd of condorSystem._entities) {
+    if (_cnd.dead || (_cnd.y ?? 11) > 1.2) continue;
+    for (let _ci = _recentCorpses.length - 1; _ci >= 0; _ci--) {
+      const _c = _recentCorpses[_ci];
+      if (!_c.mesh) continue;
+      if ((_cnd.x-_c.x)**2 + (_cnd.z-_c.z)**2 < 3.5*3.5) {
+        scene.remove(_c.mesh); _c.mesh.geometry?.dispose(); _c.mesh.material?.dispose();
+        _recentCorpses.splice(_ci, 1);
+        break;
+      }
+    }
   }
   condorSystem.update(dt, { playerPos: pos, preyPositions: _recentCorpses });
   const _condorLoot = condorSystem.updateLoot(dt, pos);
