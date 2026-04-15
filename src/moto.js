@@ -11,16 +11,16 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const MOUNT_RADIUS    = 4.0;
-const SPEED_MULT      = 2.4;
-const SPRINT_MULT     = 1.35;
+const SPEED_MULT      = 5.0;    // fast — racing feel
+const SPRINT_MULT     = 1.25;
 const RIDER_HEIGHT    = 0.82;   // seat height above ground (m)
 const MOUNT_DUR       = 0.25;
 const DISMOUNT_DUR    = 0.35;
 const SIDE_DIST       = 2.0;
-const LEAN_MAX        = 0.28;   // ~16°
-const LEAN_SPEED      = 6;
+const LEAN_MAX        = 0.52;   // ~30° — racing bank
+const LEAN_SPEED      = 14;     // fast lean response
 const WHEEL_SPIN      = 3.0;    // rad per (m traveled)
-const STEER_FACTOR    = 1.4;    // front wheel steer multiplier from lean
+const STEER_FACTOR    = 1.6;    // front wheel steer multiplier from lean
 const SEAT_BACK_OFFSET = 0.7;   // meters the moto center sits ahead of rider
 
 export const MOTO_SPAWNS = [
@@ -268,24 +268,26 @@ export class MotoManager {
 
     for (const [, moto] of this.motos) {
       // ── Heading via spring-damper toward _targetRY ────────────────────────
-      // At low speed: soft/responsive. At high speed: more inertia/weight.
-      {
-        let diff = moto._targetRY - moto._displayRY;
-        while (diff >  Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        const speedF   = Math.max(0, moto._speedFactor ?? 0);
-        // Stiffness and damping scale with speed → heavier feel at high speed
-        const stiffness = 5  + speedF * 8;
-        const damping   = 3.5 + speedF * 5;
-        moto._turnRate += (diff * stiffness - moto._turnRate * damping) * dt;
-        moto._displayRY += moto._turnRate * dt;
-        while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
-        while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
-      }
-      moto.mesh.rotation.y = moto._displayRY;
+      let diff = moto._targetRY - moto._displayRY;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
 
-      // Lean
-      moto.mesh.rotation.z = -moto._lean;
+      const speedF    = Math.max(0, moto._speedFactor ?? 0);
+      const stiffness = 6  + speedF * 10;
+      const damping   = 4  + speedF * 6;
+      moto._turnRate += (diff * stiffness - moto._turnRate * damping) * dt;
+      moto._displayRY += moto._turnRate * dt;
+      while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
+      while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
+
+      // ── Lean = banking INTO the turn (heading error × speed) ─────────────
+      // diff > 0 = needs to turn left → bank left (negative Z = lean right in Three.js)
+      // moto.mesh.rotation.z is the roll; positive = leans right, negative = leans left
+      const leanTarget = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -diff * speedF * 2.8));
+      moto._lean += (leanTarget - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+
+      moto.mesh.rotation.y = moto._displayRY;
+      moto.mesh.rotation.z = moto._lean;
 
       // Wheel spin — distance traveled this frame
       const dx  = moto.x - moto._prevX;
@@ -349,18 +351,6 @@ export class MotoManager {
     } else {
       moto._speedFactor *= 0.85;   // quick decay when stopped
     }
-
-    if (this._prevAngle !== null) {
-      let delta = moveAngle - this._prevAngle;
-      while (delta >  Math.PI) delta -= Math.PI * 2;
-      while (delta < -Math.PI) delta += Math.PI * 2;
-      const dx = x - moto.x, dz = z - moto.z;
-      const spd = Math.sqrt(dx * dx + dz * dz) * 60;
-      const target = Math.max(-LEAN_MAX, Math.min(LEAN_MAX,
-        delta * Math.max(1, spd * 0.35)));
-      moto._lean += (target - moto._lean) * Math.min(1, LEAN_SPEED / 60);
-    }
-    this._prevAngle = moveAngle;
 
     moto.x = x; moto.z = z;
     moto._targetRY = moveAngle;   // spring-damper in update() drives toward this
