@@ -699,6 +699,19 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).volatile.emit('horsePositionUpdate', { ...data, riderId: socket.id });
   });
 
+  socket.on('mountMoto', ({ motoId }) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('playerMountedMoto', { playerId: socket.id, motoId });
+  });
+  socket.on('dismountMoto', ({ motoId }) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit('playerDismountedMoto', { playerId: socket.id, motoId });
+  });
+  socket.on('motoMoved', (data) => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).volatile.emit('motoPositionUpdate', { ...data, riderId: socket.id });
+  });
+
   socket.on('unsaddleHorse', ({ horseId }) => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('horseUnsaddled', { horseId });

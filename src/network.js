@@ -37,6 +37,14 @@ export function onPlayerMountedHorse(cb)   { socket.on('playerMountedHorse', cb)
 export function onPlayerDismountedHorse(cb){ socket.on('playerDismountedHorse', cb); }
 export function onHorsePositionUpdate(cb)  { socket.on('horsePositionUpdate', cb); }
 
+export function sendMotoMount(motoId)    { socket.emit('mountMoto', { motoId }); }
+export function sendMotoDismount(motoId) { socket.emit('dismountMoto', { motoId }); }
+export function sendMotoMoved(data)      { socket.volatile.emit('motoMoved', data); }
+
+export function onPlayerMountedMoto(cb)    { socket.on('playerMountedMoto', cb); }
+export function onPlayerDismountedMoto(cb) { socket.on('playerDismountedMoto', cb); }
+export function onMotoPositionUpdate(cb)   { socket.on('motoPositionUpdate', cb); }
+
 export function sendUnsaddle(horseId)    { socket.emit('unsaddleHorse', { horseId }); }
 export function onHorseUnsaddled(cb)     { socket.on('horseUnsaddled', cb); }
 export function sendSaddle(horseId)      { socket.emit('saddleHorse', { horseId }); }
