@@ -420,12 +420,12 @@ export class ChunkManager {
   harvestBush(bush) {
     bush.hasFruit = false;
     if (bush._berry) bush._berry.visible = false;
-    // Regrow after 3 minutes
+    // Regrow after 1 minute
     setTimeout(() => {
       if (!bush._berry) return;
       bush.hasFruit = true;
       bush._berry.visible = true;
-    }, 3 * 60 * 1000);
+    }, 60 * 1000);
     return { fruit: 1 + (Math.random() < 0.5 ? 1 : 0), seed: 1 };
   }
 

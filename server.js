@@ -868,7 +868,7 @@ io.on('connection', (socket) => {
     const key     = `${Math.round(x * 10)},${Math.round(z * 10)}`;
     const now     = Date.now();
     if (bushMap.has(key) && now < bushMap.get(key)) return;  // ya cosechado
-    bushMap.set(key, now + 3 * 60 * 1000);  // regrow en 3 min
+    bushMap.set(key, now + 60 * 1000);  // regrow en 1 min
     io.to(currentRoom).emit('bushHarvested', { x, z, harvesterId: socket.id });
   });
 
@@ -897,9 +897,14 @@ io.on('connection', (socket) => {
     if (!currentRoom || !playerData) return;
     const crops = cropStates.get(currentRoom);
     if (!crops?.has(id)) return;
-    if (Date.now() < crops.get(id).grownAt) return;  // no maduro aún
-    crops.delete(id);
+    const crop = crops.get(id);
+    if (Date.now() < crop.grownAt) return;  // no maduro aún
+    // Reset crop to regrow instead of deleting
+    const now2 = Date.now();
+    crop.plantedAt = now2;
+    crop.grownAt   = now2 + GROW_TIME_MS;
     io.to(currentRoom).emit('cropHarvested', { id, harvesterId: socket.id });
+    io.to(currentRoom).emit('cropReset', { id, plantedAt: crop.plantedAt, grownAt: crop.grownAt });
   });
 
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────

@@ -118,6 +118,7 @@ export function sendPlantSeed(x, z)    { socket.emit('plantSeed', { x, z }); }
 export function sendHarvestCrop(id)    { socket.emit('harvestCrop', { id }); }
 export function onCropSpawned(cb)      { socket.on('cropSpawned', cb); }
 export function onCropHarvested(cb)    { socket.on('cropHarvested', cb); }
+export function onCropReset(cb)        { socket.on('cropReset', cb); }
 export function onCropState(cb)        { socket.on('cropState', cb); }
 export function sendHarvestBush(x, z)  { socket.emit('harvestBush', { x, z }); }
 export function onBushHarvested(cb)    { socket.on('bushHarvested', cb); }

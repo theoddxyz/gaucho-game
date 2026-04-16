@@ -65,26 +65,19 @@ function _makeCropMesh(grown) {
     const flag     = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.38), flagMat);
     flag._ownGeo   = true; flag.position.set(0.28, 1.55, 0); g.add(flag);
   } else {
-    // ── Cultivo maduro: tallo grueso + cabeza grande + bayas rojas ────────────
-    const stalkH = 1.1;
-    const sMat   = new THREE.MeshStandardMaterial({ color: 0x4a8a1a });
-    const stalk  = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.10, stalkH, 6), sMat);
-    stalk._ownGeo = true; stalk.castShadow = true;
-    stalk.position.y = stalkH / 2;
-    g.add(stalk);
-    const lMat = new THREE.MeshStandardMaterial({ color: 0x5ec820, roughness: 0.7 });
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.52, 8, 7), lMat);
-    leaf._ownGeo = true; leaf.castShadow = true;
-    leaf.position.y = stalkH + 0.22;
-    g.add(leaf);
-    const bMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
-    const bGeo = new THREE.SphereGeometry(0.13, 6, 5);
-    for (let i = 0; i < 5; i++) {
-      const b = new THREE.Mesh(bGeo, bMat); b._ownGeo = true;
-      const a = (i / 5) * Math.PI * 2;
-      b.position.set(Math.cos(a) * 0.42, stalkH + 0.28, Math.sin(a) * 0.42);
-      g.add(b);
-    }
+    // ── Cultivo maduro: arbusto tipo silvestre (consistente visualmente) ──────
+    const bushR = 0.70;
+    const bMat  = new THREE.MeshStandardMaterial({ color: 0x3a9422, roughness: 0.7 });
+    const bush  = new THREE.Mesh(new THREE.SphereGeometry(bushR, 8, 7), bMat);
+    bush._ownGeo = true; bush.castShadow = true;
+    bush.position.y = bushR * 0.85;
+    g.add(bush);
+    // Gran baya roja encima — idéntica a la de los arbustos silvestres
+    const berryMat = new THREE.MeshStandardMaterial({ color: 0xff2200, roughness: 0.5 });
+    const berry    = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), berryMat);
+    berry._ownGeo = true; berry.castShadow = true;
+    berry.position.y = bushR * 0.85 + bushR * 0.78;
+    g.add(berry);
   }
   return g;
 }
@@ -103,7 +96,7 @@ function _spawnCropMesh(crop, scene) {
   return mesh;
 }
 
-function _getNearbyRipeCrop(x, z, radius = 2.2) {
+function _getNearbyRipeCrop(x, z, radius = 3.0) {
   let best = null, bestD = radius * radius;
   for (const mesh of _cropMeshes.values()) {
     if (!mesh._isGrown) continue;
@@ -794,9 +787,7 @@ Network.onCropSpawned((crop) => {
 });
 
 Network.onCropHarvested(({ id, harvesterId }) => {
-  const mesh = _cropMeshes.get(id);
-  if (mesh) { scene.remove(mesh); _cropMeshes.delete(id); }
-  // Solo el cosechador recibe los ítems
+  // Visual removal handled by onCropReset (crop regrows); here just give loot
   if (harvesterId === myId) {
     Inventory.add('fruit', 12, 4);
     Inventory.add('fruit', 12, 4);
@@ -805,6 +796,22 @@ Network.onCropHarvested(({ id, harvesterId }) => {
     UI.addKillMessage('[ COSECHA ]', '+2 fruta  +1 semilla');
     Audio.eatSound?.();
   }
+});
+
+Network.onCropReset(({ id, plantedAt, grownAt }) => {
+  // Replace grown crop mesh with stake marker (crop regrows)
+  const oldMesh = _cropMeshes.get(id);
+  const pos = oldMesh ? oldMesh.position.clone() : null;
+  if (oldMesh) { oldMesh.traverse(c => { if (c.isMesh) c.geometry?.dispose(); }); scene.remove(oldMesh); _cropMeshes.delete(id); }
+  if (!pos) return;
+  const mesh = _makeCropMesh(false);
+  mesh.position.copy(pos);
+  mesh._cropId    = id;
+  mesh._plantedAt = plantedAt;
+  mesh._grownAt   = grownAt;
+  mesh._isGrown   = false;
+  scene.add(mesh);
+  _cropMeshes.set(id, mesh);
 });
 
 Network.onCropState(({ crops }) => {
@@ -1100,6 +1107,7 @@ Network.onJoined((data) => {
     }
 
     // ── 2d. Cosechar cultivo maduro ───────────────────────────────────────────
+    _updateCropGrowth();  // convertir cultivos maduros antes de buscar
     const nearCrop = _getNearbyRipeCrop(pos.x, pos.z);
     if (nearCrop) {
       Network.sendHarvestCrop(nearCrop._cropId);
@@ -2128,8 +2136,9 @@ function gameLoop() {
       if      (ripeCrop)    _setPlantHint('E: Cosechar');
       else if (nearGrowing) {
         const total  = nearGrowing._grownAt - nearGrowing._plantedAt;
-        const pct    = Math.min(99, Math.floor((now - nearGrowing._plantedAt) / total * 100));
-        _setPlantHint(`cultivo: ${pct}%`);
+        const pct    = Math.max(0, Math.floor((now - nearGrowing._plantedAt) / total * 100));
+        if (pct >= 100) _setPlantHint('E: Cosechar');
+        else            _setPlantHint(`cultivo: ${pct}%`);
       }
       else if (fruitBush)   _setPlantHint('E: Cosechar fruta');
       else if (hasSeed)     _setPlantHint('G: Sembrar semilla');
