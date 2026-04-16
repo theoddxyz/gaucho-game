@@ -618,7 +618,7 @@ export class PlayerModel {
             bb.max.y - bb.min.y,
             bb.max.z - bb.min.z
           );
-          if (longest > 0.01) sc.scale.setScalar(1.9 / longest);
+          if (longest > 0.01) sc.scale.setScalar(2.8 / longest);
           // Recomputar para bajar al piso
           sc.updateWorldMatrix(true, true);
           const bb2 = new THREE.Box3().setFromObject(sc);
