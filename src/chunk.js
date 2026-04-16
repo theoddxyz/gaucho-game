@@ -134,14 +134,9 @@ const PEBBLE_MATS = [
 ];
 
 // ─── Frutos silvestres ────────────────────────────────────────────────────────
-const FRUIT_CHANCE  = 0.20;   // 20% de los arbustos tienen fruto
-const _BERRY_GEO    = new THREE.SphereGeometry(0.09, 5, 4);
-const _BERRY_MAT    = new THREE.MeshBasicMaterial({ color: 0xff5500 });
-// Determinar si un arbusto en (wx, wz) tiene fruto — hash de posición (determinístico, no consume RNG)
-function _bushHasFruit(wx, wz) {
-  const h = (Math.abs(Math.round(wx * 7.3 + 1000) ^ Math.round(wz * 13.7 + 1000)) * 2654435761) >>> 0;
-  return (h % 100) / 100 < FRUIT_CHANCE;
-}
+const FRUIT_CHANCE  = 0.25;   // 25% de los arbustos tienen fruto
+const _BERRY_GEO    = new THREE.SphereGeometry(0.16, 6, 5);
+const _BERRY_MAT    = new THREE.MeshBasicMaterial({ color: 0xddee00 });
 
 // ─── Carga de templates ──────────────────────────────────────────────────────
 const loader = new GLTFLoader();
@@ -210,12 +205,12 @@ export class ChunkManager {
       if (!this.chunks.has(key)) {
         this._building = true;
         if (_tplReady) {
-          this._build(qcx, qcz);
-          this._building = false;
+          try { this._build(qcx, qcz); } catch(e) { console.error('[Chunk] build error', e); }
+          finally { this._building = false; }
         } else {
           _tplCallbacks.push(() => {
-            this._build(qcx, qcz);
-            this._building = false;
+            try { this._build(qcx, qcz); } catch(e) { console.error('[Chunk] build error', e); }
+            finally { this._building = false; }
           });
         }
       } else {
@@ -309,7 +304,7 @@ export class ChunkManager {
     for (let i = 0; i < BUSHES_PER_CHUNK; i++) {
       const bx  = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
       const bz  = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
-      if (_inWater(bx, bz)) { rng(); rng(); rng(); continue; }
+      if (_inWater(bx, bz)) { rng(); rng(); rng(); rng(); continue; }
       const bs  = 0.55 + rng() * 0.90;
       let bush;
       if (bushTemplate) {
@@ -331,8 +326,8 @@ export class ChunkManager {
       this.scene.add(bush);
       objects.push(bush);
 
-      // Fruto silvestre: ~20% de los arbustos tienen bayas (determinístico por posición)
-      if (_bushHasFruit(bx, bz)) {
+      // Fruto silvestre: ~25% de los arbustos tienen bayas (determinístico por RNG del chunk)
+      if (rng() < FRUIT_CHANCE) {
         bush.hasFruit = true;
         const berry = new THREE.Mesh(_BERRY_GEO, _BERRY_MAT);
         berry.position.set(bx, bush.position.y + 0.5 + bs * 0.15, bz);
