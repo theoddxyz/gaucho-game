@@ -698,8 +698,9 @@ Network.onTimeWarp(({ hours }) => {
 });
 
 // Reemplaza un cultivo creciendo por uno maduro — dispone geometría vieja
+const _cropGrowAnims = []; // { mesh, startMs } — scale pop 0→1 over 400ms
+
 function _growCrop(mesh) {
-  // Dispose geometrías del mesh viejo
   mesh.traverse(c => { if (c.isMesh) c.geometry?.dispose(); });
   scene.remove(mesh);
   const grown = _makeCropMesh(true);
@@ -707,8 +708,11 @@ function _growCrop(mesh) {
   grown._cropId  = mesh._cropId;
   grown._grownAt = mesh._grownAt;
   grown._isGrown = true;
+  grown.scale.setScalar(0.05);  // empieza chico
   scene.add(grown);
   _cropMeshes.set(grown._cropId, grown);
+  _cropGrowAnims.push({ mesh: grown, startMs: Date.now() });
+  Audio.eatSound?.();  // feedback sonoro al madurar
 }
 
 // Chequea todos los cultivos pendientes de madurar y los reemplaza
@@ -718,6 +722,19 @@ function _updateCropGrowth() {
     if (!mesh._isGrown && Date.now() >= mesh._grownAt) toGrow.push(mesh);
   }
   for (const mesh of toGrow) _growCrop(mesh);
+}
+
+// Avanza las animaciones de pop de cultivos que acaban de madurar
+function _updateCropAnims() {
+  const DURATION = 400;
+  for (let i = _cropGrowAnims.length - 1; i >= 0; i--) {
+    const a = _cropGrowAnims[i];
+    const t = Math.min(1, (Date.now() - a.startMs) / DURATION);
+    // Ease out back: ligero overshoot para que se sienta vivo
+    const s = t < 1 ? 1 + (Math.pow(t, 0.4) - 1) * (1 + 1.5 * (1 - t)) : 1;
+    a.mesh.scale.setScalar(Math.max(0.05, s));
+    if (t >= 1) { a.mesh.scale.setScalar(1); _cropGrowAnims.splice(i, 1); }
+  }
 }
 
 Network.onWakeUp(() => {
@@ -1844,19 +1861,40 @@ _invHud.style.cssText = [
 document.body.appendChild(_invHud);
 
 function _updateInventoryHUD() {
-  const counts  = Inventory.getCounts();
-  const sel     = Inventory.getSelected();
-  const defs    = Inventory.FOOD_DEFS;
-  const total   = Inventory.getTotal();
+  const counts = Inventory.getCounts();
+  const sel    = Inventory.getSelected();
+  const defs   = Inventory.FOOD_DEFS;
+  const total  = Inventory.getTotal();
   if (total === 0) { _invHud.style.display = 'none'; return; }
   _invHud.style.display = 'flex';
+
+  const PLANT_TYPES = new Set(['fruit', 'seed']);
+
   _invHud.innerHTML = Object.entries(defs).map(([type, def]) => {
-    const n   = counts[type];
+    const n = counts[type];
     if (n === 0) return '';
-    const act = type === sel;
+
+    if (type === 'seed') {
+      // Semilla: siempre verde, nunca "activa", muestra tecla G
+      return `<div style="
+        background:rgba(30,70,10,0.75);
+        border:1px solid #6ab830;
+        border-radius:5px; padding:3px 8px; font-size:12px; color:#c8f060;
+        cursor:default; white-space:nowrap; letter-spacing:1px;
+      ">${def.icon} <b>${n}</b> <span style="font-size:9px;color:#7ab840;letter-spacing:2px">G</span></div>`;
+    }
+
+    const isPlant = PLANT_TYPES.has(type);
+    const act     = type === sel;
+    const bg      = act
+      ? (isPlant ? 'rgba(60,140,20,0.85)' : 'rgba(200,160,50,0.80)')
+      : (isPlant ? 'rgba(20,50,8,0.70)'   : 'rgba(0,0,0,0.55)');
+    const border  = act
+      ? (isPlant ? '#88dd30' : '#f0c040')
+      : (isPlant ? 'rgba(100,180,40,0.4)' : 'rgba(255,255,255,0.15)');
+
     return `<div style="
-      background:${act ? 'rgba(200,160,50,0.80)' : 'rgba(0,0,0,0.55)'};
-      border:1px solid ${act ? '#f0c040' : 'rgba(255,255,255,0.15)'};
+      background:${bg}; border:1px solid ${border};
       border-radius:5px; padding:3px 8px; font-size:13px; color:#fff;
       cursor:default; white-space:nowrap;
     ">${def.icon} <b>${n}</b></div>`;
@@ -2023,6 +2061,7 @@ function gameLoop() {
       else if (hasSeed)   _setPlantHint('G: Sembrar semilla');
       else                _setPlantHint(null);
       _updateCropGrowth();
+      if (_cropGrowAnims.length > 0) _updateCropAnims();
     }
 
     // Shadow follows player — sun moves on a day arc (east at dawn, west at dusk)
