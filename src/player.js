@@ -30,7 +30,7 @@ function loadTemplate(isBot = false) {
 function loadHorseRideTemplate() {
   if (horseRideTemplate) return horseRideTemplate;
   horseRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+    loader.load('/models/ANDARACABALLO2.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return horseRideTemplate;
 }
@@ -38,7 +38,7 @@ function loadHorseRideTemplate() {
 function loadMotoRideTemplate() {
   if (motoRideTemplate) return motoRideTemplate;
   motoRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+    loader.load('/models/ANDARACABALLO2.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return motoRideTemplate;
 }
