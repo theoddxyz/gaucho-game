@@ -538,7 +538,7 @@ export class PlayerModel {
 
         // ── Modelo andar en moto ──────────────────────────────────────────────
         loadMotoRideTemplate().then((gltf) => {
-          if (!gltf || !gltf.animations?.length) return;
+          if (!gltf) return;
           const sc = gltf.scene;
           sc.traverse((obj) => {
             obj.visible = true;
@@ -558,11 +558,12 @@ export class PlayerModel {
           sc.visible = false;
           this.group.add(sc);
           this._motoRideModel  = sc;
-          this._motoRideMixer  = new THREE.AnimationMixer(sc);
-          const motoClip = gltf.animations[0];
-          this._motoRideAction = this._motoRideMixer.clipAction(motoClip);
-          this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
-          this._motoRideAction.play();
+          if (gltf.animations?.length) {
+            this._motoRideMixer  = new THREE.AnimationMixer(sc);
+            this._motoRideAction = this._motoRideMixer.clipAction(gltf.animations[0]);
+            this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
+            this._motoRideAction.play();
+          }
         });
 
         // ── Modelo tranquilo (idle a pie, sano) ──────────────────────────────
