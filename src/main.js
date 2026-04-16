@@ -202,9 +202,13 @@ document.addEventListener('keyup', (e) => {
 });
 
 // --- Renderer ---
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const PX_SCALE = 4;   // pixel art: render at 1/4 resolution
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setSize(Math.floor(window.innerWidth / PX_SCALE), Math.floor(window.innerHeight / PX_SCALE), false);
+renderer.setPixelRatio(1);
+renderer.domElement.style.width  = '100vw';
+renderer.domElement.style.height = '100vh';
+renderer.domElement.style.imageRendering = 'pixelated';
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFShadowMap;
 renderer.toneMapping       = THREE.ACESFilmicToneMapping;
@@ -302,8 +306,8 @@ let _aberration = 0;
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  _composer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(Math.floor(window.innerWidth / PX_SCALE), Math.floor(window.innerHeight / PX_SCALE), false);
+  _composer.setSize(Math.floor(window.innerWidth / PX_SCALE), Math.floor(window.innerHeight / PX_SCALE));
 });
 
 // --- World setup ---
@@ -1599,6 +1603,7 @@ let _sprintBreath  = 0;
 let _wasNight      = false;
 let _wasDawn       = false;   // para pajaros al amanecer
 let _wasInAir      = false;
+let _wasMoto       = false;
 
 // ── Host creature sync: serialize all animal positions and send to server ─────
 function _sendHostCreatureSync(reliable = false) {
@@ -1694,8 +1699,8 @@ function gameLoop() {
         Audio.updateMotoEngine?.(motoManager.getSpeedFactor());
       }
 
-      // Stop engine when dismounted
-      if (!motoManager.isMounted() && _onMoto) Audio.stopMotoEngine?.();
+      // Stop engine when dismounted (uses _wasMoto to detect transition)
+      if (_wasMoto && !motoManager.isMounted()) Audio.stopMotoEngine?.();
     }
 
     // ── Carrosa ───────────────────────────────────────────────────────────────
@@ -2245,6 +2250,7 @@ function gameLoop() {
     const inAir = controls.isInAir?.() ?? false;
     if (_wasInAir && !inAir) Audio.jumpLand();
     _wasInAir = inAir;
+    _wasMoto  = motoManager?.isMounted() ?? false;
 
     // Sprint breath — cada ~3s si corriendo
     if (isMoving && controls.isSprinting()) {
