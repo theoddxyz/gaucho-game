@@ -697,7 +697,7 @@ Network.onJoined((data) => {
     const onMoto     = motoManager?.isMounted() ?? false;
     if (nearMoto || onMoto) {
       const land = motoManager?.tryMount(myId, 0, pos.x, pos.z);
-      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound?.(); }
+      if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound?.(); Audio.startMotoEngine?.(); }
       return;
     }
 
@@ -1683,11 +1683,20 @@ function gameLoop() {
       if (motoLand) controls.setPosition(motoLand.x, 0, motoLand.z);
 
       if (motoManager.isMounted() && !motoManager.isMountAnimating()) {
+        // Spacebar → drift (consume trigger before controls.update uses it for jump)
+        if (controls._jumpTrigger) {
+          controls._jumpTrigger = false;
+          if (motoManager.startDrift()) Audio.motoTireScreech?.();
+        }
         const moveAngle = controls.getMovementAngle();
         const sprinting = controls.isSprinting();
         motoManager.syncRiderPosition(pos.x, pos.z, moveAngle, sprinting);
         Network.sendMotoMoved({ motoId: motoManager.myMotoId, x: pos.x, z: pos.z, ry: moveAngle });
+        Audio.updateMotoEngine?.(motoManager.getSpeedFactor());
       }
+
+      // Stop engine when dismounted
+      if (!motoManager.isMounted() && _onMoto) Audio.stopMotoEngine?.();
     }
 
     // ── Carrosa ───────────────────────────────────────────────────────────────

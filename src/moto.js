@@ -19,6 +19,8 @@ const DISMOUNT_DUR    = 0.35;
 const SIDE_DIST       = 2.0;
 const LEAN_MAX        = 0.52;   // ~30° — racing bank
 const LEAN_SPEED      = 14;     // fast lean response
+const DRIFT_LEAN      = 0.82;   // ~47° during drift
+const DRIFT_DURATION  = 0.65;   // seconds
 const WHEEL_SPIN      = 3.0;    // rad per (m traveled)
 const STEER_FACTOR    = 1.6;    // front wheel steer multiplier from lean
 const SEAT_BACK_OFFSET = 0.7;   // meters the moto center sits ahead of rider
@@ -216,6 +218,9 @@ export class MotoManager {
         _prevZ:      spawn.z,
         _speedFactor: 0,   // 0..1, drives acceleration ramp
         _turnRate:    0,   // rad/s angular momentum
+        _drifting:    false,
+        _driftTimer:  0,
+        _driftSign:   1,
       });
     }
   }
@@ -238,6 +243,16 @@ export class MotoManager {
   isMountAnimating()    { return this._anim?.type === 'mount'; }
   getMotoHeading()      { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._displayRY ?? 0; }
   getMotoLean()         { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._lean ?? 0; }
+  getSpeedFactor()      { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._speedFactor ?? 0; }
+
+  startDrift() {
+    const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
+    if (!moto || moto._drifting || moto._speedFactor < 0.2) return false;
+    moto._drifting   = true;
+    moto._driftTimer = DRIFT_DURATION;
+    moto._driftSign  = moto._lean >= 0 ? 1 : -1;
+    return true;
+  }
   speedMultiplier(spr) {
     const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
     const sf   = Math.max(0.15, moto?._speedFactor ?? 0);  // min 15% so it starts
@@ -282,10 +297,17 @@ export class MotoManager {
       while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
 
       // ── Lean = banking INTO the turn (heading error × speed) ─────────────
-      // diff > 0 = needs to turn left → bank left (negative Z = lean right in Three.js)
-      // moto.mesh.rotation.z is the roll; positive = leans right, negative = leans left
-      const leanTarget = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -diff * speedF * 2.8));
-      moto._lean += (leanTarget - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+      if (moto._drifting) {
+        moto._driftTimer -= dt;
+        if (moto._driftTimer <= 0) moto._drifting = false;
+        // Snap to full drift lean + spin heading fast
+        const driftLeanTarget = moto._driftSign * DRIFT_LEAN;
+        moto._lean += (driftLeanTarget - moto._lean) * Math.min(1, 22 * dt);
+        moto._turnRate += moto._driftSign * 12 * dt;  // rear slides out
+      } else {
+        const leanTarget = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -diff * speedF * 2.8));
+        moto._lean += (leanTarget - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+      }
 
       moto.mesh.rotation.y = moto._displayRY;
       moto.mesh.rotation.z = moto._lean;

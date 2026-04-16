@@ -1064,6 +1064,76 @@ export function setMasterVolume(v) {
   if (_out) _out.gain.value = Math.max(0, Math.min(1, v));
 }
 
+// ── Moto engine sound ─────────────────────────────────────────────────────────
+let _motoOsc1 = null, _motoOsc2 = null, _motoGain = null, _motoLpf = null;
+
+function _distCurve(amount) {
+  const n = 256, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    c[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+  }
+  return c;
+}
+
+export function startMotoEngine() {
+  const c = _ctx_(); if (!c || !_out) return;
+  stopMotoEngine();
+  _motoGain = c.createGain();
+  _motoGain.gain.setValueAtTime(0, c.currentTime);
+  _motoGain.gain.linearRampToValueAtTime(0.28, c.currentTime + 0.4);
+
+  _motoLpf = c.createBiquadFilter();
+  _motoLpf.type = 'lowpass'; _motoLpf.frequency.value = 350; _motoLpf.Q.value = 1.8;
+
+  const dist = c.createWaveShaper();
+  dist.curve = _distCurve(80); dist.oversample = '2x';
+
+  _motoOsc1 = c.createOscillator(); _motoOsc1.type = 'sawtooth'; _motoOsc1.frequency.value = 55;
+  _motoOsc2 = c.createOscillator(); _motoOsc2.type = 'square';   _motoOsc2.frequency.value = 82;
+
+  const g2 = c.createGain(); g2.gain.value = 0.4;
+  _motoOsc1.connect(dist); _motoOsc2.connect(g2);
+  dist.connect(_motoLpf); g2.connect(_motoLpf);
+  _motoLpf.connect(_motoGain); _motoGain.connect(_out);
+  _motoOsc1.start(); _motoOsc2.start();
+}
+
+export function updateMotoEngine(speedFactor) {
+  if (!_motoOsc1 || !_ctx) return;
+  const c = _ctx_();
+  const f1 = 55  + speedFactor * 160;   // 55 Hz idle → 215 Hz full throttle
+  const f2 = 82  + speedFactor * 240;
+  const lp = 350 + speedFactor * 1200;  // open up filter at speed
+  const vol = 0.18 + speedFactor * 0.18;
+  _motoOsc1.frequency.setTargetAtTime(f1,  c.currentTime, 0.06);
+  _motoOsc2.frequency.setTargetAtTime(f2,  c.currentTime, 0.06);
+  _motoLpf.frequency.setTargetAtTime(lp,   c.currentTime, 0.08);
+  _motoGain.gain.setTargetAtTime(vol,       c.currentTime, 0.10);
+}
+
+export function stopMotoEngine() {
+  if (!_motoOsc1) return;
+  const c = _ctx_();
+  if (c && _motoGain) _motoGain.gain.setTargetAtTime(0, c.currentTime, 0.25);
+  const o1 = _motoOsc1, o2 = _motoOsc2;
+  _motoOsc1 = _motoOsc2 = _motoGain = _motoLpf = null;
+  setTimeout(() => { try { o1.stop(); o2.stop(); } catch(e) {} }, 600);
+}
+
+export function motoTireScreech() {
+  const c = _ctx_(); if (!c || !_out) return;
+  const dur = 0.55, sr = c.sampleRate;
+  const buf = c.createBuffer(1, Math.floor(sr * dur), sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const src = c.createBufferSource(); src.buffer = buf;
+  const bpf = c.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 900; bpf.Q.value = 0.6;
+  const g = c.createGain(); g.gain.value = 0.35;
+  src.connect(bpf); bpf.connect(g); g.connect(_out);
+  src.start();
+}
+
 // ── Acceso al contexto y master gain (para MusicPlayer) ──────────────────────
 export function getAudioCtx()   { _ctx_(); return _ctx; }
 export function getMasterGain() { _ctx_(); return _out; }
