@@ -47,28 +47,42 @@ const _cropMeshes = new Map();  // cropId → THREE.Group
 let   _chunkMgr   = null;       // set after ChunkManager is created (ref for plant access)
 
 function _makeCropMesh(grown) {
-  const g       = new THREE.Group();
-  const stalkH  = grown ? 0.55 : 0.28;
-  const sGeo    = new THREE.CylinderGeometry(0.03, 0.045, stalkH, 5);
-  const sMat    = new THREE.MeshStandardMaterial({ color: grown ? 0x4a8a1a : 0x7a8a3a });
-  const stalk   = new THREE.Mesh(sGeo, sMat);
-  stalk.castShadow = true;
-  stalk.position.y = stalkH / 2;
-  g.add(stalk);
-  if (grown) {
-    const lGeo  = new THREE.SphereGeometry(0.22, 6, 5);
-    const lMat  = new THREE.MeshStandardMaterial({ color: 0x5ec820, roughness: 0.7 });
-    const leaf  = new THREE.Mesh(lGeo, lMat);
-    leaf.castShadow = true;
-    leaf.position.y = stalkH + 0.1;
+  const g = new THREE.Group();
+  if (!grown) {
+    // ── Semilla plantada: montículo de tierra + dos palitos en cruz ──────────
+    const moundMat = new THREE.MeshStandardMaterial({ color: 0x6b3a10, roughness: 1.0 });
+    const mound    = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 4), moundMat);
+    mound._ownGeo  = true;
+    mound.scale.set(1, 0.45, 1);
+    mound.position.y = 0.04;
+    g.add(mound);
+    const stickMat = new THREE.MeshStandardMaterial({ color: 0x8b5e1a, roughness: 0.9 });
+    const stickGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.55, 4);
+    const s1 = new THREE.Mesh(stickGeo, stickMat); s1._ownGeo = true;
+    s1.position.y = 0.27; s1.rotation.z = Math.PI * 0.08;
+    g.add(s1);
+    const s2 = new THREE.Mesh(stickGeo, stickMat); s2._ownGeo = true;
+    s2.position.y = 0.27; s2.rotation.x = Math.PI * 0.08; s2.rotation.y = Math.PI / 2;
+    g.add(s2);
+  } else {
+    // ── Cultivo maduro: tallo + hoja verde + bayas rojas ─────────────────────
+    const stalkH = 0.55;
+    const sMat   = new THREE.MeshStandardMaterial({ color: 0x4a8a1a });
+    const stalk  = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, stalkH, 5), sMat);
+    stalk._ownGeo = true; stalk.castShadow = true;
+    stalk.position.y = stalkH / 2;
+    g.add(stalk);
+    const lMat = new THREE.MeshStandardMaterial({ color: 0x5ec820, roughness: 0.7 });
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 6), lMat);
+    leaf._ownGeo = true; leaf.castShadow = true;
+    leaf.position.y = stalkH + 0.12;
     g.add(leaf);
-    // Berry dots on the leaf ball
-    const bGeo = new THREE.SphereGeometry(0.055, 4, 3);
-    const bMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
-    for (let i = 0; i < 4; i++) {
-      const b = new THREE.Mesh(bGeo, bMat);
-      const a = (i / 4) * Math.PI * 2;
-      b.position.set(Math.cos(a) * 0.18, stalkH + 0.15, Math.sin(a) * 0.18);
+    const bMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+    const bGeo = new THREE.SphereGeometry(0.075, 5, 4);
+    for (let i = 0; i < 5; i++) {
+      const b = new THREE.Mesh(bGeo, bMat); b._ownGeo = true;
+      const a = (i / 5) * Math.PI * 2;
+      b.position.set(Math.cos(a) * 0.22, stalkH + 0.16, Math.sin(a) * 0.22);
       g.add(b);
     }
   }
