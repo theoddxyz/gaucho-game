@@ -33,6 +33,7 @@ if (IS_PROD) {
 const rooms         = new Map();
 const corralledCows = new Map();   // roomId → Set<cowId>
 const roomMeta      = new Map();   // roomId → { seed, createdAt }
+const sleepSessions = new Map();   // roomId → { sleepers: Map<socketId,hours>, firstHours, warpTimer }
 
 function getRoomMeta(roomId) {
   if (!roomMeta.has(roomId)) {
@@ -808,6 +809,33 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('butcher', { id: socket.id });
   });
 
+  // ── Dormir ────────────────────────────────────────────────────────────────────
+  socket.on('sleep', ({ hours } = {}) => {
+    if (!currentRoom || !playerData) return;
+    const h = Math.max(1, Math.min(12, Number(hours) || 4));
+
+    if (!sleepSessions.has(currentRoom)) {
+      sleepSessions.set(currentRoom, { sleepers: new Map(), firstHours: h });
+    }
+    const sess = sleepSessions.get(currentRoom);
+    if (sess.sleepers.size === 0) sess.firstHours = h;  // primer dormido decide las horas
+    sess.sleepers.set(socket.id, h);
+
+    const room   = getRoom(currentRoom);
+    const humans = [...room.values()].filter(p => !p.isBot && p.hp > 0);
+    const allSleeping = humans.length > 0 && humans.every(p => sess.sleepers.has(p.id));
+
+    if (allSleeping && !sess.warpTimer) {
+      io.to(currentRoom).emit('timeWarp', { hours: sess.firstHours });
+      addEvent(currentRoom, `Todos durmieron ${sess.firstHours}h. El tiempo avanzó en la pampa.`);
+      sess.warpTimer = setTimeout(() => {
+        sess.sleepers.clear();
+        sess.warpTimer = null;
+        io.to(currentRoom).emit('wakeUp');
+      }, 4000);
+    }
+  });
+
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
   socket.on('gameEvent', ({ type, detail, hour }) => {
     if (!currentRoom || !playerData) return;
@@ -888,6 +916,10 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
       console.log(`[${currentRoom}] Player left (${room.size} players)`);
       // A voter disconnected — re-check in case everyone remaining has already answered
       _checkNpcResolution(currentRoom);
+
+      // Remove from sleep session if sleeping
+      const sess = sleepSessions.get(currentRoom);
+      if (sess) sess.sleepers.delete(socket.id);
 
       // Host migration: if the host left, promote next human
       if (roomHosts.get(currentRoom) === socket.id) {

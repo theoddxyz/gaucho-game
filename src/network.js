@@ -109,6 +109,10 @@ export function sendCarrossaPassengerDismount()  { socket.emit('carrossaPassenge
 export function onCarrossaPassengerMount(cb)     { socket.on('carrossaPassengerMount', cb); }
 export function onCarrossaPassengerDismount(cb)  { socket.on('carrossaPassengerDismount', cb); }
 
+export function sendSleep(hours)   { socket.emit('sleep', { hours }); }
+export function onTimeWarp(cb)     { socket.on('timeWarp', cb); }
+export function onWakeUp(cb)       { socket.on('wakeUp', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

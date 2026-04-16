@@ -38,6 +38,102 @@ import { getAudioCtx, getMasterGain } from './audio.js';
 import * as Inventory from './inventory.js';
 import { createVillage, getVillageGates } from './village.js';
 
+// ── Sleep system ──────────────────────────────────────────────────────────────
+let _isSleeping   = false;
+let _sleepWarp    = null;  // { startT, targetT, durationSky, durationTotal } or null
+
+// Sleep picker UI
+const _sleepOverlay = document.createElement('div');
+_sleepOverlay.style.cssText = `
+  position:fixed; inset:0; z-index:500;
+  display:none; align-items:center; justify-content:center;
+  background:rgba(0,0,0,0.72); flex-direction:column; gap:14px;
+  font-family:'Share Tech Mono',monospace;
+`;
+_sleepOverlay.innerHTML = `
+  <div style="border:1px solid #5a3a14;padding:22px 40px;background:rgba(6,3,1,0.95);text-align:center;">
+    <div style="font-size:9px;color:#4a3010;letter-spacing:3px;margin-bottom:12px;">▸ DORMIR ◂</div>
+    <div style="font-size:11px;color:#6a5030;letter-spacing:2px;margin-bottom:16px;">¿CUÁNTAS HORAS?</div>
+    <div id="sleep-btns" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <button data-h="2"  class="sleep-btn">2h</button>
+      <button data-h="4"  class="sleep-btn">4h</button>
+      <button data-h="6"  class="sleep-btn">6h</button>
+      <button data-h="8"  class="sleep-btn">8h</button>
+    </div>
+    <div style="font-size:9px;color:#3a2808;letter-spacing:2px;margin-top:14px;">ESC PARA CANCELAR</div>
+  </div>
+`;
+document.body.appendChild(_sleepOverlay);
+
+// Style sleep buttons
+const _sleepBtnStyle = `
+  border:1px solid #4a3010; background:none; color:#b88a3a;
+  font-family:'Share Tech Mono',monospace; font-size:13px;
+  padding:8px 20px; cursor:pointer; letter-spacing:3px;
+  text-transform:uppercase; transition:border-color 0.15s,color 0.15s;
+`;
+document.querySelectorAll('.sleep-btn').forEach(btn => {
+  btn.style.cssText = _sleepBtnStyle;
+  btn.onmouseover = () => { btn.style.borderColor = '#c8a050'; btn.style.color = '#e8c870'; };
+  btn.onmouseout  = () => { btn.style.borderColor = '#4a3010'; btn.style.color = '#b88a3a'; };
+  btn.onclick = () => {
+    const hours = parseInt(btn.dataset.h, 10);
+    _sleepOverlay.style.display = 'none';
+    _startSleeping(hours);
+  };
+});
+
+// Sleep vignette overlay
+const _sleepVignette = document.createElement('div');
+_sleepVignette.style.cssText = `
+  position:fixed; inset:0; z-index:490; pointer-events:none;
+  background:rgba(0,0,0,0); transition:background 0.8s;
+  display:flex; align-items:flex-end; justify-content:center; padding-bottom:40px;
+`;
+_sleepVignette.innerHTML = `<div id="sleep-label" style="
+  font-family:'Share Tech Mono',monospace; font-size:11px; color:#4a3010;
+  letter-spacing:3px; opacity:0; transition:opacity 0.8s;
+">DURMIENDO...</div>`;
+document.body.appendChild(_sleepVignette);
+
+function _startSleeping(hours) {
+  if (_isSleeping || isDead || !myId) return;
+  _isSleeping = true;
+  localPlayerModel?.startSleep();
+  // Lock movement
+  if (controls) { controls._velX = 0; controls._velZ = 0; }
+  // Show vignette + label
+  _sleepVignette.style.background = 'rgba(0,0,0,0.35)';
+  const lbl = document.getElementById('sleep-label');
+  if (lbl) { lbl.style.opacity = '1'; }
+  Network.sendSleep(hours);
+}
+
+function _stopSleeping() {
+  if (!_isSleeping) return;
+  _isSleeping = false;
+  localPlayerModel?.stopSleep();
+  _sleepVignette.style.background = 'rgba(0,0,0,0)';
+  const lbl = document.getElementById('sleep-label');
+  if (lbl) { lbl.style.opacity = '0'; }
+}
+
+// N key — toggle sleep picker
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyN' || e.repeat || !myId || isDead) return;
+  if (_isSleeping) return;  // already sleeping
+  if (_sleepOverlay.style.display === 'flex') {
+    _sleepOverlay.style.display = 'none';  // cancel
+  } else {
+    _sleepOverlay.style.display = 'flex';
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && _sleepOverlay.style.display === 'flex') {
+    _sleepOverlay.style.display = 'none';
+  }
+});
+
 // Vite HMR: forzar recarga completa en vez de hot-swap parcial
 // (evita múltiples instancias del renderer corriendo simultáneamente)
 if (import.meta.hot) { import.meta.hot.decline(); }
@@ -483,6 +579,25 @@ let _hostSyncTimer = 0;
 const HOST_SYNC_INTERVAL = 0.1; // 10Hz
 
 Network.connect();
+
+Network.onTimeWarp(({ hours }) => {
+  // Start sky fast-forward animation
+  const startT   = getDayProgress();
+  const targetT  = (startT + hours / 24) % 1.0;
+  _sleepWarp = { startT, targetT, elapsed: 0, skyDur: 2.0, totalDur: 3.5 };
+  // Dark vignette during warp
+  _sleepVignette.style.transition = 'background 0.5s';
+  _sleepVignette.style.background = 'rgba(0,0,0,0.78)';
+});
+
+Network.onWakeUp(() => {
+  _stopSleeping();
+  _sleepWarp = null;
+  unlockDayProgress();
+  // Fade vignette out
+  _sleepVignette.style.transition = 'background 1.2s';
+  _sleepVignette.style.background = 'rgba(0,0,0,0)';
+});
 
 // Creature sync — non-host receives positions from host via server relay
 Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird, dayProgress }) => {
@@ -1624,6 +1739,27 @@ function _sendHostCreatureSync(reliable = false) {
 function gameLoop() {
   requestAnimationFrame(gameLoop);
   const dt = Math.min(clock.getDelta(), 0.1);
+
+  // ── Sleep warp: animate sky forward in time-lapse ─────────────────────────
+  if (_sleepWarp) {
+    _sleepWarp.elapsed += dt;
+    const t = Math.min(1, _sleepWarp.elapsed / _sleepWarp.skyDur);
+    // Interpolate day progress: wrap-around handled by always going forward
+    let prog = _sleepWarp.startT + (_sleepWarp.targetT - _sleepWarp.startT + 1) % 1 * t;
+    if (prog > 1) prog -= 1;
+    setDayProgress(prog);
+    // After sky animation ends, keep dark until wakeUp from server
+    if (_sleepWarp.elapsed >= _sleepWarp.skyDur) {
+      setDayProgress(_sleepWarp.targetT);
+      _sleepWarp = null;  // stop animating, wait for wakeUp
+    }
+  }
+
+  // ── Block movement while sleeping ─────────────────────────────────────────
+  if (_isSleeping && controls) {
+    controls._velX = 0;
+    controls._velZ = 0;
+  }
 
   let pos = null;
   let _onCarrosa = false;
