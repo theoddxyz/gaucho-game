@@ -726,6 +726,43 @@ Network.onCropState(({ crops }) => {
   for (const crop of crops) _spawnCropMesh(crop, scene);
 });
 
+Network.onBushHarvested(({ x, z, harvesterId }) => {
+  // Aplicar visualmente en todos los clientes
+  const bush = _chunkMgr?.getNearbyFruitBush(x, z, 1.5);
+  if (bush) {
+    const loot = _chunkMgr.harvestBush(bush);
+    // Solo el cosechador recibe los ítems
+    if (harvesterId === myId) {
+      for (let i = 0; i < loot.fruit; i++) Inventory.add('fruit', 12, 4);
+      if (loot.seed > 0) Inventory.add('seed', 0, 0);
+      _updateInventoryHUD();
+      UI.addKillMessage('[ FRUTA ]', `+${loot.fruit} fruta${loot.seed ? '  +1 semilla' : ''}`);
+      Audio.eatSound?.();
+    }
+  }
+});
+
+// Al conectarse: arbustos ya cosechados por otros jugadores
+Network.onBushState(({ bushes }) => {
+  for (const { key, regrowAt } of bushes) {
+    // Buscar el arbusto por posición aproximada usando la key "x*10,z*10"
+    const [kx, kz] = key.split(',').map(v => Number(v) / 10);
+    const bush = _chunkMgr?.getNearbyFruitBush(kx, kz, 1.5);
+    if (bush) {
+      const remaining = regrowAt - Date.now();
+      bush.hasFruit = false;
+      if (bush._berry) bush._berry.visible = false;
+      if (remaining > 0) {
+        setTimeout(() => {
+          if (!bush._berry) return;
+          bush.hasFruit = true;
+          bush._berry.visible = true;
+        }, remaining);
+      }
+    }
+  }
+});
+
 // Creature sync — non-host receives positions from host via server relay
 Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird, dayProgress }) => {
   if (isHost) return; // host is authoritative, ignore echoes
@@ -972,15 +1009,10 @@ Network.onJoined((data) => {
       return;
     }
 
-    // ── 2e. Cosechar arbusto silvestre ────────────────────────────────────────
+    // ── 2e. Cosechar arbusto silvestre (sincronizado por servidor) ───────────
     const nearBush = _chunkMgr?.getNearbyFruitBush(pos.x, pos.z);
     if (nearBush) {
-      const loot = _chunkMgr.harvestBush(nearBush);
-      for (let i = 0; i < loot.fruit; i++) Inventory.add('fruit', 12, 4);
-      if (loot.seed > 0) Inventory.add('seed', 0, 0);
-      _updateInventoryHUD();
-      UI.addKillMessage('[ FRUTA ]', `+${loot.fruit} fruta${loot.seed ? '  +1 semilla' : ''}`);
-      Audio.eatSound?.();
+      Network.sendHarvestBush(nearBush.position.x, nearBush.position.z);
       return;
     }
 

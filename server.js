@@ -36,6 +36,7 @@ const roomMeta      = new Map();   // roomId → { seed, createdAt }
 const sleepSessions = new Map();   // roomId → { sleepers: Map<socketId,hours>, firstHours, warpTimer }
 const cropStates    = new Map();   // roomId → Map<cropId, {id,x,z,plantedAt,grownAt}>
 const GROW_TIME_MS  = 5 * 60 * 1000;  // 5 minutos para que crezca un cultivo
+const harvestedBushes = new Map(); // roomId → Map<"x,z", regrowAt timestamp>
 
 function getRoomMeta(roomId) {
   if (!roomMeta.has(roomId)) {
@@ -529,6 +530,15 @@ io.on('connection', (socket) => {
     if (existingCrops?.size > 0) {
       socket.emit('cropState', { crops: [...existingCrops.values()] });
     }
+    // Enviar arbustos ya cosechados (para que no vean frutos que otros ya cosecharon)
+    const existingBushes = harvestedBushes.get(currentRoom);
+    if (existingBushes?.size > 0) {
+      const now = Date.now();
+      const active = [...existingBushes.entries()]
+        .filter(([, regrowAt]) => now < regrowAt)
+        .map(([key, regrowAt]) => ({ key, regrowAt }));
+      if (active.length > 0) socket.emit('bushState', { bushes: active });
+    }
 
     socket.to(currentRoom).emit('playerJoined', playerData);
     // If this player is NOT the host, ask the host to send a creature snapshot
@@ -846,6 +856,18 @@ io.on('connection', (socket) => {
         io.to(currentRoom).emit('wakeUp');
       }, 4000);
     }
+  });
+
+  // ── Arbustos silvestres ───────────────────────────────────────────────────────
+  socket.on('harvestBush', ({ x, z } = {}) => {
+    if (!currentRoom || !playerData) return;
+    if (!harvestedBushes.has(currentRoom)) harvestedBushes.set(currentRoom, new Map());
+    const bushMap = harvestedBushes.get(currentRoom);
+    const key     = `${Math.round(x * 10)},${Math.round(z * 10)}`;
+    const now     = Date.now();
+    if (bushMap.has(key) && now < bushMap.get(key)) return;  // ya cosechado
+    bushMap.set(key, now + 3 * 60 * 1000);  // regrow en 3 min
+    io.to(currentRoom).emit('bushHarvested', { x, z, harvesterId: socket.id });
   });
 
   // ── Cultivos ──────────────────────────────────────────────────────────────────
