@@ -368,8 +368,12 @@ document.addEventListener('keydown', (e) => {
   if (!_canPlantAt(pos.x, pos.z)) return;
   const counts = Inventory.getCounts();
   if (counts.seed <= 0) return;
+  const plantDist = 1.4;
+  const px = pos.x + Math.sin(_facingAngle) * plantDist;
+  const pz = pos.z + Math.cos(_facingAngle) * plantDist;
+  if (!_canPlantAt(px, pz)) return;
   Inventory.removeOne('seed');
-  Network.sendPlantSeed(pos.x, pos.z);
+  Network.sendPlantSeed(px, pz);
   _updateInventoryHUD();
   Audio.eatSound?.();
   localPlayerModel?.startTrabajando(1.8);
