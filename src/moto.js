@@ -237,6 +237,7 @@ export class MotoManager {
   isMounted()           { return this.myMotoId !== null; }
   isMountAnimating()    { return this._anim?.type === 'mount'; }
   getMotoHeading()      { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._displayRY ?? 0; }
+  getMotoLean()         { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._lean ?? 0; }
   speedMultiplier(spr) {
     const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
     const sf   = Math.max(0.15, moto?._speedFactor ?? 0);  // min 15% so it starts

@@ -1776,7 +1776,7 @@ function gameLoop() {
       if (mounted) {
         localPlayerModel.group.rotation.z = horseManager.getHorseRoll();
       } else if (_onMoto && motoManager.isMounted()) {
-        localPlayerModel.group.rotation.z = motoManager._lean ?? 0;
+        localPlayerModel.group.rotation.z = motoManager.getMotoLean();
       } else if (!localPlayerModel._dying) {
         localPlayerModel.group.rotation.z = 0;
       }
