@@ -371,6 +371,7 @@ document.addEventListener('keydown', (e) => {
   _updateInventoryHUD();
   Audio.eatSound?.();
   localPlayerModel?.startTrabajando(1.8);
+  if (controls) controls._working = true;
 });
 
 // Tecla H: comer directamente (sin cambiar de arma)
@@ -2069,10 +2070,14 @@ function gameLoop() {
     }
   }
 
-  // ── Block movement while sleeping ─────────────────────────────────────────
+  // ── Block movement while sleeping or working ─────────────────────────────
   if (_isSleeping && controls) {
     controls._velX = 0;
     controls._velZ = 0;
+  }
+  // Clear working flag when trabajando animation finishes
+  if (controls?._working && !(localPlayerModel?._trabajandoTimer > 0)) {
+    controls._working = false;
   }
 
   let pos = null;
@@ -2238,7 +2243,10 @@ function gameLoop() {
 
     // Local player model — smooth rotation (snaps when aiming so gun always tracks mouse)
     const rawFacing = controls.isAiming() ? rot.y : controls.getMovementAngle();
-    if (_onMoto && motoManager?.isMounted()) {
+    const _freezeRotation = _isSleeping || controls._working;
+    if (_freezeRotation) {
+      // no update — keep current facing angle
+    } else if (_onMoto && motoManager?.isMounted()) {
       // On moto: character snaps to moto heading — very small residual rotation
       const motoRY = motoManager.getMotoHeading();
       let _fd = motoRY - _facingAngle;
