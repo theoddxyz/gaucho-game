@@ -41,7 +41,7 @@ function loadHorseRideTemplate() {
 function loadMotoRideTemplate() {
   if (motoRideTemplate) return motoRideTemplate;
   motoRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOENMOTO2.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return motoRideTemplate;
 }
@@ -559,7 +559,7 @@ export class PlayerModel {
           this.group.add(sc);
           this._motoRideModel  = sc;
           this._motoRideMixer  = new THREE.AnimationMixer(sc);
-          const motoClip = THREE.AnimationClip.findByName(gltf.animations, 'ANDANDOENMOTO') ?? gltf.animations[0];
+          const motoClip = gltf.animations[0];
           this._motoRideAction = this._motoRideMixer.clipAction(motoClip);
           this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
           this._motoRideAction.play();
