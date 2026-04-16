@@ -51,8 +51,11 @@ function _makeCropMesh(grown) {
   if (!grown) {
     // ── Semilla plantada: estaca alta + tierra removida ───────────────────────
     const soilMat  = new THREE.MeshStandardMaterial({ color: 0x5a2d0a, roughness: 1.0 });
-    const soil     = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.40, 0.12, 8), soilMat);
-    soil._ownGeo   = true; soil.position.y = 0.06; g.add(soil);
+    const soil     = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), soilMat);
+    soil._ownGeo   = true;
+    soil.scale.y   = 0.55;
+    soil.position.y = 0.01;
+    g.add(soil);
     const stakeMat = new THREE.MeshStandardMaterial({ color: 0x8b4e18, roughness: 0.85 });
     const stake    = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 1.1, 6), stakeMat);
     stake._ownGeo  = true; stake.position.y = 0.55; g.add(stake);
@@ -1517,7 +1520,7 @@ Network.onNpcRemoved(({ id }) => {
 
 // --- Shooting (left-click — no right-click required) ---
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button !== 0 || isDead || !myId) return;
+  if (e.button !== 0 || isDead || !myId || _isSleeping) return;
   if (controls?._stunned) return;  // can't shoot during stun
 
   // === COMIDA: click izquierdo con food seleccionado → comer ===
