@@ -30,9 +30,9 @@ function loadTemplate(isBot = false) {
 function loadHorseRideTemplate() {
   if (horseRideTemplate) return horseRideTemplate;
   horseRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDARACABALLO2.glb', (gltf) => resolve(gltf),
+    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf),
       undefined, () => {
-        loader.load('/models/ANDANDOACABALLOPEROGLB.glb', (g) => resolve(g), undefined, () => resolve(null));
+        loader.load('/models/ANDARACABALLO2.glb', (g) => resolve(g), undefined, () => resolve(null));
       });
   });
   return horseRideTemplate;
