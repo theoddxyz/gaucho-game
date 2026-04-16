@@ -743,22 +743,27 @@ Network.onBushHarvested(({ x, z, harvesterId }) => {
 });
 
 // Al conectarse: arbustos ya cosechados por otros jugadores
+// Pendientes de aplicar cuando los chunks carguen
+const _pendingBushState = [];
+
+function _applyBushState(key, regrowAt) {
+  const [kx, kz] = key.split(',').map(v => Number(v) / 10);
+  const bush = _chunkMgr?.getNearbyFruitBush(kx, kz, 1.5);
+  if (!bush) return false;
+  const remaining = regrowAt - Date.now();
+  bush.hasFruit = false;
+  if (bush._berry) bush._berry.visible = false;
+  if (remaining > 0) {
+    setTimeout(() => { if (bush._berry) { bush.hasFruit = true; bush._berry.visible = true; } }, remaining);
+  }
+  return true;
+}
+
 Network.onBushState(({ bushes }) => {
   for (const { key, regrowAt } of bushes) {
-    // Buscar el arbusto por posición aproximada usando la key "x*10,z*10"
-    const [kx, kz] = key.split(',').map(v => Number(v) / 10);
-    const bush = _chunkMgr?.getNearbyFruitBush(kx, kz, 1.5);
-    if (bush) {
-      const remaining = regrowAt - Date.now();
-      bush.hasFruit = false;
-      if (bush._berry) bush._berry.visible = false;
-      if (remaining > 0) {
-        setTimeout(() => {
-          if (!bush._berry) return;
-          bush.hasFruit = true;
-          bush._berry.visible = true;
-        }, remaining);
-      }
+    if (!_applyBushState(key, regrowAt)) {
+      // Chunk no cargado aún — guardar para reintentar
+      _pendingBushState.push({ key, regrowAt });
     }
   }
 });
@@ -1031,7 +1036,7 @@ Network.onJoined((data) => {
     }
 
     // ── 4. Tirar comida si corresponde ────────────────────────────────────────
-    if (currentWeapon === 'food' && Inventory.hasAny()) {
+    if (currentWeapon === 'food' && Inventory.hasAny() && Inventory.getSelected() !== 'seed') {
       _throwFood(pos);
     }
   };
@@ -1431,6 +1436,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
   // === COMIDA: click izquierdo con food seleccionado → comer ===
   if (currentWeapon === 'food') {
+    if (Inventory.getSelected() === 'seed') return;  // semillas no se comen
     const item = Inventory.removeSelected();
     if (item) {
       restoreHunger(item.hunger);
@@ -1960,6 +1966,18 @@ function gameLoop() {
     // Chunk streaming
     chunkManager.update(pos);
     chunkManager.updateTrees(dt);
+
+    // Reintentar aplicar bush states diferidos (chunks que no estaban cargados al joinear)
+    if (_pendingBushState.length > 0) {
+      for (let i = _pendingBushState.length - 1; i >= 0; i--) {
+        const { key, regrowAt } = _pendingBushState[i];
+        if (Date.now() < regrowAt && _applyBushState(key, regrowAt)) {
+          _pendingBushState.splice(i, 1);
+        } else if (Date.now() >= regrowAt) {
+          _pendingBushState.splice(i, 1);  // ya expiró, descartarlo
+        }
+      }
+    }
 
     // ── Plant hints + crop growth check ──────────────────────────────────────
     if (myId && !isDead) {

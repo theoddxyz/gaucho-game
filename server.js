@@ -35,7 +35,9 @@ const corralledCows = new Map();   // roomId → Set<cowId>
 const roomMeta      = new Map();   // roomId → { seed, createdAt }
 const sleepSessions = new Map();   // roomId → { sleepers: Map<socketId,hours>, firstHours, warpTimer }
 const cropStates    = new Map();   // roomId → Map<cropId, {id,x,z,plantedAt,grownAt}>
-const GROW_TIME_MS  = 5 * 60 * 1000;  // 5 minutos para que crezca un cultivo
+const GROW_TIME_MS  = 5 * 60 * 1000;   // 5 minutos para que crezca un cultivo
+const CROP_EXPIRE_MS = 24 * 60 * 60 * 1000; // cultivos sin cosechar expiran en 24h
+const MAX_CROPS_PER_ROOM = 20;
 const harvestedBushes = new Map(); // roomId → Map<"x,z", regrowAt timestamp>
 
 function getRoomMeta(roomId) {
@@ -875,9 +877,15 @@ io.on('connection', (socket) => {
     if (!currentRoom || !playerData) return;
     if (!cropStates.has(currentRoom)) cropStates.set(currentRoom, new Map());
     const crops = cropStates.get(currentRoom);
-    const id    = `crop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const now   = Date.now();
-    const crop  = { id, x: Number(x), z: Number(z), plantedAt: now, grownAt: now + GROW_TIME_MS };
+    // Límite de cultivos por sala
+    if (crops.size >= MAX_CROPS_PER_ROOM) return;
+    // Limpiar cultivos expirados antes de agregar
+    const now = Date.now();
+    for (const [id, crop] of crops) {
+      if (now > crop.grownAt + CROP_EXPIRE_MS) crops.delete(id);
+    }
+    const id   = `crop_${now}_${Math.random().toString(36).substr(2, 5)}`;
+    const crop = { id, x: Number(x), z: Number(z), plantedAt: now, grownAt: now + GROW_TIME_MS };
     crops.set(id, crop);
     io.to(currentRoom).emit('cropSpawned', crop);
   });
@@ -1005,6 +1013,8 @@ Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra c�
         corralledCows.delete(currentRoom);
         roomMeta.delete(currentRoom);
         roomHosts.delete(currentRoom);
+        cropStates.delete(currentRoom);
+        harvestedBushes.delete(currentRoom);
       }
     }
   });
