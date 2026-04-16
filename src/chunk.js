@@ -252,23 +252,44 @@ export class ChunkManager {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    // ── Árboles (GLB clonado) ─────────────────────────────────────────────────
-    if (treeTemplate) {
-      for (let i = 0; i < TREES_PER_CHUNK; i++) {
-        const tx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
-        const tz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
-        if (_inWater(tx, tz)) { rng(); rng(); rng(); continue; }
-        const tree = treeTemplate.clone(true);
-        const s    = 0.35 + rng() * 0.15;
-        tree.position.set(tx, 0, tz);
+    // ── Árboles / cactus (GLB con fallback procedural) ───────────────────────
+    for (let i = 0; i < TREES_PER_CHUNK; i++) {
+      const tx = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
+      const tz = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
+      if (_inWater(tx, tz)) { rng(); rng(); rng(); continue; }
+      const s  = 0.35 + rng() * 0.15;
+      const ry = rng() * Math.PI * 2;
+      let tree;
+      if (treeTemplate) {
+        tree = treeTemplate.clone(true);
         tree.scale.setScalar(s);
-        tree.rotation.y = rng() * Math.PI * 2;
         tree.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        this.scene.add(tree);
-        objects.push(tree);
-        ownColl.push({ x: tx, z: tz, sx: 1, sy: 5, sz: 1 });
-        this._trees.push({ mesh: tree, x: tx, z: tz, tipping: false, angle: 0, vel: 0, axis: new THREE.Vector3(1, 0, 0) });
+      } else {
+        // Fallback: cactus procedural (tronco + dos brazos)
+        tree = new THREE.Group();
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a7a30, roughness: 0.9 });
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 2.2, 6), trunkMat);
+        trunk.castShadow = true; trunk._ownGeo = true;
+        trunk.position.y = 1.1;
+        tree.add(trunk);
+        const arm1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.10, 1.0, 6), trunkMat);
+        arm1._ownGeo = true; arm1.castShadow = true;
+        arm1.rotation.z = Math.PI / 3;
+        arm1.position.set(0.45, 1.4, 0);
+        tree.add(arm1);
+        const arm2 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.10, 0.8, 6), trunkMat);
+        arm2._ownGeo = true; arm2.castShadow = true;
+        arm2.rotation.z = -Math.PI / 2.5;
+        arm2.position.set(-0.4, 1.2, 0);
+        tree.add(arm2);
+        tree.scale.setScalar(s * 2.2);
       }
+      tree.position.set(tx, 0, tz);
+      tree.rotation.y = ry;
+      this.scene.add(tree);
+      objects.push(tree);
+      ownColl.push({ x: tx, z: tz, sx: 1, sy: 5, sz: 1 });
+      this._trees.push({ mesh: tree, x: tx, z: tz, tipping: false, angle: 0, vel: 0, axis: new THREE.Vector3(1, 0, 0) });
     }
 
     // ── Rocas ─────────────────────────────────────────────────────────────────
