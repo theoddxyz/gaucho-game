@@ -410,7 +410,7 @@ export class ChunkManager {
       bush.hasFruit = true;
       bush._berry.visible = true;
     }, 3 * 60 * 1000);
-    return { fruit: 1 + (Math.random() < 0.5 ? 1 : 0), seed: Math.random() < 0.45 ? 1 : 0 };
+    return { fruit: 1 + (Math.random() < 0.5 ? 1 : 0), seed: 1 };
   }
 
   // Hit a tree/cactus near (x, z) — triggers tip-over physics

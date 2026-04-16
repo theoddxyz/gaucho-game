@@ -74,6 +74,7 @@ export function getTotal()        { return _total; }
 export function getSelected()     { return _selected; }
 export function getCounts()       { return { ..._counts }; }
 export function getSelectedVals() { return _vals[_selected] ?? { hunger: 0, hp: 0 }; }
+export function getVals(type)     { return _vals[type] ?? { hunger: 0, hp: 0 }; }
 
 // Remove one item of a specific type (used for planting seeds, etc.)
 export function removeOne(type) {

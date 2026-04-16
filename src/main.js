@@ -80,8 +80,14 @@ function _spawnCropMesh(crop, scene) {
   const mesh  = _makeCropMesh(grown);
   mesh.position.set(crop.x, 0, crop.z);
   mesh._cropId    = crop.id;
+  mesh._plantedAt = crop.plantedAt;
   mesh._grownAt   = crop.grownAt;
   mesh._isGrown   = grown;
+  if (!grown) {
+    // Escala inicial según el progreso ya transcurrido (al joinear tarde)
+    const t = Math.min(1, (Date.now() - crop.plantedAt) / (crop.grownAt - crop.plantedAt));
+    mesh.scale.setScalar(0.12 + t * 0.7);
+  }
   scene.add(mesh);
   _cropMeshes.set(crop.id, mesh);
   return mesh;
@@ -356,6 +362,22 @@ document.addEventListener('keydown', (e) => {
   Network.sendPlantSeed(pos.x, pos.z);
   _updateInventoryHUD();
   Audio.eatSound?.();
+});
+
+// Tecla H: comer directamente (sin cambiar de arma)
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyH' || e.repeat || !myId || isDead) return;
+  const counts = Inventory.getCounts();
+  const edible = Object.keys(counts).find(t => counts[t] > 0 && t !== 'seed');
+  if (!edible) return;
+  const { hunger, hp } = Inventory.getVals(edible);
+  Inventory.removeOne(edible);
+  restoreHunger(hunger);
+  myData.hp = Math.min(200, myData.hp + hp);
+  UI.updateHP(myData.hp);
+  UI.showEatEffect();
+  Audio.eatSound();
+  _updateInventoryHUD();
 });
 
 // Teclas 1/2/3: cambio directo de arma (sin menú radial)
@@ -758,7 +780,7 @@ Network.onCropHarvested(({ id, harvesterId }) => {
   if (harvesterId === myId) {
     Inventory.add('fruit', 12, 4);
     Inventory.add('fruit', 12, 4);
-    if (Math.random() < 0.6) Inventory.add('seed', 0, 0);
+    Inventory.add('seed', 0, 0);
     _updateInventoryHUD();
     UI.addKillMessage('[ COSECHA ]', '+2 fruta  +1 semilla');
     Audio.eatSound?.();
@@ -2050,18 +2072,46 @@ function gameLoop() {
       }
     }
 
-    // ── Plant hints + crop growth check ──────────────────────────────────────
+    // ── Plant hints + crop growth + scale animation ──────────────────────────
     if (myId && !isDead) {
+      // Avanzar escala de cultivos en crecimiento
+      const now = Date.now();
+      for (const mesh of _cropMeshes.values()) {
+        if (!mesh._isGrown && mesh._plantedAt) {
+          const total = mesh._grownAt - mesh._plantedAt;
+          const t     = Math.min(1, (now - mesh._plantedAt) / total);
+          mesh.scale.setScalar(0.12 + t * 0.70);  // 0.12 → 0.82 mientras crece
+        }
+      }
+
+      _updateCropGrowth();
+      if (_cropGrowAnims.length > 0) _updateCropAnims();
+
       const ripeCrop  = _getNearbyRipeCrop(pos.x, pos.z);
       const fruitBush = !ripeCrop && chunkManager.getNearbyFruitBush(pos.x, pos.z);
       const onVehicle = _onHorse || _onMoto || (carrossaSystem?.isOnBoard() ?? false);
       const hasSeed   = !onVehicle && Inventory.getCounts().seed > 0 && _canPlantAt(pos.x, pos.z);
-      if      (ripeCrop)  _setPlantHint('E: Cosechar');
-      else if (fruitBush) _setPlantHint('E: Cosechar fruta');
-      else if (hasSeed)   _setPlantHint('G: Sembrar semilla');
-      else                _setPlantHint(null);
-      _updateCropGrowth();
-      if (_cropGrowAnims.length > 0) _updateCropAnims();
+
+      // Chequear si hay cultivo creciendo cerca (para mostrar %)
+      let nearGrowing = null, nearGrowingD = 3.0 * 3.0;
+      if (!ripeCrop) {
+        for (const mesh of _cropMeshes.values()) {
+          if (mesh._isGrown) continue;
+          const dx = mesh.position.x - pos.x, dz = mesh.position.z - pos.z;
+          const d  = dx * dx + dz * dz;
+          if (d < nearGrowingD) { nearGrowingD = d; nearGrowing = mesh; }
+        }
+      }
+
+      if      (ripeCrop)    _setPlantHint('E: Cosechar');
+      else if (nearGrowing) {
+        const total  = nearGrowing._grownAt - nearGrowing._plantedAt;
+        const pct    = Math.min(99, Math.floor((now - nearGrowing._plantedAt) / total * 100));
+        _setPlantHint(`cultivo: ${pct}%`);
+      }
+      else if (fruitBush)   _setPlantHint('E: Cosechar fruta');
+      else if (hasSeed)     _setPlantHint('G: Sembrar semilla');
+      else                  _setPlantHint(null);
     }
 
     // Shadow follows player — sun moves on a day arc (east at dawn, west at dusk)
