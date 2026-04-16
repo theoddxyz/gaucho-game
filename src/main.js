@@ -13,7 +13,7 @@ import { CarrosaSystem } from './carrosa.js';
 import { tryShoot, hitscan, spawnBullet, updateBullets, muzzleFlash, BULLET_SPEED, BULLET_RANGE, isReloading, reloadProgress, shotsLeft, loadOneShell } from './shooting.js';
 import * as Network from './network.js';
 import * as UI      from './ui.js';
-import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION } from './landmarks.js';
+import { createLandmarks, updateLandmarkEffects, getBottleMeshes, hitBottle, getBottleKey, hitBottleByKey, NPC_POSITION, WATER_ZONES } from './landmarks.js';
 import { HoofprintSystem } from './hoofprints.js';
 import { updateDayNight, getDayProgress, getTemperature, getGameTime, isNight, setDayProgress, unlockDayProgress, nudgeDayProgress, getSunOffset } from './daynight.js';
 import { updateSurvival, getHunger, getThirst, restoreHunger } from './survival.js';
@@ -104,6 +104,19 @@ function _setPlantHint(text) {
   if (!_plantHintEl) return;
   if (text) { _plantHintEl.textContent = text; _plantHintEl.style.display = 'block'; }
   else        { _plantHintEl.style.display = 'none'; }
+}
+
+// Check if a world position is plantable (not in water, not mounted)
+function _canPlantAt(x, z) {
+  for (const w of WATER_ZONES) {
+    if (w.box) {
+      if (x >= w.box.min.x && x <= w.box.max.x && z >= w.box.min.z && z <= w.box.max.z) return false;
+    } else {
+      const dx = x - w.x, dz = z - w.z;
+      if (dx * dx + dz * dz < w.r * w.r) return false;
+    }
+  }
+  return true;
 }
 
 // Sleep picker UI
@@ -335,6 +348,8 @@ document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyG' || e.repeat || !myId || isDead || _isSleeping) return;
   const pos = controls?.getPosition();
   if (!pos) return;
+  if (horseManager?.isMounted() || motoManager?.isMounted() || carrossaSystem?.isOnBoard()) return;
+  if (!_canPlantAt(pos.x, pos.z)) return;
   const counts = Inventory.getCounts();
   if (counts.seed <= 0) return;
   Inventory.removeOne('seed');
@@ -682,23 +697,34 @@ Network.onTimeWarp(({ hours }) => {
   _sleepVignette.style.background = 'rgba(0,0,0,0.78)';
 });
 
+// Reemplaza un cultivo creciendo por uno maduro — dispone geometría vieja
+function _growCrop(mesh) {
+  // Dispose geometrías del mesh viejo
+  mesh.traverse(c => { if (c.isMesh) c.geometry?.dispose(); });
+  scene.remove(mesh);
+  const grown = _makeCropMesh(true);
+  grown.position.copy(mesh.position);
+  grown._cropId  = mesh._cropId;
+  grown._grownAt = mesh._grownAt;
+  grown._isGrown = true;
+  scene.add(grown);
+  _cropMeshes.set(grown._cropId, grown);
+}
+
+// Chequea todos los cultivos pendientes de madurar y los reemplaza
+function _updateCropGrowth() {
+  const toGrow = [];
+  for (const mesh of _cropMeshes.values()) {
+    if (!mesh._isGrown && Date.now() >= mesh._grownAt) toGrow.push(mesh);
+  }
+  for (const mesh of toGrow) _growCrop(mesh);
+}
+
 Network.onWakeUp(() => {
   _stopSleeping();
   _sleepWarp = null;
   unlockDayProgress();
-  // Actualizar estado "grown" de todos los cultivos tras el salto de tiempo
-  for (const mesh of _cropMeshes.values()) {
-    if (!mesh._isGrown && Date.now() >= mesh._grownAt) {
-      scene.remove(mesh);
-      const grown = _makeCropMesh(true);
-      grown.position.copy(mesh.position);
-      grown._cropId  = mesh._cropId;
-      grown._grownAt = mesh._grownAt;
-      grown._isGrown = true;
-      scene.add(grown);
-      _cropMeshes.set(grown._cropId, grown);
-    }
-  }
+  _updateCropGrowth();
   _sleepVignette.style.transition = 'background 1.2s';
   _sleepVignette.style.background = 'rgba(0,0,0,0)';
 });
@@ -724,6 +750,13 @@ Network.onCropHarvested(({ id, harvesterId }) => {
 
 Network.onCropState(({ crops }) => {
   for (const crop of crops) _spawnCropMesh(crop, scene);
+});
+
+Network.onCropLimitReached(() => {
+  // Devolver la semilla consumida y avisar al jugador
+  Inventory.add('seed', 0, 0);
+  _updateInventoryHUD();
+  UI.addKillMessage('[ CAMPO LLENO ]', 'Límite de cultivos alcanzado');
 });
 
 Network.onBushHarvested(({ x, z, harvesterId }) => {
@@ -1981,26 +2014,15 @@ function gameLoop() {
 
     // ── Plant hints + crop growth check ──────────────────────────────────────
     if (myId && !isDead) {
-      const ripeCrop = _getNearbyRipeCrop(pos.x, pos.z);
+      const ripeCrop  = _getNearbyRipeCrop(pos.x, pos.z);
       const fruitBush = !ripeCrop && chunkManager.getNearbyFruitBush(pos.x, pos.z);
-      const hasSeed  = Inventory.getCounts().seed > 0;
+      const onVehicle = _onHorse || _onMoto || (carrossaSystem?.isOnBoard() ?? false);
+      const hasSeed   = !onVehicle && Inventory.getCounts().seed > 0 && _canPlantAt(pos.x, pos.z);
       if      (ripeCrop)  _setPlantHint('E: Cosechar');
       else if (fruitBush) _setPlantHint('E: Cosechar fruta');
       else if (hasSeed)   _setPlantHint('G: Sembrar semilla');
       else                _setPlantHint(null);
-      // Update growing crops to grown state
-      for (const [id, mesh] of _cropMeshes) {
-        if (!mesh._isGrown && Date.now() >= mesh._grownAt) {
-          scene.remove(mesh);
-          const grown = _makeCropMesh(true);
-          grown.position.copy(mesh.position);
-          grown._cropId  = id;
-          grown._grownAt = mesh._grownAt;
-          grown._isGrown = true;
-          scene.add(grown);
-          _cropMeshes.set(id, grown);
-        }
-      }
+      _updateCropGrowth();
     }
 
     // Shadow follows player — sun moves on a day arc (east at dawn, west at dusk)

@@ -36,7 +36,7 @@ export function add(type, hunger = 0, hp = 0) {
   _vals[type].hunger = hunger || _vals[type].hunger;
   _vals[type].hp     = hp     || _vals[type].hp;
   // Seleccionar automáticamente el tipo recién agregado si no hay selección activa
-  if (_counts[_selected] === 0) _selected = type;
+  if (_counts[_selected] === 0 && !_NOT_EDIBLE.has(type)) _selected = type;
   onChange?.();
   return true;
 }
@@ -56,13 +56,15 @@ export function removeSelected() {
   return result;
 }
 
+const _NOT_EDIBLE = new Set(['seed']);  // tipos que no se comen ni ciclan
+
 export function cycleSelected() {
   const types = Object.keys(_counts);
   const idx   = types.indexOf(_selected);
-  // Buscar el siguiente tipo con items
+  // Buscar el siguiente tipo con items, saltando no-comestibles
   for (let i = 1; i <= types.length; i++) {
     const next = types[(idx + i) % types.length];
-    if (_counts[next] > 0) { _selected = next; break; }
+    if (_counts[next] > 0 && !_NOT_EDIBLE.has(next)) { _selected = next; break; }
   }
   onChange?.();
 }

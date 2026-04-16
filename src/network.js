@@ -122,6 +122,7 @@ export function onCropState(cb)        { socket.on('cropState', cb); }
 export function sendHarvestBush(x, z)  { socket.emit('harvestBush', { x, z }); }
 export function onBushHarvested(cb)    { socket.on('bushHarvested', cb); }
 export function onBushState(cb)        { socket.on('bushState', cb); }
+export function onCropLimitReached(cb) { socket.on('cropLimitReached', cb); }
 
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);

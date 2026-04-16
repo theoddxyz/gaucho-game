@@ -878,7 +878,10 @@ io.on('connection', (socket) => {
     if (!cropStates.has(currentRoom)) cropStates.set(currentRoom, new Map());
     const crops = cropStates.get(currentRoom);
     // Límite de cultivos por sala
-    if (crops.size >= MAX_CROPS_PER_ROOM) return;
+    if (crops.size >= MAX_CROPS_PER_ROOM) {
+      socket.emit('cropLimitReached');
+      return;
+    }
     // Limpiar cultivos expirados antes de agregar
     const now = Date.now();
     for (const [id, crop] of crops) {
