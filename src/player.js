@@ -458,15 +458,9 @@ export class PlayerModel {
             obj.castShadow = true; obj.frustumCulled = false;
           }
         });
-        sc.updateWorldMatrix(true, true);
-        const mbbox = new THREE.Box3().setFromObject(sc);
-        const mh = mbbox.max.y - mbbox.min.y;
-        if (mh > 0.01) {
-          sc.scale.setScalar(2.8 / mh);
-          sc.updateWorldMatrix(true, true);
-          const mb2 = new THREE.Box3().setFromObject(sc);
-          sc.position.y -= mb2.min.y;
-        }
+        // SkinnedMesh bounds can be Infinity before animation runs → use fixed scale
+        sc.scale.setScalar(0.022);   // Mixamo units are cm, ~180cm character → ~2.8m
+        sc.position.y = 0;
         sc.visible = false;
         this.group.add(sc);
         this._motoRideModel = sc;
