@@ -668,15 +668,20 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
+          // Modelo horizontal (durmiendo): escalar por la dimensión más larga (X o Z),
+          // no por la altura — si no queda gigante porque hh es muy pequeña.
           sc.updateWorldMatrix(true, true);
           const bb = new THREE.Box3().setFromObject(sc);
-          const hh = bb.max.y - bb.min.y;
-          if (hh > 0.01) {
-            sc.scale.setScalar(2.8 / hh);
-            sc.updateWorldMatrix(true, true);
-            const bb2 = new THREE.Box3().setFromObject(sc);
-            sc.position.y -= bb2.min.y;
-          }
+          const longest = Math.max(
+            bb.max.x - bb.min.x,
+            bb.max.y - bb.min.y,
+            bb.max.z - bb.min.z
+          );
+          if (longest > 0.01) sc.scale.setScalar(1.9 / longest);
+          // Recomputar para bajar al piso
+          sc.updateWorldMatrix(true, true);
+          const bb2 = new THREE.Box3().setFromObject(sc);
+          sc.position.y -= bb2.min.y;
           sc.visible = false;
           this.group.add(sc);
           this._sleepModel  = sc;

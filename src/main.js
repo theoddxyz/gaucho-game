@@ -79,7 +79,7 @@ document.querySelectorAll('.sleep-btn').forEach(btn => {
   btn.onclick = () => {
     const hours = parseInt(btn.dataset.h, 10);
     _sleepOverlay.style.display = 'none';
-    _startSleeping(hours);
+    _startSleeping(hours);  // model already visible; this locks state + sends network
   };
 });
 
@@ -96,10 +96,17 @@ _sleepVignette.innerHTML = `<div id="sleep-label" style="
 ">DURMIENDO...</div>`;
 document.body.appendChild(_sleepVignette);
 
+let _sleepPickerTimer = null;  // timeout before showing picker
+
+function _cancelSleepPicker() {
+  if (_sleepPickerTimer) { clearTimeout(_sleepPickerTimer); _sleepPickerTimer = null; }
+  _sleepOverlay.style.display = 'none';
+  localPlayerModel?.stopSleep();
+}
+
 function _startSleeping(hours) {
   if (_isSleeping || isDead || !myId) return;
   _isSleeping = true;
-  localPlayerModel?.startSleep();
   // Lock movement
   if (controls) { controls._velX = 0; controls._velZ = 0; }
   // Show vignette + label
@@ -118,19 +125,26 @@ function _stopSleeping() {
   if (lbl) { lbl.style.opacity = '0'; }
 }
 
-// N key — toggle sleep picker
+// N key: model first → picker after 1.1 s
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyN' || e.repeat || !myId || isDead) return;
-  if (_isSleeping) return;  // already sleeping
-  if (_sleepOverlay.style.display === 'flex') {
-    _sleepOverlay.style.display = 'none';  // cancel
-  } else {
-    _sleepOverlay.style.display = 'flex';
+  if (_isSleeping) return;
+  // If picker already visible → cancel everything
+  if (_sleepOverlay.style.display === 'flex' || _sleepPickerTimer) {
+    _cancelSleepPicker();
+    return;
   }
+  // Show sleep model immediately
+  localPlayerModel?.startSleep();
+  // Show picker after 1.1 s
+  _sleepPickerTimer = setTimeout(() => {
+    _sleepPickerTimer = null;
+    _sleepOverlay.style.display = 'flex';
+  }, 1100);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && _sleepOverlay.style.display === 'flex') {
-    _sleepOverlay.style.display = 'none';
+  if (e.code === 'Escape' && (_sleepOverlay.style.display === 'flex' || _sleepPickerTimer)) {
+    _cancelSleepPicker();
   }
 });
 
