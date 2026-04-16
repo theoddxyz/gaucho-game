@@ -89,7 +89,7 @@ export class MotoManager {
     this._lean         = 0;
     this._prevAngle    = null;
     // Tire tracks
-    this._trackGeo = new THREE.PlaneGeometry(0.11, 0.32);
+    this._trackGeo = new THREE.PlaneGeometry(0.13, 0.38);  // ancho neumático moto, largo segmento
     this._trackMat = new THREE.MeshBasicMaterial({ color: 0x0a0804, transparent: true, opacity: 0.60, depthWrite: false });
     this._tracks   = [];   // { mesh, age, maxAge }
     this._trackTimer = 0;
@@ -346,12 +346,18 @@ export class MotoManager {
       moto._prevX = moto.x;
       moto._prevZ = moto.z;
 
-      // Tire tracks when drifting
+        // Tire tracks when drifting — guardar dirección real de movimiento
       if (moto._drifting) {
         this._trackTimer -= dt;
         if (this._trackTimer <= 0) {
-          this._trackTimer = 0.055;
-          this._emitTrack(moto);
+          this._trackTimer = 0.05;
+          // Dirección real de movimiento (puede diferir del heading en derrape)
+          const mvDx = moto.x - moto._prevX;
+          const mvDz = moto.z - moto._prevZ;
+          const moveAngle = (Math.abs(mvDx) + Math.abs(mvDz) > 0.0001)
+            ? Math.atan2(mvDx, mvDz)
+            : moto._displayRY;
+          this._emitTrack(moto, moveAngle);
         }
       }
     }
@@ -384,21 +390,27 @@ export class MotoManager {
     }
   }
 
-  _emitTrack(moto) {
-    const ry   = moto._displayRY;
-    const perpX = Math.cos(ry), perpZ = -Math.sin(ry);
-    for (const side of [-0.19, 0.19]) {
-      const mat  = this._trackMat.clone();
-      const mesh = new THREE.Mesh(this._trackGeo, mat);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.rotation.z = -ry;
-      mesh.position.set(moto.x + perpX * side, 0.018, moto.z + perpZ * side);
-      mesh.renderOrder = 1;
-      this.scene.add(mesh);
-      this._tracks.push({ mesh, age: 0, maxAge: 5.0 });
-    }
-    // Cap total segments
-    while (this._tracks.length > 140) {
+  _emitTrack(moto, moveAngle) {
+    // Posición de la rueda trasera: centro del mesh - forward * media_distancia_entre_ejes
+    const HALF_WB = 0.62;  // ~media distancia entre ejes en metros
+    const ry  = moto._displayRY;
+    const fwdX = Math.sin(ry), fwdZ = Math.cos(ry);
+    const meshX = moto.mesh.position.x;
+    const meshZ = moto.mesh.position.z;
+    const rearX = meshX - fwdX * HALF_WB;
+    const rearZ = meshZ - fwdZ * HALF_WB;
+
+    // Una sola huella angosta (rueda de moto), orientada según dirección real de movimiento
+    const mat  = this._trackMat.clone();
+    const mesh = new THREE.Mesh(this._trackGeo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = -moveAngle;   // alineada con dirección de movimiento real
+    mesh.position.set(rearX, 0.018, rearZ);
+    mesh.renderOrder = 1;
+    this.scene.add(mesh);
+    this._tracks.push({ mesh, age: 0, maxAge: 5.5 });
+
+    while (this._tracks.length > 120) {
       this.scene.remove(this._tracks.shift().mesh);
     }
   }
