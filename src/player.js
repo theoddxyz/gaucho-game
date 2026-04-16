@@ -559,7 +559,8 @@ export class PlayerModel {
           this.group.add(sc);
           this._motoRideModel  = sc;
           this._motoRideMixer  = new THREE.AnimationMixer(sc);
-          this._motoRideAction = this._motoRideMixer.clipAction(gltf.animations[0]);
+          const motoClip = THREE.AnimationClip.findByName(gltf.animations, 'ANDANDOENMOTO') ?? gltf.animations[0];
+          this._motoRideAction = this._motoRideMixer.clipAction(motoClip);
           this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
           this._motoRideAction.play();
         });
