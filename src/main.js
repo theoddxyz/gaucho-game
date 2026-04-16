@@ -194,7 +194,7 @@ function _startSleeping(hours) {
   if (_isSleeping || isDead || !myId) return;
   _isSleeping = true;
   // Lock movement
-  if (controls) { controls._velX = 0; controls._velZ = 0; }
+  if (controls) { controls._velX = 0; controls._velZ = 0; controls._sleeping = true; }
   // Show vignette + label
   _sleepVignette.style.background = 'rgba(0,0,0,0.35)';
   const lbl = document.getElementById('sleep-label');
@@ -205,6 +205,7 @@ function _startSleeping(hours) {
 function _stopSleeping() {
   if (!_isSleeping) return;
   _isSleeping = false;
+  if (controls) controls._sleeping = false;
   localPlayerModel?.stopSleep();
   _sleepVignette.style.background = 'rgba(0,0,0,0)';
   const lbl = document.getElementById('sleep-label');

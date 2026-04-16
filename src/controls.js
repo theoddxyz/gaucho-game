@@ -28,6 +28,7 @@ export class IsoControls {
     this._velZ       = 0;
     this._recoil     = 0;       // 0=idle, 1=full kick, decays to 0
     this._stunned    = false;   // true while hit-stun prevents movement
+    this._sleeping   = false;   // true while sleeping — blocks all movement input
 
     this._aimRMB  = false;
     this._aimCtrl = false;
@@ -128,7 +129,7 @@ export class IsoControls {
 
     // --- Horizontal movement with smooth acceleration ---
     const dir = new THREE.Vector3();
-    if (!this._stunned) {
+    if (!this._stunned && !this._sleeping) {
       if (this.keys.w) dir.z -= 1;
       if (this.keys.s) dir.z += 1;
       if (this.keys.a) dir.x -= 1;
