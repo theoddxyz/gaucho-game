@@ -1895,6 +1895,14 @@ _invHud.style.cssText = [
 ].join(';');
 document.body.appendChild(_invHud);
 
+// Scroll sobre el HUD de inventario: cicla el tipo de comida seleccionado
+_invHud.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.deltaY < 0) Inventory.cycleSelected(-1);
+  else              Inventory.cycleSelected(1);
+  _updateInventoryHUD();
+}, { passive: false });
+
 function _updateInventoryHUD() {
   const counts = Inventory.getCounts();
   const sel    = Inventory.getSelected();

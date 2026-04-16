@@ -58,12 +58,12 @@ export function removeSelected() {
 
 const _NOT_EDIBLE = new Set(['seed']);  // tipos que no se comen ni ciclan
 
-export function cycleSelected() {
+export function cycleSelected(dir = 1) {
   const types = Object.keys(_counts);
   const idx   = types.indexOf(_selected);
-  // Buscar el siguiente tipo con items, saltando no-comestibles
+  const step  = dir < 0 ? -1 : 1;
   for (let i = 1; i <= types.length; i++) {
-    const next = types[(idx + i) % types.length];
+    const next = types[((idx + step * i) % types.length + types.length) % types.length];
     if (_counts[next] > 0 && !_NOT_EDIBLE.has(next)) { _selected = next; break; }
   }
   onChange?.();

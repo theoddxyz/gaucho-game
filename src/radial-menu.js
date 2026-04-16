@@ -8,6 +8,7 @@ export class RadialMenu {
       { id: 'lasso',    label: 'LAZO',     icon: '🪢' },
       { id: 'food',     label: 'COMIDA',   icon: '🥩' },
       { id: 'montura',  label: 'MONTURA',  icon: '🏇' },
+      { id: 'seeds',    label: 'SEMILLAS', icon: '🌱' },
     ];
     this._mouseX = 0;
     this._mouseY = 0;
