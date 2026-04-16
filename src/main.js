@@ -1630,6 +1630,9 @@ function gameLoop() {
                      : _onHorse   ? (horseManager?.speedMultiplier(controls.isSprinting()) ?? 1.0)
                      : _onCarrosa ? 0
                      : (controls.isSprinting() ? 1.9 : 1.0);
+    // Intercept spacebar BEFORE controls.update() consumes _jumpTrigger
+    const _driftThisFrame = _onMoto && motoManager?.isMounted() && !!controls._jumpTrigger;
+    if (_driftThisFrame) controls._jumpTrigger = false;
     controls.update(dt, colliders, _speedMult, _onHorse || _onMoto || _onCarrosa);
 
     pos = controls.getPosition();
@@ -1683,11 +1686,7 @@ function gameLoop() {
       if (motoLand) controls.setPosition(motoLand.x, 0, motoLand.z);
 
       if (motoManager.isMounted() && !motoManager.isMountAnimating()) {
-        // Spacebar → drift (consume trigger before controls.update uses it for jump)
-        if (controls._jumpTrigger) {
-          controls._jumpTrigger = false;
-          if (motoManager.startDrift()) Audio.motoTireScreech?.();
-        }
+        if (_driftThisFrame && motoManager.startDrift()) Audio.motoTireScreech?.();
         const moveAngle = controls.getMovementAngle();
         const sprinting = controls.isSprinting();
         motoManager.syncRiderPosition(pos.x, pos.z, moveAngle, sprinting);

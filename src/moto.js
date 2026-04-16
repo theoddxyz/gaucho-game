@@ -88,6 +88,11 @@ export class MotoManager {
     this._mountLandPos = null;
     this._lean         = 0;
     this._prevAngle    = null;
+    // Tire tracks
+    this._trackGeo = new THREE.PlaneGeometry(0.11, 0.32);
+    this._trackMat = new THREE.MeshBasicMaterial({ color: 0x0a0804, transparent: true, opacity: 0.60, depthWrite: false });
+    this._tracks   = [];   // { mesh, age, maxAge }
+    this._trackTimer = 0;
     this._init();
   }
 
@@ -340,6 +345,27 @@ export class MotoManager {
 
       moto._prevX = moto.x;
       moto._prevZ = moto.z;
+
+      // Tire tracks when drifting
+      if (moto._drifting) {
+        this._trackTimer -= dt;
+        if (this._trackTimer <= 0) {
+          this._trackTimer = 0.055;
+          this._emitTrack(moto);
+        }
+      }
+    }
+
+    // Fade + remove old tracks
+    for (let i = this._tracks.length - 1; i >= 0; i--) {
+      const t = this._tracks[i];
+      t.age += dt;
+      if (t.age > t.maxAge) {
+        this.scene.remove(t.mesh);
+        this._tracks.splice(i, 1);
+      } else if (t.age > t.maxAge * 0.55) {
+        t.mesh.material.opacity = 0.60 * (1 - (t.age - t.maxAge * 0.55) / (t.maxAge * 0.45));
+      }
     }
 
     // Nearest free moto prompt
@@ -355,6 +381,25 @@ export class MotoManager {
       this._nearestMotoId = nearest;
     } else {
       this._mountPrompt.style.display = 'none';
+    }
+  }
+
+  _emitTrack(moto) {
+    const ry   = moto._displayRY;
+    const perpX = Math.cos(ry), perpZ = -Math.sin(ry);
+    for (const side of [-0.19, 0.19]) {
+      const mat  = this._trackMat.clone();
+      const mesh = new THREE.Mesh(this._trackGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = -ry;
+      mesh.position.set(moto.x + perpX * side, 0.018, moto.z + perpZ * side);
+      mesh.renderOrder = 1;
+      this.scene.add(mesh);
+      this._tracks.push({ mesh, age: 0, maxAge: 5.0 });
+    }
+    // Cap total segments
+    while (this._tracks.length > 140) {
+      this.scene.remove(this._tracks.shift().mesh);
     }
   }
 

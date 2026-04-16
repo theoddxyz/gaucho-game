@@ -1078,47 +1078,61 @@ function _distCurve(amount) {
 
 export function startMotoEngine() {
   const c = _ctx_(); if (!c || !_out) return;
+  if (c.state === 'suspended') c.resume();
   stopMotoEngine();
+
   _motoGain = c.createGain();
   _motoGain.gain.setValueAtTime(0, c.currentTime);
-  _motoGain.gain.linearRampToValueAtTime(0.28, c.currentTime + 0.4);
+  _motoGain.gain.linearRampToValueAtTime(0.55, c.currentTime + 0.5);
 
   _motoLpf = c.createBiquadFilter();
-  _motoLpf.type = 'lowpass'; _motoLpf.frequency.value = 350; _motoLpf.Q.value = 1.8;
+  _motoLpf.type = 'lowpass'; _motoLpf.frequency.value = 700; _motoLpf.Q.value = 1.2;
 
   const dist = c.createWaveShaper();
-  dist.curve = _distCurve(80); dist.oversample = '2x';
+  dist.curve = _distCurve(120); dist.oversample = '4x';
 
-  _motoOsc1 = c.createOscillator(); _motoOsc1.type = 'sawtooth'; _motoOsc1.frequency.value = 55;
-  _motoOsc2 = c.createOscillator(); _motoOsc2.type = 'square';   _motoOsc2.frequency.value = 82;
+  // Osc 1: fundamental (sawtooth rumble)
+  _motoOsc1 = c.createOscillator(); _motoOsc1.type = 'sawtooth'; _motoOsc1.frequency.value = 58;
+  // Osc 2: octave up (adds body)
+  _motoOsc2 = c.createOscillator(); _motoOsc2.type = 'sawtooth'; _motoOsc2.frequency.value = 116;
+  // Osc 3: sub-bass thump
+  const osc3 = c.createOscillator(); osc3.type = 'sine'; osc3.frequency.value = 29;
+  const g3 = c.createGain(); g3.gain.value = 0.6;
 
-  const g2 = c.createGain(); g2.gain.value = 0.4;
-  _motoOsc1.connect(dist); _motoOsc2.connect(g2);
-  dist.connect(_motoLpf); g2.connect(_motoLpf);
+  const g2 = c.createGain(); g2.gain.value = 0.35;
+  _motoOsc1.connect(dist);
+  _motoOsc2.connect(g2); g2.connect(dist);
+  dist.connect(_motoLpf);
+  osc3.connect(g3); g3.connect(_motoLpf);
   _motoLpf.connect(_motoGain); _motoGain.connect(_out);
-  _motoOsc1.start(); _motoOsc2.start();
+
+  _motoOsc1.start(); _motoOsc2.start(); osc3.start();
+  // Store osc3 on osc2 so stopMotoEngine can reach it
+  _motoOsc2._sub = osc3;
 }
 
 export function updateMotoEngine(speedFactor) {
   if (!_motoOsc1 || !_ctx) return;
   const c = _ctx_();
-  const f1 = 55  + speedFactor * 160;   // 55 Hz idle → 215 Hz full throttle
-  const f2 = 82  + speedFactor * 240;
-  const lp = 350 + speedFactor * 1200;  // open up filter at speed
-  const vol = 0.18 + speedFactor * 0.18;
-  _motoOsc1.frequency.setTargetAtTime(f1,  c.currentTime, 0.06);
-  _motoOsc2.frequency.setTargetAtTime(f2,  c.currentTime, 0.06);
-  _motoLpf.frequency.setTargetAtTime(lp,   c.currentTime, 0.08);
-  _motoGain.gain.setTargetAtTime(vol,       c.currentTime, 0.10);
+  const f1 = 58  + speedFactor * 180;
+  const f2 = f1  * 2;
+  const f3 = f1  * 0.5;
+  const lp = 700 + speedFactor * 1800;
+  const vol = 0.38 + speedFactor * 0.28;
+  _motoOsc1.frequency.setTargetAtTime(f1, c.currentTime, 0.05);
+  _motoOsc2.frequency.setTargetAtTime(f2, c.currentTime, 0.05);
+  if (_motoOsc2._sub) _motoOsc2._sub.frequency.setTargetAtTime(f3, c.currentTime, 0.05);
+  _motoLpf.frequency.setTargetAtTime(lp,  c.currentTime, 0.07);
+  _motoGain.gain.setTargetAtTime(vol,      c.currentTime, 0.09);
 }
 
 export function stopMotoEngine() {
   if (!_motoOsc1) return;
   const c = _ctx_();
   if (c && _motoGain) _motoGain.gain.setTargetAtTime(0, c.currentTime, 0.25);
-  const o1 = _motoOsc1, o2 = _motoOsc2;
+  const o1 = _motoOsc1, o2 = _motoOsc2, o3 = _motoOsc2?._sub;
   _motoOsc1 = _motoOsc2 = _motoGain = _motoLpf = null;
-  setTimeout(() => { try { o1.stop(); o2.stop(); } catch(e) {} }, 600);
+  setTimeout(() => { try { o1.stop(); o2.stop(); o3?.stop(); } catch(e) {} }, 600);
 }
 
 export function motoTireScreech() {
