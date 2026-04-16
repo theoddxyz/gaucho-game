@@ -41,7 +41,7 @@ function loadHorseRideTemplate() {
 function loadMotoRideTemplate() {
   if (motoRideTemplate) return motoRideTemplate;
   motoRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
+    loader.load('/models/ANDANDOENMOTO2.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return motoRideTemplate;
 }
