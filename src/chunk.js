@@ -10,7 +10,7 @@ const UNLOAD_DIST         = 2;
 const SUB                 = 20;     // subdivisiones del plano — más detalle de color
 const TREES_PER_CHUNK     = 4;
 const ROCKS_PER_CHUNK     = 4;
-const BUSHES_PER_CHUNK    = 4;
+const BUSHES_PER_CHUNK    = 8;
 const PEBBLES_PER_CHUNK   = 6;
 
 // ─── Water zone check ────────────────────────────────────────────────────────
@@ -120,12 +120,12 @@ const ROCK_MATS = [
   new THREE.MeshStandardMaterial({ color: 0x8c8070, roughness: 0.96 }),
 ];
 const DRY_MATS = [
-  new THREE.MeshStandardMaterial({ color: 0x6e5030, roughness: 0.99 }),
-  new THREE.MeshStandardMaterial({ color: 0x5a4025, roughness: 0.99 }),
+  new THREE.MeshStandardMaterial({ color: 0x2e7d1a, roughness: 0.85 }),
+  new THREE.MeshStandardMaterial({ color: 0x3a9422, roughness: 0.85 }),
 ];
 const WET_MATS = [
-  new THREE.MeshStandardMaterial({ color: 0x5a6228, roughness: 0.97 }),
-  new THREE.MeshStandardMaterial({ color: 0x4a5420, roughness: 0.97 }),
+  new THREE.MeshStandardMaterial({ color: 0x1a6b2a, roughness: 0.80 }),
+  new THREE.MeshStandardMaterial({ color: 0x228830, roughness: 0.80 }),
 ];
 const PEBBLE_MATS = [
   new THREE.MeshStandardMaterial({ color: 0xcaa050, roughness: 0.97 }),
@@ -134,9 +134,9 @@ const PEBBLE_MATS = [
 ];
 
 // ─── Frutos silvestres ────────────────────────────────────────────────────────
-const FRUIT_CHANCE  = 0.25;   // 25% de los arbustos tienen fruto
-const _BERRY_GEO    = new THREE.SphereGeometry(0.16, 6, 5);
-const _BERRY_MAT    = new THREE.MeshBasicMaterial({ color: 0xddee00 });
+const FRUIT_CHANCE  = 0.55;   // 55% de los arbustos tienen fruto
+const _BERRY_GEO    = new THREE.SphereGeometry(0.30, 8, 6);
+const _BERRY_MAT    = new THREE.MeshBasicMaterial({ color: 0xff2200 });
 
 // ─── Carga de templates ──────────────────────────────────────────────────────
 const loader = new GLTFLoader();
@@ -326,7 +326,7 @@ export class ChunkManager {
       const bx  = cx * CHUNK_SIZE + rng() * CHUNK_SIZE;
       const bz  = cz * CHUNK_SIZE + rng() * CHUNK_SIZE;
       if (_inWater(bx, bz)) { rng(); rng(); rng(); rng(); continue; }
-      const bs  = 0.55 + rng() * 0.90;
+      const bs  = 1.0 + rng() * 0.80;
       let bush;
       if (bushTemplate) {
         bush = bushTemplate.clone(true);
@@ -335,14 +335,14 @@ export class ChunkManager {
       } else {
         const dry = rng() > 0.38;
         const mat = (dry ? DRY_MATS : WET_MATS)[Math.floor(rng() * 2)];
-        const bh  = 0.25 + rng() * 0.30;
-        const bw  = 0.30 + rng() * 0.35;
-        bush = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bw), mat);
+        const bh  = 0.70 + rng() * 0.50;
+        const bw  = 0.65 + rng() * 0.45;
+        bush = new THREE.Mesh(new THREE.SphereGeometry(bw * 0.5, 7, 5), mat);
         bush.scale.setScalar(bs);
         bush.castShadow = bush.receiveShadow = true;
         bush._ownGeo = true;
       }
-      bush.position.set(bx, (0.25 * bs) / 2, bz);
+      bush.position.set(bx, bs * 0.35, bz);
       bush.rotation.y = rng() * Math.PI * 2;
       this.scene.add(bush);
       objects.push(bush);
@@ -351,7 +351,7 @@ export class ChunkManager {
       if (rng() < FRUIT_CHANCE) {
         bush.hasFruit = true;
         const berry = new THREE.Mesh(_BERRY_GEO, _BERRY_MAT);
-        berry.position.set(bx, bush.position.y + 0.5 + bs * 0.15, bz);
+        berry.position.set(bx, bush.position.y + bs * 0.55 + 0.30, bz);
         this.scene.add(berry);
         objects.push(berry);
         bush._berry = berry;
