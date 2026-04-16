@@ -1094,7 +1094,6 @@ Network.onJoined((data) => {
     const nearCrop = _getNearbyRipeCrop(pos.x, pos.z);
     if (nearCrop) {
       Network.sendHarvestCrop(nearCrop._cropId);
-      localPlayerModel?.startTrabajando(1.8);
       return;
     }
 
@@ -1102,7 +1101,6 @@ Network.onJoined((data) => {
     const nearBush = _chunkMgr?.getNearbyFruitBush(pos.x, pos.z);
     if (nearBush) {
       Network.sendHarvestBush(nearBush.position.x, nearBush.position.z);
-      localPlayerModel?.startTrabajando(1.8);
       return;
     }
 
