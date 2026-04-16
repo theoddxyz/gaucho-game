@@ -30,10 +30,7 @@ function loadTemplate(isBot = false) {
 function loadHorseRideTemplate() {
   if (horseRideTemplate) return horseRideTemplate;
   horseRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf),
-      undefined, () => {
-        loader.load('/models/ANDARACABALLO2.glb', (g) => resolve(g), undefined, () => resolve(null));
-      });
+    loader.load('/models/ANDARACABALLO2.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
   });
   return horseRideTemplate;
 }
@@ -446,31 +443,6 @@ export class PlayerModel {
       this._headMesh  = placeholder._headMesh  || null;
       this._legMeshes = placeholder._legMeshes || [];
       this.group.add(placeholder);
-
-      // ── Moto ride model — carga independiente del template principal ─────────
-      loadMotoRideTemplate().then((gltf) => {
-        if (!gltf) return;
-        const sc = gltf.scene ?? gltf.scenes?.[0];
-        if (!sc) return;
-        sc.traverse((obj) => {
-          obj.visible = true;
-          if (obj.isMesh || obj.isSkinnedMesh) {
-            obj.castShadow = true; obj.frustumCulled = false;
-          }
-        });
-        // SkinnedMesh bounds can be Infinity before animation runs → use fixed scale
-        sc.scale.setScalar(0.022);   // Mixamo units are cm, ~180cm character → ~2.8m
-        sc.position.y = 0;
-        sc.visible = false;
-        this.group.add(sc);
-        this._motoRideModel = sc;
-        if (gltf.animations?.length) {
-          this._motoRideMixer  = new THREE.AnimationMixer(sc);
-          this._motoRideAction = this._motoRideMixer.clipAction(gltf.animations[0]);
-          this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
-          this._motoRideAction.play();
-        }
-      });
 
       loadTemplate(false).then((template) => {
         if (!template) return; // keep placeholder
