@@ -447,6 +447,37 @@ export class PlayerModel {
       this._legMeshes = placeholder._legMeshes || [];
       this.group.add(placeholder);
 
+      // ── Moto ride model — carga independiente del template principal ─────────
+      loadMotoRideTemplate().then((gltf) => {
+        if (!gltf) return;
+        const sc = gltf.scene ?? gltf.scenes?.[0];
+        if (!sc) return;
+        sc.traverse((obj) => {
+          obj.visible = true;
+          if (obj.isMesh || obj.isSkinnedMesh) {
+            obj.castShadow = true; obj.frustumCulled = false;
+          }
+        });
+        sc.updateWorldMatrix(true, true);
+        const mbbox = new THREE.Box3().setFromObject(sc);
+        const mh = mbbox.max.y - mbbox.min.y;
+        if (mh > 0.01) {
+          sc.scale.setScalar(2.8 / mh);
+          sc.updateWorldMatrix(true, true);
+          const mb2 = new THREE.Box3().setFromObject(sc);
+          sc.position.y -= mb2.min.y;
+        }
+        sc.visible = false;
+        this.group.add(sc);
+        this._motoRideModel = sc;
+        if (gltf.animations?.length) {
+          this._motoRideMixer  = new THREE.AnimationMixer(sc);
+          this._motoRideAction = this._motoRideMixer.clipAction(gltf.animations[0]);
+          this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
+          this._motoRideAction.play();
+        }
+      });
+
       loadTemplate(false).then((template) => {
         if (!template) return; // keep placeholder
         this.group.remove(placeholder);
@@ -536,35 +567,6 @@ export class PlayerModel {
           this._horseRideAction.play();
         });
 
-        // ── Modelo andar en moto ──────────────────────────────────────────────
-        loadMotoRideTemplate().then((gltf) => {
-          if (!gltf) return;
-          const sc = gltf.scene;
-          sc.traverse((obj) => {
-            obj.visible = true;
-            if (obj.isMesh || obj.isSkinnedMesh) {
-              obj.castShadow = true; obj.frustumCulled = false;
-            }
-          });
-          sc.updateWorldMatrix(true, true);
-          const mbbox = new THREE.Box3().setFromObject(sc);
-          const mh = mbbox.max.y - mbbox.min.y;
-          if (mh > 0.01) {
-            sc.scale.setScalar(2.8 / mh);
-            sc.updateWorldMatrix(true, true);
-            const mb2 = new THREE.Box3().setFromObject(sc);
-            sc.position.y -= mb2.min.y;
-          }
-          sc.visible = false;
-          this.group.add(sc);
-          this._motoRideModel  = sc;
-          if (gltf.animations?.length) {
-            this._motoRideMixer  = new THREE.AnimationMixer(sc);
-            this._motoRideAction = this._motoRideMixer.clipAction(gltf.animations[0]);
-            this._motoRideAction.setLoop(THREE.LoopRepeat, Infinity);
-            this._motoRideAction.play();
-          }
-        });
 
         // ── Modelo tranquilo (idle a pie, sano) ──────────────────────────────
         loadTranquiTemplate().then((gltf) => {
