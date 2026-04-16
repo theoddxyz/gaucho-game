@@ -202,7 +202,7 @@ document.addEventListener('keyup', (e) => {
 });
 
 // --- Renderer ---
-const PX_SCALE = 2;   // pixel art sutil: render a 1/2 resolución
+const PX_SCALE = 1.35;   // pixel art muy sutil
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(Math.floor(window.innerWidth / PX_SCALE), Math.floor(window.innerHeight / PX_SCALE), false);
 renderer.setPixelRatio(1);
