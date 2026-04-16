@@ -57,34 +57,32 @@ function _makeCropMesh(grown) {
     soil.position.y = 0.01;
     g.add(soil);
     const stakeMat = new THREE.MeshStandardMaterial({ color: 0x8b4e18, roughness: 0.85 });
-    const stake    = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 1.1, 6), stakeMat);
-    stake._ownGeo  = true; stake.position.y = 0.55; g.add(stake);
-    // Punta de la estaca
-    const tip      = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 6), stakeMat);
-    tip._ownGeo    = true; tip.position.y = 1.15; g.add(tip);
-    // Trapo verde en la estaca (señalizador)
+    const stake    = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.8, 6), stakeMat);
+    stake._ownGeo  = true; stake.position.y = 0.9; g.add(stake);
+    const tip      = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.28, 6), stakeMat);
+    tip._ownGeo    = true; tip.position.y = 1.94; g.add(tip);
     const flagMat  = new THREE.MeshStandardMaterial({ color: 0x3ab820, roughness: 0.7, side: THREE.DoubleSide });
-    const flag     = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.20), flagMat);
-    flag._ownGeo   = true; flag.position.set(0.15, 0.88, 0); g.add(flag);
+    const flag     = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.38), flagMat);
+    flag._ownGeo   = true; flag.position.set(0.28, 1.55, 0); g.add(flag);
   } else {
-    // ── Cultivo maduro: tallo + hoja verde + bayas rojas ─────────────────────
-    const stalkH = 0.55;
+    // ── Cultivo maduro: tallo grueso + cabeza grande + bayas rojas ────────────
+    const stalkH = 1.1;
     const sMat   = new THREE.MeshStandardMaterial({ color: 0x4a8a1a });
-    const stalk  = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, stalkH, 5), sMat);
+    const stalk  = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.10, stalkH, 6), sMat);
     stalk._ownGeo = true; stalk.castShadow = true;
     stalk.position.y = stalkH / 2;
     g.add(stalk);
     const lMat = new THREE.MeshStandardMaterial({ color: 0x5ec820, roughness: 0.7 });
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 6), lMat);
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.52, 8, 7), lMat);
     leaf._ownGeo = true; leaf.castShadow = true;
-    leaf.position.y = stalkH + 0.12;
+    leaf.position.y = stalkH + 0.22;
     g.add(leaf);
     const bMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
-    const bGeo = new THREE.SphereGeometry(0.075, 5, 4);
+    const bGeo = new THREE.SphereGeometry(0.13, 6, 5);
     for (let i = 0; i < 5; i++) {
       const b = new THREE.Mesh(bGeo, bMat); b._ownGeo = true;
       const a = (i / 5) * Math.PI * 2;
-      b.position.set(Math.cos(a) * 0.22, stalkH + 0.16, Math.sin(a) * 0.22);
+      b.position.set(Math.cos(a) * 0.42, stalkH + 0.28, Math.sin(a) * 0.42);
       g.add(b);
     }
   }
