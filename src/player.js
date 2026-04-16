@@ -3,86 +3,68 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
+// ── Geometrías y materiales compartidos para partículas (evitan new cada frame) ──
+const _SMOKE_GEO       = new THREE.SphereGeometry(0.04, 4, 4);
+const _SMOKE_BASE_MAT  = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5, depthWrite: false, depthTest: true });
+const _MUZZLE_GEO      = new THREE.SphereGeometry(0.09, 4, 4);  // tamaño medio para muzzle smoke
+
 const loader = new GLTFLoader();
-let playerTemplate    = null;
-let botTemplate       = null;
-let horseRideTemplate = null;
-let motoRideTemplate  = null;
-let shootWalkTemplate = null;
-let tranquiTemplate   = null;
-let hurtTemplate      = null;
-
-function loadTemplate(isBot = false) {
-  if (isBot) {
-    if (botTemplate) return botTemplate;
-    botTemplate = new Promise(resolve =>
-      loader.load('/models/bot.glb', g => resolve(g.scene), undefined, () => resolve(null))
+// ── Lazy-loading de templates GLB ────────────────────────────────────────────
+// Cada entrada: { promise: null | Promise }
+// _tpl(key) devuelve siempre la misma Promise (carga solo una vez).
+const _TPL_PATHS = {
+  player:     '/models/WALKINGPEROBIEN.glb',
+  bot:        '/models/bot.glb',
+  horseRide:  '/models/ANDANDOENMOTO.glb',
+  shootWalk:  '/models/CAMINANDOALOSTIROSPEROGLB.glb',
+  tranqui:    '/models/TRANQUIGLB.glb',
+  hurt:       '/models/HERIDOGLB.glb',
+  butcher:    '/models/CUCHIGLB.glb',
+  sleep:      '/models/DURMIENDOGLB%20.glb',
+};
+const _tplCache = {};
+function _tpl(key) {
+  if (!_tplCache[key]) {
+    _tplCache[key] = new Promise(resolve =>
+      loader.load(_TPL_PATHS[key], gltf => resolve(gltf), undefined, () => resolve(null))
     );
-    return botTemplate;
   }
-  if (playerTemplate) return playerTemplate;
-  playerTemplate = new Promise((resolve) => {
-    loader.load('/models/WALKINGPEROBIEN.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return playerTemplate;
+  return _tplCache[key];
 }
 
-function loadHorseRideTemplate() {
-  if (horseRideTemplate) return horseRideTemplate;
-  horseRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return horseRideTemplate;
+// Alias para compatibilidad con el código existente
+function loadTemplate(isBot = false) {
+  // Para el jugador principal, resolve(gltf) — para bot, resolve(gltf.scene)
+  if (isBot) {
+    if (!_tplCache._bot_scene) {
+      _tplCache._bot_scene = _tpl('bot').then(g => g?.scene ?? null);
+    }
+    return _tplCache._bot_scene;
+  }
+  return _tpl('player');
 }
+function loadHorseRideTemplate()  { return _tpl('horseRide'); }
+function loadMotoRideTemplate()   { return _tpl('horseRide'); }  // mismo GLB
+function loadShootWalkTemplate()  { return _tpl('shootWalk'); }
+function loadTranquiTemplate()    { return _tpl('tranqui'); }
+function loadHurtTemplate()       { return _tpl('hurt'); }
+function loadButcherTemplate()    { return _tpl('butcher'); }
+function loadSleepTemplate()      { return _tpl('sleep'); }
 
-function loadMotoRideTemplate() {
-  if (motoRideTemplate) return motoRideTemplate;
-  motoRideTemplate = new Promise((resolve) => {
-    loader.load('/models/ANDANDOENMOTO.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return motoRideTemplate;
-}
-
-function loadShootWalkTemplate() {
-  if (shootWalkTemplate) return shootWalkTemplate;
-  shootWalkTemplate = new Promise((resolve) => {
-    loader.load('/models/CAMINANDOALOSTIROSPEROGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return shootWalkTemplate;
-}
-
-function loadTranquiTemplate() {
-  if (tranquiTemplate) return tranquiTemplate;
-  tranquiTemplate = new Promise((resolve) => {
-    loader.load('/models/TRANQUIGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return tranquiTemplate;
-}
-
-function loadHurtTemplate() {
-  if (hurtTemplate) return hurtTemplate;
-  hurtTemplate = new Promise((resolve) => {
-    loader.load('/models/HERIDOGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return hurtTemplate;
-}
-
-let butcherTemplate = null;
-function loadButcherTemplate() {
-  if (butcherTemplate) return butcherTemplate;
-  butcherTemplate = new Promise((resolve) => {
-    loader.load('/models/CUCHIGLB.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return butcherTemplate;
-}
-
-let sleepTemplate = null;
-function loadSleepTemplate() {
-  if (sleepTemplate) return sleepTemplate;
-  sleepTemplate = new Promise((resolve) => {
-    loader.load('/models/DURMIENDOGLB%20.glb', (gltf) => resolve(gltf), undefined, () => resolve(null));
-  });
-  return sleepTemplate;
+/**
+ * Escala un Object3D de GLB a `targetH` unidades de alto y lo baja al piso (y=0).
+ * alignFloor=false cuando el modelo tiene su propio sistema de alineación (ej: bones).
+ */
+function _scaleGLBToHeight(sc, targetH = 2.8, alignFloor = true) {
+  sc.updateWorldMatrix(true, true);
+  const bb = new THREE.Box3().setFromObject(sc);
+  const h  = bb.max.y - bb.min.y;
+  if (h > 0.01) sc.scale.setScalar(targetH / h);
+  if (alignFloor) {
+    sc.updateWorldMatrix(true, true);
+    const bb2 = new THREE.Box3().setFromObject(sc);
+    sc.position.y -= bb2.min.y;
+  }
 }
 
 function buildFallbackModel(color) {
@@ -268,8 +250,6 @@ export class PlayerModel {
 
     // ── Walk animation state ──────────────────────────────────────────────────
     this._walkT         = 0;
-    this._legPivots     = [];
-    this._armPivots     = [];
     this._legMeshDirect = [];
     this._armMeshDirect = [];
     this._prevPos       = new THREE.Vector3();
@@ -385,8 +365,6 @@ export class PlayerModel {
       // ── Walk animation: collect limb mesh refs (direct rotation) ────────────
       // El origen del mesh 'leg left/right' está en la parte SUPERIOR de la pierna
       // (geo.max.y ≈ 0), así que rotation.x directo funciona como pivote de cadera.
-      this._legPivots     = [];  // mantenido por compatibilidad
-      this._armPivots     = [];
       this._legMeshDirect = [];
       this._armMeshDirect = [];
       const limbDirect = {
@@ -489,16 +467,7 @@ export class PlayerModel {
             }
           });
 
-          // Escalar a TARGET_H = 2.8 y alinear base a y=0
-          shootScene.updateWorldMatrix(true, true);
-          const bbox = new THREE.Box3().setFromObject(shootScene);
-          const h = bbox.max.y - bbox.min.y;
-          if (h > 0.01) {
-            shootScene.scale.setScalar(2.8 / h);
-            shootScene.updateWorldMatrix(true, true);
-            const b2 = new THREE.Box3().setFromObject(shootScene);
-            shootScene.position.y -= b2.min.y;
-          }
+          _scaleGLBToHeight(shootScene, 2.8);
 
           shootScene.visible = false;
           this.group.add(shootScene);
@@ -528,15 +497,7 @@ export class PlayerModel {
               this._horseSmokePoint = obj;
             }
           });
-          horseScene.updateWorldMatrix(true, true);
-          const hbbox = new THREE.Box3().setFromObject(horseScene);
-          const hh = hbbox.max.y - hbbox.min.y;
-          if (hh > 0.01) {
-            horseScene.scale.setScalar(2.8 / hh);
-            horseScene.updateWorldMatrix(true, true);
-            const hb2 = new THREE.Box3().setFromObject(horseScene);
-            horseScene.position.y -= hb2.min.y;
-          }
+          _scaleGLBToHeight(horseScene, 2.8);
           horseScene.visible = false;
           this.group.add(horseScene);
           this._horseRideModel  = horseScene;
@@ -559,15 +520,7 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
-          sc.updateWorldMatrix(true, true);
-          const bb = new THREE.Box3().setFromObject(sc);
-          const hh = bb.max.y - bb.min.y;
-          if (hh > 0.01) {
-            sc.scale.setScalar(2.8 / hh);
-            sc.updateWorldMatrix(true, true);
-            const bb2 = new THREE.Box3().setFromObject(sc);
-            sc.position.y -= bb2.min.y;
-          }
+          _scaleGLBToHeight(sc, 2.8);
           sc.visible = false;
           this.group.add(sc);
           this._tranquiModel  = sc;
@@ -589,11 +542,7 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
-          // Escalar a 2.8 u
-          sc.updateWorldMatrix(true, true);
-          const bb = new THREE.Box3().setFromObject(sc);
-          const hh = bb.max.y - bb.min.y;
-          if (hh > 0.01) sc.scale.setScalar(2.8 / hh);
+          _scaleGLBToHeight(sc, 2.8, false);
 
           // Mixer y animación
           this._hurtMixer  = new THREE.AnimationMixer(sc);
@@ -638,15 +587,7 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
-          sc.updateWorldMatrix(true, true);
-          const bb = new THREE.Box3().setFromObject(sc);
-          const hh = bb.max.y - bb.min.y;
-          if (hh > 0.01) {
-            sc.scale.setScalar(2.8 / hh);
-            sc.updateWorldMatrix(true, true);
-            const bb2 = new THREE.Box3().setFromObject(sc);
-            sc.position.y -= bb2.min.y;
-          }
+          _scaleGLBToHeight(sc, 2.8);
           sc.visible = false;
           this.group.add(sc);
           this._butcherModel  = sc;
@@ -1181,15 +1122,8 @@ export class PlayerModel {
       return;
     }
 
-    const geo = new THREE.SphereGeometry(0.04, 4, 4);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xcccccc,
-      transparent: true,
-      opacity: 0.5,
-      depthWrite: false,
-      depthTest: true,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
+    const mat = _SMOKE_BASE_MAT.clone();  // solo clonar material (opacity varía por partícula)
+    const mesh = new THREE.Mesh(_SMOKE_GEO, mat);
     mesh.renderOrder = 10; // se evalúa DESPUÉS del opaco del player → depth test correcto
     mesh.position.copy(pos);
     this._scene.add(mesh);
@@ -1265,13 +1199,10 @@ export class PlayerModel {
     const origin = this.getFirepointWorldPos();
     if (!origin) return;
     for (let i = 0; i < 10; i++) {
-      const geo = new THREE.SphereGeometry(0.06 + Math.random() * 0.06, 4, 4);
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0.82 + Math.random()*0.1, 0.80 + Math.random()*0.1, 0.75),
-        transparent: true, opacity: 0.55 + Math.random() * 0.2,
-        depthWrite: false, depthTest: true,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
+      const mat = _SMOKE_BASE_MAT.clone();
+      mat.color.setRGB(0.82 + Math.random()*0.1, 0.80 + Math.random()*0.1, 0.75);
+      mat.opacity = 0.55 + Math.random() * 0.2;
+      const mesh = new THREE.Mesh(_MUZZLE_GEO, mat);
       mesh.renderOrder = 10;
       mesh.position.copy(origin);
       this._scene.add(mesh);

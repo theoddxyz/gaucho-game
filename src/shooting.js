@@ -1,6 +1,11 @@
 // --- Shooting system — camera-ray hitscan + visual bullet ---
 import * as THREE from 'three';
 
+// Geometrías compartidas — se crean una sola vez para todos los proyectiles/flashes
+const _BULLET_GEO = new THREE.SphereGeometry(0.12, 4, 4);
+const _FLASH_GEO  = new THREE.SphereGeometry(0.25, 6, 6);
+const _FLASH_MAT  = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+
 export const BULLET_SPEED = 65;   // units/sec (visual travel)
 export const BULLET_RANGE = 90;   // max range units
 const COOLDOWN      = 0.28;
@@ -129,9 +134,8 @@ export function hitscan(ray, hitboxes, infoMap) {
  * @param {number} maxDist        — units before bullet disappears
  */
 export function spawnBullet(scene, origin, dir3D, color = 0xffff00, maxDist = BULLET_RANGE) {
-  const geo    = new THREE.SphereGeometry(0.12, 4, 4);
   const mat    = new THREE.MeshBasicMaterial({ color });
-  const bullet = new THREE.Mesh(geo, mat);
+  const bullet = new THREE.Mesh(_BULLET_GEO, mat);
   bullet.position.set(origin.x, origin.y, origin.z);
   // Accept either THREE.Vector3 or plain {x,y,z} (e.g. from network JSON)
   const dir = (dir3D && typeof dir3D.clone === 'function')
@@ -149,18 +153,15 @@ export function updateBullets(scene, dt) {
     b.dist += step;
     if (b.dist >= b.maxDist) {
       scene.remove(b.mesh);
-      b.mesh.geometry.dispose();
-      b.mesh.material.dispose();
+      b.mesh.material.dispose();  // geometry es compartida, no se dispone
       activeBullets.splice(i, 1);
     }
   }
 }
 
 export function muzzleFlash(scene, origin) {
-  const geo   = new THREE.SphereGeometry(0.25, 6, 6);
-  const mat   = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
-  const flash = new THREE.Mesh(geo, mat);
+  const flash = new THREE.Mesh(_FLASH_GEO, _FLASH_MAT);
   flash.position.set(origin.x, origin.y, origin.z);
   scene.add(flash);
-  setTimeout(() => { scene.remove(flash); geo.dispose(); mat.dispose(); }, 65);
+  setTimeout(() => { scene.remove(flash); }, 65);  // geometría y material son compartidos
 }

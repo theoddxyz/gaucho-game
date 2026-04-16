@@ -285,6 +285,7 @@ export class ChunkManager {
         rock = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         rock.scale.set(rs, rh * rs, rs * (0.8 + rng() * 0.4));
         rock.castShadow = rock.receiveShadow = true;
+        rock._ownGeo = true;
       }
       rock.position.set(rx, 0, rz);
       rock.rotation.y = rng() * Math.PI * 2;
@@ -312,6 +313,7 @@ export class ChunkManager {
         bush = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bw), mat);
         bush.scale.setScalar(bs);
         bush.castShadow = bush.receiveShadow = true;
+        bush._ownGeo = true;
       }
       bush.position.set(bx, (0.25 * bs) / 2, bz);
       bush.rotation.y = rng() * Math.PI * 2;
@@ -327,6 +329,7 @@ export class ChunkManager {
       const pw  = 0.15 + rng() * 0.35;
       const mat = PEBBLE_MATS[Math.floor(rng() * PEBBLE_MATS.length)];
       const peb = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, pw), mat);
+      peb._ownGeo = true;
       peb.position.set(px, ph / 2, pz);
       peb.scale.set(0.6 + rng() * 1.1, 0.28 + rng() * 0.22, 0.6 + rng() * 0.8);
       peb.rotation.y = rng() * Math.PI * 2;
@@ -346,6 +349,8 @@ export class ChunkManager {
     chunk.ground.geometry.dispose();
     for (const obj of chunk.objects) {
       this.scene.remove(obj);
+      // Dispose geometría de objetos procedurales (rocas/arbustos/piedras sin GLB)
+      if (obj._ownGeo) obj.geometry?.dispose();
       // Remove from _trees array
       const ti = this._trees.findIndex(t => t.mesh === obj);
       if (ti >= 0) this._trees.splice(ti, 1);

@@ -40,7 +40,6 @@ function _loadTemplate() {
       const src = gltf.scenes?.[2] ?? gltf.scene;
       resolve(src);
     }, undefined, err => {
-      console.warn('[Moto] MOTO.glb no cargó:', err);
       resolve(null);
     });
   });
@@ -87,7 +86,6 @@ export class MotoManager {
     this._anim         = null;
     this._mountLandPos = null;
     this._lean         = 0;
-    this._prevAngle    = null;
     // Tire tracks
     this._trackGeo = new THREE.PlaneGeometry(0.13, 0.38);  // ancho neumático moto, largo segmento
     this._trackMat = new THREE.MeshBasicMaterial({ color: 0x0a0804, transparent: true, opacity: 0.60, depthWrite: false });
@@ -172,7 +170,6 @@ export class MotoManager {
 
         // Fallback if names didn't match
         if (wheels.length === 0) {
-          console.warn('[Moto] Nombres no coincidieron, buscando por índice');
           ejeNodes.forEach((e, i) => {
             e.scale.set(1,1,1); e.updateMatrixWorld(true);
             if (ruedaNodes[i]) { e.attach(ruedaNodes[i]); wheels.push(e); }
@@ -458,7 +455,7 @@ export class MotoManager {
     this.myMotoId = id;
     this._nearestMotoId = null;
     this._lean = moto._lean = 0;
-    this._prevAngle  = null;
+
     this._anim = {
       type: 'mount', t: 0,
       dur:   startY > 0.5 ? 0.18 : MOUNT_DUR,

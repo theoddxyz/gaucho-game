@@ -56,8 +56,7 @@ export function initAudio() {
 
     // Preload en background
     _preloadAll();
-    console.log('[AUDIO] OK, sampleRate=' + sr);
-  } catch(e) { console.warn('[AUDIO]', e.message); }
+  } catch(e) { /* audio init failed — continue silently */ }
 }
 
 function _ctx_() {
