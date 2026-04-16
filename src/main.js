@@ -49,21 +49,20 @@ let   _chunkMgr   = null;       // set after ChunkManager is created (ref for pl
 function _makeCropMesh(grown) {
   const g = new THREE.Group();
   if (!grown) {
-    // ── Semilla plantada: montículo de tierra + dos palitos en cruz ──────────
-    const moundMat = new THREE.MeshStandardMaterial({ color: 0x6b3a10, roughness: 1.0 });
-    const mound    = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 4), moundMat);
-    mound._ownGeo  = true;
-    mound.scale.set(1, 0.45, 1);
-    mound.position.y = 0.04;
-    g.add(mound);
-    const stickMat = new THREE.MeshStandardMaterial({ color: 0x8b5e1a, roughness: 0.9 });
-    const stickGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.55, 4);
-    const s1 = new THREE.Mesh(stickGeo, stickMat); s1._ownGeo = true;
-    s1.position.y = 0.27; s1.rotation.z = Math.PI * 0.08;
-    g.add(s1);
-    const s2 = new THREE.Mesh(stickGeo, stickMat); s2._ownGeo = true;
-    s2.position.y = 0.27; s2.rotation.x = Math.PI * 0.08; s2.rotation.y = Math.PI / 2;
-    g.add(s2);
+    // ── Semilla plantada: estaca alta + tierra removida ───────────────────────
+    const soilMat  = new THREE.MeshStandardMaterial({ color: 0x5a2d0a, roughness: 1.0 });
+    const soil     = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.40, 0.12, 8), soilMat);
+    soil._ownGeo   = true; soil.position.y = 0.06; g.add(soil);
+    const stakeMat = new THREE.MeshStandardMaterial({ color: 0x8b4e18, roughness: 0.85 });
+    const stake    = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 1.1, 6), stakeMat);
+    stake._ownGeo  = true; stake.position.y = 0.55; g.add(stake);
+    // Punta de la estaca
+    const tip      = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 6), stakeMat);
+    tip._ownGeo    = true; tip.position.y = 1.15; g.add(tip);
+    // Trapo verde en la estaca (señalizador)
+    const flagMat  = new THREE.MeshStandardMaterial({ color: 0x3ab820, roughness: 0.7, side: THREE.DoubleSide });
+    const flag     = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.20), flagMat);
+    flag._ownGeo   = true; flag.position.set(0.15, 0.88, 0); g.add(flag);
   } else {
     // ── Cultivo maduro: tallo + hoja verde + bayas rojas ─────────────────────
     const stalkH = 0.55;

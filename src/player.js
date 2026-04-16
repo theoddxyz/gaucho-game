@@ -615,21 +615,24 @@ export class PlayerModel {
               obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
             }
           });
-          // 1. Avanzar la animación al primer frame para tener la pose tumbada
-          const tmpMixer = new THREE.AnimationMixer(sc);
-          const tmpAct   = tmpMixer.clipAction(gltf.animations[0]);
+          // Avanzar a pose tumbada ANTES de calcular bounding box
+          const tmpMix = new THREE.AnimationMixer(sc);
+          const tmpAct = tmpMix.clipAction(gltf.animations[0]);
           tmpAct.play();
-          tmpMixer.update(0.08); // primer frame = pose tumbada
-          // 2. Escalar igual que todos los demás modelos (por altura 2.8u)
-          _scaleGLBToHeight(sc, 2.8);
-          // 3. Bajar al piso recomputando BB DESPUÉS de escalar y en pose tumbada
+          tmpMix.update(0.08);
+          // Escalar por dimensión más larga (horizontal) → misma longitud que altura parado
           sc.updateWorldMatrix(true, true);
-          const bb3 = new THREE.Box3().setFromObject(sc);
-          sc.position.y -= bb3.min.y;
+          const bbA = new THREE.Box3().setFromObject(sc);
+          const longest = Math.max(bbA.max.x - bbA.min.x, bbA.max.y - bbA.min.y, bbA.max.z - bbA.min.z);
+          if (longest > 0.01) sc.scale.setScalar(2.8 / longest);
+          // Bajar al piso
+          sc.updateWorldMatrix(true, true);
+          const bbB = new THREE.Box3().setFromObject(sc);
+          sc.position.y -= bbB.min.y;
           sc.visible = false;
           this.group.add(sc);
           this._sleepModel  = sc;
-          // Mixer real: queda PAUSADO en el primer frame — sin movimiento
+          // Mixer pausado en primer frame — sin movimiento
           this._sleepMixer  = new THREE.AnimationMixer(sc);
           this._sleepAction = this._sleepMixer.clipAction(gltf.animations[0]);
           this._sleepAction.play();
@@ -1038,7 +1041,10 @@ export class PlayerModel {
     if (this._hurtMixer        && useHurtModel)       this._hurtMixer.update(dt);
     if (this._butcherMixer     && useButcherModel)    this._butcherMixer.update(dt);
     if (this._trabajandoMixer  && useTrabajandoModel) this._trabajandoMixer.update(dt);
-    // sleep: mixer pausado — no actualizar cada frame
+    // sleep: modelo no gira con el grupo, mixer pausado
+    if (useSleepModel && this._sleepModel) {
+      this._sleepModel.rotation.y = -this.group.rotation.y;
+    }
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
