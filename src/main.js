@@ -42,6 +42,70 @@ import { createVillage, getVillageGates } from './village.js';
 let _isSleeping   = false;
 let _sleepWarp    = null;  // { startT, targetT, durationSky, durationTotal } or null
 
+// ── Plant system ──────────────────────────────────────────────────────────────
+const _cropMeshes = new Map();  // cropId → THREE.Group
+let   _chunkMgr   = null;       // set after ChunkManager is created (ref for plant access)
+
+function _makeCropMesh(grown) {
+  const g       = new THREE.Group();
+  const stalkH  = grown ? 0.55 : 0.28;
+  const sGeo    = new THREE.CylinderGeometry(0.03, 0.045, stalkH, 5);
+  const sMat    = new THREE.MeshStandardMaterial({ color: grown ? 0x4a8a1a : 0x7a8a3a });
+  const stalk   = new THREE.Mesh(sGeo, sMat);
+  stalk.castShadow = true;
+  stalk.position.y = stalkH / 2;
+  g.add(stalk);
+  if (grown) {
+    const lGeo  = new THREE.SphereGeometry(0.22, 6, 5);
+    const lMat  = new THREE.MeshStandardMaterial({ color: 0x5ec820, roughness: 0.7 });
+    const leaf  = new THREE.Mesh(lGeo, lMat);
+    leaf.castShadow = true;
+    leaf.position.y = stalkH + 0.1;
+    g.add(leaf);
+    // Berry dots on the leaf ball
+    const bGeo = new THREE.SphereGeometry(0.055, 4, 3);
+    const bMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+    for (let i = 0; i < 4; i++) {
+      const b = new THREE.Mesh(bGeo, bMat);
+      const a = (i / 4) * Math.PI * 2;
+      b.position.set(Math.cos(a) * 0.18, stalkH + 0.15, Math.sin(a) * 0.18);
+      g.add(b);
+    }
+  }
+  return g;
+}
+
+function _spawnCropMesh(crop, scene) {
+  const grown = Date.now() >= crop.grownAt;
+  const mesh  = _makeCropMesh(grown);
+  mesh.position.set(crop.x, 0, crop.z);
+  mesh._cropId    = crop.id;
+  mesh._grownAt   = crop.grownAt;
+  mesh._isGrown   = grown;
+  scene.add(mesh);
+  _cropMeshes.set(crop.id, mesh);
+  return mesh;
+}
+
+function _getNearbyRipeCrop(x, z, radius = 2.2) {
+  let best = null, bestD = radius * radius;
+  for (const mesh of _cropMeshes.values()) {
+    if (!mesh._isGrown) continue;
+    const dx = mesh.position.x - x, dz = mesh.position.z - z;
+    const d  = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = mesh; }
+  }
+  return best;
+}
+
+// Show/hide the plant interaction hint
+const _plantHintEl = document.getElementById('plant-hint');
+function _setPlantHint(text) {
+  if (!_plantHintEl) return;
+  if (text) { _plantHintEl.textContent = text; _plantHintEl.style.display = 'block'; }
+  else        { _plantHintEl.style.display = 'none'; }
+}
+
 // Sleep picker UI
 const _sleepOverlay = document.createElement('div');
 _sleepOverlay.style.cssText = `
@@ -266,6 +330,19 @@ document.addEventListener('keydown', (e) => {
   loadOneShell(performance.now() / 1000);
 });
 
+// Tecla G: sembrar semilla
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyG' || e.repeat || !myId || isDead || _isSleeping) return;
+  const pos = controls?.getPosition();
+  if (!pos) return;
+  const counts = Inventory.getCounts();
+  if (counts.seed <= 0) return;
+  Inventory.removeOne('seed');
+  Network.sendPlantSeed(pos.x, pos.z);
+  _updateInventoryHUD();
+  Audio.eatSound?.();
+});
+
 // Teclas 1/2/3: cambio directo de arma (sin menú radial)
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit1' && currentWeapon !== 'escopeta') {
@@ -427,6 +504,7 @@ const { colliders: worldColliders, sun, moon, ambient, wallMeshes } = createWorl
 worldColliders.forEach(c => colliders.push(c));
 
 const chunkManager = new ChunkManager(scene, colliders);
+_chunkMgr = chunkManager;
 createLandmarks(scene);
 createVillage(scene, colliders);
 const villageGates = getVillageGates();
@@ -608,9 +686,44 @@ Network.onWakeUp(() => {
   _stopSleeping();
   _sleepWarp = null;
   unlockDayProgress();
-  // Fade vignette out
+  // Actualizar estado "grown" de todos los cultivos tras el salto de tiempo
+  for (const mesh of _cropMeshes.values()) {
+    if (!mesh._isGrown && Date.now() >= mesh._grownAt) {
+      scene.remove(mesh);
+      const grown = _makeCropMesh(true);
+      grown.position.copy(mesh.position);
+      grown._cropId  = mesh._cropId;
+      grown._grownAt = mesh._grownAt;
+      grown._isGrown = true;
+      scene.add(grown);
+      _cropMeshes.set(grown._cropId, grown);
+    }
+  }
   _sleepVignette.style.transition = 'background 1.2s';
   _sleepVignette.style.background = 'rgba(0,0,0,0)';
+});
+
+// ── Cultivos ──────────────────────────────────────────────────────────────────
+Network.onCropSpawned((crop) => {
+  _spawnCropMesh(crop, scene);
+});
+
+Network.onCropHarvested(({ id, harvesterId }) => {
+  const mesh = _cropMeshes.get(id);
+  if (mesh) { scene.remove(mesh); _cropMeshes.delete(id); }
+  // Solo el cosechador recibe los ítems
+  if (harvesterId === myId) {
+    Inventory.add('fruit', 12, 4);
+    Inventory.add('fruit', 12, 4);
+    if (Math.random() < 0.6) Inventory.add('seed', 0, 0);
+    _updateInventoryHUD();
+    UI.addKillMessage('[ COSECHA ]', '+2 fruta  +1 semilla');
+    Audio.eatSound?.();
+  }
+});
+
+Network.onCropState(({ crops }) => {
+  for (const crop of crops) _spawnCropMesh(crop, scene);
 });
 
 // Creature sync — non-host receives positions from host via server relay
@@ -849,6 +962,25 @@ Network.onJoined((data) => {
       }
       const land = horseManager?.tryMount(myId, 0, pos.x, pos.z);
       if (land) { controls.setPosition(land.x, 0, land.z); Audio.mountSound(); Audio.horseNeigh(); }
+      return;
+    }
+
+    // ── 2d. Cosechar cultivo maduro ───────────────────────────────────────────
+    const nearCrop = _getNearbyRipeCrop(pos.x, pos.z);
+    if (nearCrop) {
+      Network.sendHarvestCrop(nearCrop._cropId);
+      return;
+    }
+
+    // ── 2e. Cosechar arbusto silvestre ────────────────────────────────────────
+    const nearBush = _chunkMgr?.getNearbyFruitBush(pos.x, pos.z);
+    if (nearBush) {
+      const loot = _chunkMgr.harvestBush(nearBush);
+      for (let i = 0; i < loot.fruit; i++) Inventory.add('fruit', 12, 4);
+      if (loot.seed > 0) Inventory.add('seed', 0, 0);
+      _updateInventoryHUD();
+      UI.addKillMessage('[ FRUTA ]', `+${loot.fruit} fruta${loot.seed ? '  +1 semilla' : ''}`);
+      Audio.eatSound?.();
       return;
     }
 
@@ -1796,6 +1928,30 @@ function gameLoop() {
     // Chunk streaming
     chunkManager.update(pos);
     chunkManager.updateTrees(dt);
+
+    // ── Plant hints + crop growth check ──────────────────────────────────────
+    if (myId && !isDead) {
+      const ripeCrop = _getNearbyRipeCrop(pos.x, pos.z);
+      const fruitBush = !ripeCrop && chunkManager.getNearbyFruitBush(pos.x, pos.z);
+      const hasSeed  = Inventory.getCounts().seed > 0;
+      if      (ripeCrop)  _setPlantHint('E: Cosechar');
+      else if (fruitBush) _setPlantHint('E: Cosechar fruta');
+      else if (hasSeed)   _setPlantHint('G: Sembrar semilla');
+      else                _setPlantHint(null);
+      // Update growing crops to grown state
+      for (const [id, mesh] of _cropMeshes) {
+        if (!mesh._isGrown && Date.now() >= mesh._grownAt) {
+          scene.remove(mesh);
+          const grown = _makeCropMesh(true);
+          grown.position.copy(mesh.position);
+          grown._cropId  = id;
+          grown._grownAt = mesh._grownAt;
+          grown._isGrown = true;
+          scene.add(grown);
+          _cropMeshes.set(id, grown);
+        }
+      }
+    }
 
     // Shadow follows player — sun moves on a day arc (east at dawn, west at dusk)
     const _sunOff = getSunOffset();

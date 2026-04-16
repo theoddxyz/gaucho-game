@@ -133,6 +133,16 @@ const PEBBLE_MATS = [
   new THREE.MeshStandardMaterial({ color: 0xd8bc70, roughness: 0.93 }),
 ];
 
+// ─── Frutos silvestres ────────────────────────────────────────────────────────
+const FRUIT_CHANCE  = 0.20;   // 20% de los arbustos tienen fruto
+const _BERRY_GEO    = new THREE.SphereGeometry(0.09, 5, 4);
+const _BERRY_MAT    = new THREE.MeshBasicMaterial({ color: 0xff5500 });
+// Determinar si un arbusto en (wx, wz) tiene fruto — hash de posición (determinístico, no consume RNG)
+function _bushHasFruit(wx, wz) {
+  const h = (Math.abs(Math.round(wx * 7.3 + 1000) ^ Math.round(wz * 13.7 + 1000)) * 2654435761) >>> 0;
+  return (h % 100) / 100 < FRUIT_CHANCE;
+}
+
 // ─── Carga de templates ──────────────────────────────────────────────────────
 const loader = new GLTFLoader();
 let treeTemplate = null;
@@ -169,7 +179,8 @@ export class ChunkManager {
     this._queue     = [];
     this._building  = false;
     this._requested = new Set();
-    this._trees     = [];   // { mesh, x, z, tipping, angle, vel, axis }
+    this._trees       = [];   // { mesh, x, z, tipping, angle, vel, axis }
+    this._fruitBushes = [];   // bush meshes with hasFruit flag
   }
 
   // Llamar cada frame con la posición del jugador
@@ -319,6 +330,17 @@ export class ChunkManager {
       bush.rotation.y = rng() * Math.PI * 2;
       this.scene.add(bush);
       objects.push(bush);
+
+      // Fruto silvestre: ~20% de los arbustos tienen bayas (determinístico por posición)
+      if (_bushHasFruit(bx, bz)) {
+        bush.hasFruit = true;
+        const berry = new THREE.Mesh(_BERRY_GEO, _BERRY_MAT);
+        berry.position.set(bx, bush.position.y + 0.5 + bs * 0.15, bz);
+        this.scene.add(berry);
+        objects.push(berry);
+        bush._berry = berry;
+        this._fruitBushes.push(bush);
+      }
     }
 
     // ── Piedras pequeñas (pebbles, sin colliders) ─────────────────────────────
@@ -349,11 +371,14 @@ export class ChunkManager {
     chunk.ground.geometry.dispose();
     for (const obj of chunk.objects) {
       this.scene.remove(obj);
-      // Dispose geometría de objetos procedurales (rocas/arbustos/piedras sin GLB)
       if (obj._ownGeo) obj.geometry?.dispose();
-      // Remove from _trees array
       const ti = this._trees.findIndex(t => t.mesh === obj);
       if (ti >= 0) this._trees.splice(ti, 1);
+      // Remove from fruit bushes list
+      if (obj.hasFruit !== undefined) {
+        const fi = this._fruitBushes.indexOf(obj);
+        if (fi >= 0) this._fruitBushes.splice(fi, 1);
+      }
     }
     for (const c of chunk.ownColl) {
       const idx = this.colliders.indexOf(c);
@@ -361,6 +386,31 @@ export class ChunkManager {
     }
     this._requested.delete(key);
     this.chunks.delete(key);
+  }
+
+  // Return nearest fruit bush within radius (only those with hasFruit=true)
+  getNearbyFruitBush(x, z, radius = 2.5) {
+    let best = null, bestD = radius * radius;
+    for (const bush of this._fruitBushes) {
+      if (!bush.hasFruit) continue;
+      const dx = bush.position.x - x, dz = bush.position.z - z;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; best = bush; }
+    }
+    return best;
+  }
+
+  // Harvest a fruit bush: remove fruit visual, set regrow timer
+  harvestBush(bush) {
+    bush.hasFruit = false;
+    if (bush._berry) bush._berry.visible = false;
+    // Regrow after 3 minutes
+    setTimeout(() => {
+      if (!bush._berry) return;
+      bush.hasFruit = true;
+      bush._berry.visible = true;
+    }, 3 * 60 * 1000);
+    return { fruit: 1 + (Math.random() < 0.5 ? 1 : 0), seed: Math.random() < 0.45 ? 1 : 0 };
   }
 
   // Hit a tree/cactus near (x, z) — triggers tip-over physics

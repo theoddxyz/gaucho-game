@@ -113,6 +113,13 @@ export function sendSleep(hours)   { socket.emit('sleep', { hours }); }
 export function onTimeWarp(cb)     { socket.on('timeWarp', cb); }
 export function onWakeUp(cb)       { socket.on('wakeUp', cb); }
 
+// ── Plantas ──────────────────────────────────────────────────────────────────
+export function sendPlantSeed(x, z)    { socket.emit('plantSeed', { x, z }); }
+export function sendHarvestCrop(id)    { socket.emit('harvestCrop', { id }); }
+export function onCropSpawned(cb)      { socket.on('cropSpawned', cb); }
+export function onCropHarvested(cb)    { socket.on('cropHarvested', cb); }
+export function onCropState(cb)        { socket.on('cropState', cb); }
+
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('room') || null;

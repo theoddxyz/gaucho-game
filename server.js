@@ -34,6 +34,8 @@ const rooms         = new Map();
 const corralledCows = new Map();   // roomId → Set<cowId>
 const roomMeta      = new Map();   // roomId → { seed, createdAt }
 const sleepSessions = new Map();   // roomId → { sleepers: Map<socketId,hours>, firstHours, warpTimer }
+const cropStates    = new Map();   // roomId → Map<cropId, {id,x,z,plantedAt,grownAt}>
+const GROW_TIME_MS  = 5 * 60 * 1000;  // 5 minutos para que crezca un cultivo
 
 function getRoomMeta(roomId) {
   if (!roomMeta.has(roomId)) {
@@ -522,6 +524,12 @@ io.on('connection', (socket) => {
       isHost: roomHosts.get(currentRoom) === socket.id,
     });
 
+    // Enviar estado actual de cultivos al nuevo jugador
+    const existingCrops = cropStates.get(currentRoom);
+    if (existingCrops?.size > 0) {
+      socket.emit('cropState', { crops: [...existingCrops.values()] });
+    }
+
     socket.to(currentRoom).emit('playerJoined', playerData);
     // If this player is NOT the host, ask the host to send a creature snapshot
     if (roomHosts.get(currentRoom) !== socket.id) {
@@ -828,12 +836,37 @@ io.on('connection', (socket) => {
     if (allSleeping && !sess.warpTimer) {
       io.to(currentRoom).emit('timeWarp', { hours: sess.firstHours });
       addEvent(currentRoom, `Todos durmieron ${sess.firstHours}h. El tiempo avanzó en la pampa.`);
+      // Avanzar cultivos por las horas dormidas
+      const advMs = sess.firstHours * 3600 * 1000;
+      const crops = cropStates.get(currentRoom);
+      if (crops) for (const crop of crops.values()) crop.grownAt -= advMs;
       sess.warpTimer = setTimeout(() => {
         sess.sleepers.clear();
         sess.warpTimer = null;
         io.to(currentRoom).emit('wakeUp');
       }, 4000);
     }
+  });
+
+  // ── Cultivos ──────────────────────────────────────────────────────────────────
+  socket.on('plantSeed', ({ x, z } = {}) => {
+    if (!currentRoom || !playerData) return;
+    if (!cropStates.has(currentRoom)) cropStates.set(currentRoom, new Map());
+    const crops = cropStates.get(currentRoom);
+    const id    = `crop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const now   = Date.now();
+    const crop  = { id, x: Number(x), z: Number(z), plantedAt: now, grownAt: now + GROW_TIME_MS };
+    crops.set(id, crop);
+    io.to(currentRoom).emit('cropSpawned', crop);
+  });
+
+  socket.on('harvestCrop', ({ id } = {}) => {
+    if (!currentRoom || !playerData) return;
+    const crops = cropStates.get(currentRoom);
+    if (!crops?.has(id)) return;
+    if (Date.now() < crops.get(id).grownAt) return;  // no maduro aún
+    crops.delete(id);
+    io.to(currentRoom).emit('cropHarvested', { id, harvesterId: socket.id });
   });
 
   // ── Client-triggered GM events (night, dawn, horse mounted, etc.) ────────────
