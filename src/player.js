@@ -21,6 +21,7 @@ const _TPL_PATHS = {
   hurt:       '/models/HERIDOGLB.glb',
   butcher:    '/models/CUCHIGLB.glb',
   sleep:      '/models/DURMIENDOGLB%20.glb',
+  trabajando: '/models/TRABAJANDO.glb',
 };
 const _tplCache = {};
 function _tpl(key) {
@@ -50,6 +51,7 @@ function loadTranquiTemplate()    { return _tpl('tranqui'); }
 function loadHurtTemplate()       { return _tpl('hurt'); }
 function loadButcherTemplate()    { return _tpl('butcher'); }
 function loadSleepTemplate()      { return _tpl('sleep'); }
+function loadTrabajandoTemplate() { return _tpl('trabajando'); }
 
 /**
  * Escala un Object3D de GLB a `targetH` unidades de alto y lo baja al piso (y=0).
@@ -281,6 +283,10 @@ export class PlayerModel {
     this._butcherMixer    = null;
     this._butcherAction   = null;
     this._butcherTimer    = 0;     // seconds remaining of butcher animation
+    this._trabajandoModel  = null;
+    this._trabajandoMixer  = null;
+    this._trabajandoAction = null;
+    this._trabajandoTimer  = 0;
     this._sleepModel      = null;
     this._sleepMixer      = null;
     this._sleepAction     = null;
@@ -631,6 +637,28 @@ export class PlayerModel {
           this._sleepAction.setLoop(THREE.LoopRepeat, Infinity);
           this._sleepAction.play();
         });
+
+        // ── Modelo trabajando (TRABAJANDO.glb) ───────────────────────────────
+        loadTrabajandoTemplate().then((gltf) => {
+          if (!gltf || !gltf.animations?.length) return;
+          const sc = gltf.scene;
+          sc.traverse((obj) => {
+            obj.visible = true;
+            if (obj.isMesh || obj.isSkinnedMesh) {
+              obj.castShadow = true; obj.frustumCulled = false;
+              const origColor = obj.material?.color ? obj.material.color.clone() : new THREE.Color(0x9a7a50);
+              obj.material = new THREE.MeshStandardMaterial({ color: origColor, roughness: 0.85 });
+            }
+          });
+          _scaleGLBToHeight(sc, 2.8);
+          sc.visible = false;
+          this.group.add(sc);
+          this._trabajandoModel  = sc;
+          this._trabajandoMixer  = new THREE.AnimationMixer(sc);
+          this._trabajandoAction = this._trabajandoMixer.clipAction(gltf.animations[0]);
+          this._trabajandoAction.setLoop(THREE.LoopOnce, 1);
+          this._trabajandoAction.clampWhenFinished = true;
+        });
       });
       return;
     }
@@ -688,6 +716,7 @@ export class PlayerModel {
         _loadRemoteModel(loadHurtTemplate, '_hurtModel', '_hurtMixer', '_hurtAction');
         _loadRemoteModel(loadButcherTemplate, '_butcherModel', '_butcherMixer', '_butcherAction', { loopOnce: true });
         _loadRemoteModel(loadSleepTemplate, '_sleepModel', '_sleepMixer', '_sleepAction');
+        _loadRemoteModel(loadTrabajandoTemplate, '_trabajandoModel', '_trabajandoMixer', '_trabajandoAction', { loopOnce: true });
       }
     });
   }
@@ -961,26 +990,30 @@ export class PlayerModel {
     // ── Model swap ────────────────────────────────────────────────────────────
     if (this._hurtTimer > 0) this._hurtTimer -= dt;
     if (this._butcherTimer > 0) this._butcherTimer -= dt;
-    // Priority: sleep > butcher > hurt > shoot > horse > tranqui > main
-    const useSleepModel  = this._isSleeping && !!this._sleepModel;
-    const forceButcher   = !useSleepModel && this._butcherTimer > 0 && !!this._butcherModel;
-    const forceHurt      = !useSleepModel && !forceButcher && this._hurtTimer > 0 && !!this._hurtModel;
-    const useMotoModel   = !useSleepModel && !forceHurt && !forceButcher && this._isMotoRiding && !!this._motoRideModel;
-    const useShootModel  = !useSleepModel && !forceHurt && !forceButcher && this._isAimingAnim && !this._isRiding && !useMotoModel && !!this._shootWalkModel;
-    const useHorseModel  = !useSleepModel && !forceHurt && !forceButcher && this._isRiding && !useMotoModel && !!this._horseRideModel;
-    const isIdleOnFoot   = this._walkSpd < 0.03 && !useShootModel && !useHorseModel && !useMotoModel && !useSleepModel;
-    const isHurt         = forceHurt || this._hunger <= 50 || this._hp <= 100;
-    const useHurtModel   = forceHurt || (isIdleOnFoot && isHurt && !!this._hurtModel);
-    const useButcherModel= forceButcher;
-    const useTranquiModel= isIdleOnFoot && !useHurtModel && !useButcherModel && !!this._tranquiModel;
-    if (this._mainModel)      this._mainModel.visible      = !useSleepModel && !useShootModel && !useHorseModel && !useMotoModel && !useHurtModel && !useTranquiModel && !useButcherModel;
-    if (this._shootWalkModel) this._shootWalkModel.visible =  useShootModel;
-    if (this._horseRideModel) this._horseRideModel.visible =  useHorseModel;
-    if (this._motoRideModel)  this._motoRideModel.visible  =  useMotoModel;
-    if (this._tranquiModel)   this._tranquiModel.visible   =  useTranquiModel;
-    if (this._hurtModel)      this._hurtModel.visible      =  useHurtModel;
-    if (this._butcherModel)   this._butcherModel.visible   =  useButcherModel;
-    if (this._sleepModel)     this._sleepModel.visible     =  useSleepModel;
+    if (this._trabajandoTimer > 0) this._trabajandoTimer -= dt;
+    // Priority: sleep > butcher > trabajando > hurt > shoot > horse > tranqui > main
+    const useSleepModel      = this._isSleeping && !!this._sleepModel;
+    const forceButcher       = !useSleepModel && this._butcherTimer > 0 && !!this._butcherModel;
+    const forceTrabajando    = !useSleepModel && !forceButcher && this._trabajandoTimer > 0 && !!this._trabajandoModel;
+    const forceHurt          = !useSleepModel && !forceButcher && !forceTrabajando && this._hurtTimer > 0 && !!this._hurtModel;
+    const useMotoModel      = !useSleepModel && !forceHurt && !forceButcher && !forceTrabajando && this._isMotoRiding && !!this._motoRideModel;
+    const useShootModel     = !useSleepModel && !forceHurt && !forceButcher && !forceTrabajando && this._isAimingAnim && !this._isRiding && !useMotoModel && !!this._shootWalkModel;
+    const useHorseModel     = !useSleepModel && !forceHurt && !forceButcher && !forceTrabajando && this._isRiding && !useMotoModel && !!this._horseRideModel;
+    const isIdleOnFoot      = this._walkSpd < 0.03 && !useShootModel && !useHorseModel && !useMotoModel && !useSleepModel;
+    const isHurt            = forceHurt || this._hunger <= 50 || this._hp <= 100;
+    const useHurtModel      = forceHurt || (isIdleOnFoot && isHurt && !!this._hurtModel);
+    const useButcherModel   = forceButcher;
+    const useTrabajandoModel= forceTrabajando;
+    const useTranquiModel   = isIdleOnFoot && !useHurtModel && !useButcherModel && !useTrabajandoModel && !!this._tranquiModel;
+    if (this._mainModel)        this._mainModel.visible        = !useSleepModel && !useShootModel && !useHorseModel && !useMotoModel && !useHurtModel && !useTranquiModel && !useButcherModel && !useTrabajandoModel;
+    if (this._shootWalkModel)   this._shootWalkModel.visible   =  useShootModel;
+    if (this._horseRideModel)   this._horseRideModel.visible   =  useHorseModel;
+    if (this._motoRideModel)    this._motoRideModel.visible    =  useMotoModel;
+    if (this._tranquiModel)     this._tranquiModel.visible     =  useTranquiModel;
+    if (this._hurtModel)        this._hurtModel.visible        =  useHurtModel;
+    if (this._butcherModel)     this._butcherModel.visible     =  useButcherModel;
+    if (this._trabajandoModel)  this._trabajandoModel.visible  =  useTrabajandoModel;
+    if (this._sleepModel)       this._sleepModel.visible       =  useSleepModel;
 
 
     // ── Mixer principal (walk) ────────────────────────────────────────────────
@@ -1002,10 +1035,11 @@ export class PlayerModel {
     }
 
     // ── Mixers idle a pie ─────────────────────────────────────────────────────
-    if (this._tranquiMixer && useTranquiModel) this._tranquiMixer.update(dt);
-    if (this._hurtMixer    && useHurtModel)    this._hurtMixer.update(dt);
-    if (this._butcherMixer && useButcherModel) this._butcherMixer.update(dt);
-    if (this._sleepMixer   && useSleepModel)   this._sleepMixer.update(dt);
+    if (this._tranquiMixer     && useTranquiModel)    this._tranquiMixer.update(dt);
+    if (this._hurtMixer        && useHurtModel)       this._hurtMixer.update(dt);
+    if (this._butcherMixer     && useButcherModel)    this._butcherMixer.update(dt);
+    if (this._trabajandoMixer  && useTrabajandoModel) this._trabajandoMixer.update(dt);
+    if (this._sleepMixer       && useSleepModel)      this._sleepMixer.update(dt);
 
     // Mixer independiente del modelo de disparo (solo cuando está activo)
     if (this._shootWalkMixer && useShootModel) {
@@ -1251,6 +1285,15 @@ export class PlayerModel {
     this._butcherAction.reset();
     this._butcherAction.timeScale = 1.875;
     this._butcherAction.play();
+  }
+
+  // Trigger trabajando (sembrar / cosechar) animation
+  startTrabajando(duration = 1.8) {
+    if (!this._trabajandoModel || !this._trabajandoAction) return;
+    this._trabajandoTimer = duration;
+    this._trabajandoAction.reset();
+    this._trabajandoAction.timeScale = 1.5;
+    this._trabajandoAction.play();
   }
 
   applyImpact(hitZone, hitPoint) {

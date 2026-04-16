@@ -97,11 +97,7 @@ function _spawnCropMesh(crop, scene) {
   mesh._plantedAt = crop.plantedAt;
   mesh._grownAt   = crop.grownAt;
   mesh._isGrown   = grown;
-  if (!grown) {
-    // Escala inicial según el progreso ya transcurrido (al joinear tarde)
-    const t = Math.min(1, (Date.now() - crop.plantedAt) / (crop.grownAt - crop.plantedAt));
-    mesh.scale.setScalar(0.12 + t * 0.7);
-  }
+  // No escalar el marcador de siembra — siempre visible al 100%
   scene.add(mesh);
   _cropMeshes.set(crop.id, mesh);
   return mesh;
@@ -376,6 +372,7 @@ document.addEventListener('keydown', (e) => {
   Network.sendPlantSeed(pos.x, pos.z);
   _updateInventoryHUD();
   Audio.eatSound?.();
+  localPlayerModel?.startTrabajando(1.8);
 });
 
 // Tecla H: comer directamente (sin cambiar de arma)
@@ -1097,6 +1094,7 @@ Network.onJoined((data) => {
     const nearCrop = _getNearbyRipeCrop(pos.x, pos.z);
     if (nearCrop) {
       Network.sendHarvestCrop(nearCrop._cropId);
+      localPlayerModel?.startTrabajando(1.8);
       return;
     }
 
@@ -1104,6 +1102,7 @@ Network.onJoined((data) => {
     const nearBush = _chunkMgr?.getNearbyFruitBush(pos.x, pos.z);
     if (nearBush) {
       Network.sendHarvestBush(nearBush.position.x, nearBush.position.z);
+      localPlayerModel?.startTrabajando(1.8);
       return;
     }
 
