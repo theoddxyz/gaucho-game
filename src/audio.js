@@ -1064,87 +1064,207 @@ export function setMasterVolume(v) {
   if (_out) _out.gain.value = Math.max(0, Math.min(1, v));
 }
 
-// ── Moto engine sound ─────────────────────────────────────────────────────────
-let _motoOsc1 = null, _motoOsc2 = null, _motoGain = null, _motoLpf = null;
+// ── Moto engine — diseño de síntesis completo ────────────────────────────────
+//
+//  ARQUITECTURA:
+//   Osc1 (sawtooth, F)  ─┐
+//   Osc2 (sawtooth, 2F) ─┤→ WaveShaper → LPF(sweeps) → BPF(resonance) → MasterGain
+//   Osc3 (sine, F/2) ───┘  (sub bypasses shaper)
+//   LFO (sine, F*2) ──────→ modula amplitude de Osc1 → efecto "cilindros disparando"
+//   Wind (noise) → BPF(1400Hz) → WindGain(speed²) → MasterGain
+//   GearShift: click sintético al cambiar marcha
+//   DecelPop:  crackle de gases al soltar el acelerador
+//
+let _E = {};   // todos los nodos del motor viven acá; null = engine off
 
 function _distCurve(amount) {
-  const n = 256, c = new Float32Array(n);
+  const n = 512, curve = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = (i * 2) / n - 1;
-    c[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+    curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
   }
-  return c;
+  return curve;
+}
+
+// speedFactor 0..1  →  engine fundamental Hz
+// Tres marchas: [0,0.33) → 32-70 Hz / [0.33,0.66) → 52-110 Hz / [0.66,1] → 85-180 Hz
+function _sfToFreq(sf) {
+  if (sf < 0.33) return 32 + (sf / 0.33) * 38;          // 32 → 70 Hz
+  if (sf < 0.66) return 52 + ((sf - 0.33) / 0.33) * 58; // 52 → 110 Hz
+  return 85 + ((sf - 0.66) / 0.34) * 95;                 // 85 → 180 Hz
 }
 
 export function startMotoEngine() {
   const c = _ctx_(); if (!c || !_out) return;
   if (c.state === 'suspended') c.resume();
   stopMotoEngine();
+  const t = c.currentTime;
+  const e = {};
 
-  _motoGain = c.createGain();
-  _motoGain.gain.setValueAtTime(0, c.currentTime);
-  _motoGain.gain.linearRampToValueAtTime(0.55, c.currentTime + 0.5);
+  // Master gain (fade in)
+  e.master = c.createGain();
+  e.master.gain.setValueAtTime(0, t);
+  e.master.gain.linearRampToValueAtTime(0.75, t + 0.7);
+  e.master.connect(_out);
 
-  _motoLpf = c.createBiquadFilter();
-  _motoLpf.type = 'lowpass'; _motoLpf.frequency.value = 700; _motoLpf.Q.value = 1.2;
+  // Filter chain: LPF → BPF resonance
+  e.lpf = c.createBiquadFilter();
+  e.lpf.type = 'lowpass'; e.lpf.frequency.value = 350; e.lpf.Q.value = 0.7;
+  e.lpf.connect(e.master);
 
-  const dist = c.createWaveShaper();
-  dist.curve = _distCurve(120); dist.oversample = '4x';
+  e.bpf = c.createBiquadFilter();
+  e.bpf.type = 'peaking'; e.bpf.frequency.value = 180; e.bpf.Q.value = 3; e.bpf.gain.value = 10;
+  e.bpf.connect(e.lpf);
 
-  // Osc 1: fundamental (sawtooth rumble)
-  _motoOsc1 = c.createOscillator(); _motoOsc1.type = 'sawtooth'; _motoOsc1.frequency.value = 58;
-  // Osc 2: octave up (adds body)
-  _motoOsc2 = c.createOscillator(); _motoOsc2.type = 'sawtooth'; _motoOsc2.frequency.value = 116;
-  // Osc 3: sub-bass thump
-  const osc3 = c.createOscillator(); osc3.type = 'sine'; osc3.frequency.value = 29;
-  const g3 = c.createGain(); g3.gain.value = 0.6;
+  e.hpf = c.createBiquadFilter();
+  e.hpf.type = 'highpass'; e.hpf.frequency.value = 28; e.hpf.Q.value = 0.5;
+  e.hpf.connect(e.bpf);
 
-  const g2 = c.createGain(); g2.gain.value = 0.35;
-  _motoOsc1.connect(dist);
-  _motoOsc2.connect(g2); g2.connect(dist);
-  dist.connect(_motoLpf);
-  osc3.connect(g3); g3.connect(_motoLpf);
-  _motoLpf.connect(_motoGain); _motoGain.connect(_out);
+  // Waveshaper
+  e.dist = c.createWaveShaper();
+  e.dist.curve = _distCurve(200); e.dist.oversample = '4x';
+  e.dist.connect(e.hpf);
 
-  _motoOsc1.start(); _motoOsc2.start(); osc3.start();
-  // Store osc3 on osc2 so stopMotoEngine can reach it
-  _motoOsc2._sub = osc3;
+  // Oscillators
+  e.osc1 = c.createOscillator(); e.osc1.type = 'sawtooth'; e.osc1.frequency.value = 32;
+  e.osc2 = c.createOscillator(); e.osc2.type = 'sawtooth'; e.osc2.frequency.value = 64; e.osc2.detune.value = 12;
+  e.osc3 = c.createOscillator(); e.osc3.type = 'sine';     e.osc3.frequency.value = 16; // sub
+
+  const g2 = c.createGain(); g2.gain.value = 0.45;
+  const g3 = c.createGain(); g3.gain.value = 0.70;
+
+  // LFO → amplitude modulation of osc1 (simulates cylinder firing pulse)
+  e.lfo = c.createOscillator(); e.lfo.type = 'sine'; e.lfo.frequency.value = 64; // 2× fundamental
+  e.lfoGain = c.createGain(); e.lfoGain.gain.value = 0.30;
+  // AM: osc1 passes through a gain whose value is modulated by lfo (0.7 + 0.3·sin)
+  e.amGain = c.createGain(); e.amGain.gain.value = 0.70;
+  e.lfo.connect(e.lfoGain); e.lfoGain.connect(e.amGain.gain);
+
+  e.osc1.connect(e.amGain); e.amGain.connect(e.dist);
+  e.osc2.connect(g2); g2.connect(e.dist);
+  e.osc3.connect(g3); g3.connect(e.hpf); // sub bypasses distortion
+
+  // Wind noise (increases with speed²)
+  const sr = c.sampleRate;
+  const wbuf = c.createBuffer(1, sr * 3, sr);
+  const wd = wbuf.getChannelData(0);
+  for (let i = 0; i < wd.length; i++) wd[i] = Math.random() * 2 - 1;
+  e.windSrc = c.createBufferSource(); e.windSrc.buffer = wbuf; e.windSrc.loop = true;
+  e.windBpf = c.createBiquadFilter(); e.windBpf.type = 'bandpass'; e.windBpf.frequency.value = 1400; e.windBpf.Q.value = 0.5;
+  e.windGain = c.createGain(); e.windGain.gain.value = 0;
+  e.windSrc.connect(e.windBpf); e.windBpf.connect(e.windGain); e.windGain.connect(e.master);
+
+  e.osc1.start(); e.osc2.start(); e.osc3.start(); e.lfo.start(); e.windSrc.start();
+  e.prevSF = 0;
+  e.gear   = 0;  // 0, 1, 2
+  _E = e;
 }
 
-export function updateMotoEngine(speedFactor) {
-  if (!_motoOsc1 || !_ctx) return;
+export function updateMotoEngine(sf) {
+  const e = _E; if (!e.osc1 || !_ctx) return;
   const c = _ctx_();
-  const f1 = 58  + speedFactor * 180;
-  const f2 = f1  * 2;
-  const f3 = f1  * 0.5;
-  const lp = 700 + speedFactor * 1800;
-  const vol = 0.38 + speedFactor * 0.28;
-  _motoOsc1.frequency.setTargetAtTime(f1, c.currentTime, 0.05);
-  _motoOsc2.frequency.setTargetAtTime(f2, c.currentTime, 0.05);
-  if (_motoOsc2._sub) _motoOsc2._sub.frequency.setTargetAtTime(f3, c.currentTime, 0.05);
-  _motoLpf.frequency.setTargetAtTime(lp,  c.currentTime, 0.07);
-  _motoGain.gain.setTargetAtTime(vol,      c.currentTime, 0.09);
+  const t = c.currentTime;
+
+  // Gear detection → shift click + brief rpm dip
+  const newGear = sf < 0.33 ? 0 : sf < 0.66 ? 1 : 2;
+  if (newGear > e.gear && sf > e.prevSF + 0.005) {
+    e.gear = newGear;
+    motoGearClick();
+    // Brief pitch dip on upshift (engine backs off then climbs)
+    const dipF = _sfToFreq(sf) * 0.72;
+    e.osc1.frequency.setValueAtTime(dipF, t);
+    e.osc2.frequency.setValueAtTime(dipF * 2, t);
+    e.osc3.frequency.setValueAtTime(dipF * 0.5, t);
+    e.lfo.frequency.setValueAtTime(dipF * 2, t);
+  }
+  if (newGear < e.gear) e.gear = newGear;  // downshift — no dip
+
+  // Decel pop: throttle off at high speed
+  if (e.prevSF > 0.5 && sf < e.prevSF - 0.04) {
+    if (Math.random() < 0.4) motoDecelPop();
+  }
+  e.prevSF = sf;
+
+  const F  = _sfToFreq(sf);
+  const lp = 350  + sf * sf * 4500;      // 350 → 4850 Hz (opens dramatically)
+  const bp = 180  + sf * 420;            // 180 → 600 Hz (resonance sweeps)
+  const vol = 0.45 + sf * 0.38;
+  const wind = sf * sf * 0.50;           // wind noise: 0 → 0.50 quadratic
+  const amDepth = 0.35 - sf * 0.18;      // AM pulse: strong idle, subtler at speed
+
+  const TC = 0.06; // time constant for smooth interpolation
+  e.osc1.frequency.setTargetAtTime(F,       t, TC);
+  e.osc2.frequency.setTargetAtTime(F * 2,   t, TC);
+  e.osc3.frequency.setTargetAtTime(F * 0.5, t, TC);
+  e.lfo.frequency.setTargetAtTime(F * 2,    t, TC);
+  e.lpf.frequency.setTargetAtTime(lp,       t, TC);
+  e.bpf.frequency.setTargetAtTime(bp,       t, TC);
+  e.master.gain.setTargetAtTime(vol,         t, 0.10);
+  e.windGain.gain.setTargetAtTime(wind,      t, 0.12);
+  e.lfoGain.gain.setTargetAtTime(amDepth,    t, 0.10);
 }
 
 export function stopMotoEngine() {
-  if (!_motoOsc1) return;
+  const e = _E; if (!e.osc1) return;
   const c = _ctx_();
-  if (c && _motoGain) _motoGain.gain.setTargetAtTime(0, c.currentTime, 0.25);
-  const o1 = _motoOsc1, o2 = _motoOsc2, o3 = _motoOsc2?._sub;
-  _motoOsc1 = _motoOsc2 = _motoGain = _motoLpf = null;
-  setTimeout(() => { try { o1.stop(); o2.stop(); o3?.stop(); } catch(e) {} }, 600);
+  if (c && e.master) e.master.gain.setTargetAtTime(0, c.currentTime, 0.3);
+  const nodes = [e.osc1, e.osc2, e.osc3, e.lfo, e.windSrc];
+  _E = {};
+  setTimeout(() => nodes.forEach(n => { try { n.stop(); } catch(_) {} }), 700);
 }
 
+// Gear shift — short metallic click
+export function motoGearClick() {
+  const c = _ctx_(); if (!c || !_out) return;
+  const dur = 0.07;
+  const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const env = Math.exp(-i / (d.length * 0.12));
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = c.createBufferSource(); src.buffer = buf;
+  const lpf = c.createBiquadFilter(); lpf.type = 'bandpass'; lpf.frequency.value = 3500; lpf.Q.value = 1.2;
+  const g   = c.createGain(); g.gain.value = 0.22;
+  src.connect(lpf); lpf.connect(g); g.connect(_out);
+  src.start();
+}
+
+// Decel pop — gas crackle when throttle off at high RPM
+export function motoDecelPop() {
+  const c = _ctx_(); if (!c || !_out) return;
+  const pops = 1 + Math.floor(Math.random() * 3);
+  for (let p = 0; p < pops; p++) {
+    const delay = p * (0.04 + Math.random() * 0.06);
+    const dur   = 0.035 + Math.random() * 0.025;
+    const buf   = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
+    const d     = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const src = c.createBufferSource(); src.buffer = buf;
+    const bpf = c.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 600 + Math.random() * 400; bpf.Q.value = 0.8;
+    const g   = c.createGain(); g.gain.value = 0.28;
+    src.connect(bpf); bpf.connect(g); g.connect(_out);
+    src.start(c.currentTime + delay);
+  }
+}
+
+// Tire screech — improved
 export function motoTireScreech() {
   const c = _ctx_(); if (!c || !_out) return;
-  const dur = 0.55, sr = c.sampleRate;
+  const dur = 0.65, sr = c.sampleRate;
   const buf = c.createBuffer(1, Math.floor(sr * dur), sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const env = Math.pow(1 - i / d.length, 0.4);
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
   const src = c.createBufferSource(); src.buffer = buf;
-  const bpf = c.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 900; bpf.Q.value = 0.6;
-  const g = c.createGain(); g.gain.value = 0.35;
-  src.connect(bpf); bpf.connect(g); g.connect(_out);
+  const bpf1 = c.createBiquadFilter(); bpf1.type = 'bandpass'; bpf1.frequency.value = 1100; bpf1.Q.value = 1.0;
+  const bpf2 = c.createBiquadFilter(); bpf2.type = 'bandpass'; bpf2.frequency.value = 2800; bpf2.Q.value = 1.5;
+  const g1 = c.createGain(); g1.gain.value = 0.30;
+  const g2 = c.createGain(); g2.gain.value = 0.15;
+  src.connect(bpf1); bpf1.connect(g1); g1.connect(_out);
+  src.connect(bpf2); bpf2.connect(g2); g2.connect(_out);
   src.start();
 }
 
