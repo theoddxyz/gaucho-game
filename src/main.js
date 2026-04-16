@@ -732,6 +732,11 @@ Network.onTimeWarp(({ hours }) => {
   // Dark vignette during warp
   _sleepVignette.style.transition = 'background 0.5s';
   _sleepVignette.style.background = 'rgba(0,0,0,0.78)';
+  // Avanzar grownAt de todos los cultivos igual que el servidor
+  const advMs = hours * 3600 * 1000;
+  for (const mesh of _cropMeshes.values()) {
+    if (!mesh._isGrown) mesh._grownAt -= advMs;
+  }
 });
 
 // Reemplaza un cultivo creciendo por uno maduro — dispone geometría vieja
@@ -2099,13 +2104,7 @@ function gameLoop() {
     if (myId && !isDead) {
       // Avanzar escala de cultivos en crecimiento
       const now = Date.now();
-      for (const mesh of _cropMeshes.values()) {
-        if (!mesh._isGrown && mesh._plantedAt) {
-          const total = mesh._grownAt - mesh._plantedAt;
-          const t     = Math.min(1, (now - mesh._plantedAt) / total);
-          mesh.scale.setScalar(0.12 + t * 0.70);  // 0.12 → 0.82 mientras crece
-        }
-      }
+      // Escala fija en 1.0 — el marcador de estaca no crece, solo se reemplaza al madurar
 
       _updateCropGrowth();
       if (_cropGrowAnims.length > 0) _updateCropAnims();
