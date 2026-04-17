@@ -24,17 +24,21 @@ const SEAT_BACK_OFFSET = 0.7;
 
 // ── Rapier physics constants ──────────────────────────────────────────────────
 const PHY_MASS          = 180;    // kg
-const PHY_THROTTLE      = 28000;  // N  — fuerza de aceleración
-const PHY_BRAKE         = 18000;  // N  — fuerza de frenado
+const PHY_THROTTLE      = 68000;  // N  — fuerza de aceleración (terminal ≈ 75 m/s con drag=12)
+const PHY_BRAKE         = 32000;  // N  — fuerza de frenado
 const PHY_STEER_TORQUE  = 700;    // N·m — torque de dirección
-const PHY_MAX_SPEED     = 90;     // m/s ≈ 324 km/h
+const PHY_MAX_SPEED     = 85;     // m/s ≈ 306 km/h  (cap de seguridad para speedFactor)
 const PHY_MAX_REVERSE   = 10;     // m/s marcha atrás
-const PHY_DRAG          = 18;     // resistencia de aire (escala con vel²)
-const PHY_LINEAR_DAMP   = 0.55;   // amortiguación lineal Rapier
+const PHY_DRAG          = 12;     // resistencia de aire (escala con vel²)
+const PHY_LINEAR_DAMP   = 0.0;    // 0 = solo el drag manual controla la desaceleración
 const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros locos)
-const PHY_LAT_KEEP      = 0.0;    // fracción de vel. lateral que se conserva (0 = sin patinaje)
-const PHY_DRIFT_KEEP    = 0.55;   // idem durante drift (0.55 = mucho patinaje)
-const PHY_STEER_SPEED_SCALE = 0.12; // reduce torque a alta velocidad
+// Grip model — fracción de velocidad lateral que se cancela por frame
+// A baja velocidad: mucho grip (⁓80 % de corrección)
+// A alta velocidad: poco grip (⁓8 %) → understeer / inercia real
+const PHY_GRIP_LOW      = 12.0;   // grip a vel=0  (cancelación / s)
+const PHY_GRIP_HIGH     = 1.2;    // grip a vel máx
+const PHY_GRIP_DRIFT    = 0.8;    // grip durante drift (patinaje)
+const PHY_STEER_SPEED_SCALE = 0.10; // reduce torque a alta velocidad
 
 // Fallback legacy constants (cuando Rapier no está listo aún)
 const SPEED_MULT   = 5.0;
@@ -146,7 +150,7 @@ export class MotoManager {
       // Cuerpo rígido del chasis
       const bodyDesc = R.RigidBodyDesc.dynamic()
         .setTranslation(x, 0.45, z)
-        .setLinearDamping(PHY_LINEAR_DAMP)
+        .setLinearDamping(0)        // sin amortiguación automática — el drag manual es suficiente
         .setAngularDamping(PHY_ANGULAR_DAMP);
       this._phyBody = this._phyWorld.createRigidBody(bodyDesc);
 
@@ -242,16 +246,23 @@ export class MotoManager {
     world.timestep = Math.min(dt, 1 / 30);  // máximo 30ms por paso
     world.step();
 
-    // ── Cancelar velocidad lateral (fricción neumático) ──────────────────────
-    // Se hace DESPUÉS del step para anular la componente que Rapier dejó
-    const velPost   = body.linvel();
-    const latPost   = velPost.x * rightX + velPost.z * rightZ;
-    const keepLat   = isDrifting ? PHY_DRIFT_KEEP : PHY_LAT_KEEP;
-    const cancelLat = latPost * (1 - keepLat);
+    // ── Cancelar velocidad lateral (modelo de grip neumático) ────────────────
+    // Se hace DESPUÉS del step para anular la componente lateral que Rapier dejó.
+    // El grip decae con la velocidad → a alta vel la moto tiende a seguir recto
+    // (understeer natural / inercia real), en lugar de cancelar el slip al instante.
+    const velPost    = body.linvel();
+    const latPost    = velPost.x * rightX + velPost.z * rightZ;
+    const speedRatio = Math.min(1, absSpd / PHY_MAX_SPEED);
+    // Interpolamos el grip entre PHY_GRIP_LOW (vel=0) y PHY_GRIP_HIGH (vel=max)
+    const gripPerSec = isDrifting
+      ? PHY_GRIP_DRIFT
+      : PHY_GRIP_LOW + (PHY_GRIP_HIGH - PHY_GRIP_LOW) * speedRatio;
+    // Fracción a cancelar este frame (capped a 1 para no overshoot)
+    const latFraction = Math.min(1, gripPerSec * world.timestep);
     body.setLinvel({
-      x: velPost.x - rightX * cancelLat,
+      x: velPost.x - rightX * latPost * latFraction,
       y: velPost.y,
-      z: velPost.z - rightZ * cancelLat,
+      z: velPost.z - rightZ * latPost * latFraction,
     }, true);
 
     // ── Clamp Y (siempre en el suelo) ────────────────────────────────────────
