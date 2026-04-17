@@ -190,6 +190,7 @@ function _cancelSleepPicker() {
   if (_sleepPickerTimer) { clearTimeout(_sleepPickerTimer); _sleepPickerTimer = null; }
   _sleepOverlay.style.display = 'none';
   localPlayerModel?.stopSleep();
+  if (controls) { controls._velX = 0; controls._velZ = 0; controls._sleeping = false; }
 }
 
 function _startSleeping(hours) {
@@ -223,8 +224,9 @@ document.addEventListener('keydown', (e) => {
     _cancelSleepPicker();
     return;
   }
-  // Show sleep model immediately
+  // Show sleep model immediately + freeze movement
   localPlayerModel?.startSleep();
+  if (controls) { controls._velX = 0; controls._velZ = 0; controls._sleeping = true; }
   // Show picker after 1.1 s
   _sleepPickerTimer = setTimeout(() => {
     _sleepPickerTimer = null;

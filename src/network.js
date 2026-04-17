@@ -127,7 +127,7 @@ export function onCropLimitReached(cb) { socket.on('cropLimitReached', cb); }
 
 export function getRoomId() {
   const params = new URLSearchParams(window.location.search);
-  return params.get('room') || null;
+  return params.get('room') || 'gaucho';  // sala por defecto: todos al mismo mundo
 }
 
 export function generateRoomId() {
