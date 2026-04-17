@@ -24,11 +24,11 @@ const SEAT_BACK_OFFSET = 0.7;
 
 // ── Rapier physics constants ──────────────────────────────────────────────────
 const PHY_MASS          = 180;    // kg
-const PHY_THROTTLE      = 6500;   // N  — fuerza de aceleración
-const PHY_BRAKE         = 7000;   // N  — fuerza de frenado
+const PHY_THROTTLE      = 11000;  // N  — fuerza de aceleración
+const PHY_BRAKE         = 9000;   // N  — fuerza de frenado
 const PHY_STEER_TORQUE  = 700;    // N·m — torque de dirección
-const PHY_MAX_SPEED     = 32;     // m/s ≈ 115 km/h
-const PHY_MAX_REVERSE   = 6;      // m/s marcha atrás
+const PHY_MAX_SPEED     = 45;     // m/s ≈ 162 km/h
+const PHY_MAX_REVERSE   = 7;      // m/s marcha atrás
 const PHY_DRAG          = 18;     // resistencia de aire (escala con vel²)
 const PHY_LINEAR_DAMP   = 0.55;   // amortiguación lineal Rapier
 const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros locos)
@@ -442,7 +442,8 @@ export class MotoManager {
       // Con Rapier: siempre activar drift al presionar espacio
       moto._drifting   = true;
       moto._driftTimer = 0.7;
-      moto._driftSign  = (this._phyLeanVel >= 0) ? 1 : -1;
+      // Signo correcto: angVelY>0 = girando izquierda → lean izquierda (negativo)
+      moto._driftSign  = this._phyLeanVel > 0.05 ? -1 : (this._phyLeanVel < -0.05 ? 1 : (moto._lean <= 0 ? -1 : 1));
       return true;
     }
     if (moto._drifting || moto._speedFactor < 0.2) return false;

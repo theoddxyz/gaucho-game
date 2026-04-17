@@ -1103,7 +1103,7 @@ export function startMotoEngine() {
   // Master gain (fade in)
   e.master = c.createGain();
   e.master.gain.setValueAtTime(0, t);
-  e.master.gain.linearRampToValueAtTime(0.28, t + 0.7);
+  e.master.gain.linearRampToValueAtTime(0.20, t + 0.7);
   e.master.connect(_out);
 
   // Filter chain: LPF → BPF resonance
@@ -1185,10 +1185,10 @@ export function updateMotoEngine(sf) {
   e.prevSF = sf;
 
   const F  = _sfToFreq(sf);
-  const lp = 350  + sf * sf * 4500;      // 350 → 4850 Hz (opens dramatically)
-  const bp = 180  + sf * 420;            // 180 → 600 Hz (resonance sweeps)
-  const vol = 0.45 + sf * 0.38;
-  const wind = sf * sf * 0.50;           // wind noise: 0 → 0.50 quadratic
+  const lp = 350  + sf * 950;            // 350 → 1300 Hz — mantiene un tono grave y grueso
+  const bp = 180  + sf * 280;            // 180 → 460 Hz (resonance sweeps)
+  const vol = 0.42 + sf * 0.13;          // 0.42 → 0.55 — no sube demasiado a velocidad máxima
+  const wind = sf * sf * 0.10;           // viento: 0 → 0.10 (mucho más suave)
   const amDepth = 0.35 - sf * 0.18;      // AM pulse: strong idle, subtler at speed
 
   const TC = 0.06; // time constant for smooth interpolation
