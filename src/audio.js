@@ -1103,7 +1103,7 @@ export function startMotoEngine() {
   // Master gain (fade in)
   e.master = c.createGain();
   e.master.gain.setValueAtTime(0, t);
-  e.master.gain.linearRampToValueAtTime(0.75, t + 0.7);
+  e.master.gain.linearRampToValueAtTime(0.28, t + 0.7);
   e.master.connect(_out);
 
   // Filter chain: LPF → BPF resonance

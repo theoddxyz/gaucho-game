@@ -628,7 +628,7 @@ export class PlayerModel {
           // Bajar al piso
           sc.updateWorldMatrix(true, true);
           const bbB = new THREE.Box3().setFromObject(sc);
-          sc.position.y -= bbB.min.y + 0.08; // empujar leve hacia el piso
+          sc.position.y -= bbB.min.y + 0.32; // empujar al piso
           sc.visible = false;
           this.group.add(sc);
           this._sleepModel  = sc;

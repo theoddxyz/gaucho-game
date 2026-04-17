@@ -18,7 +18,7 @@ const MOUNT_DUR       = 0.25;
 const DISMOUNT_DUR    = 0.35;
 const SIDE_DIST       = 2.0;
 const LEAN_MAX        = 0.52;   // ~30° — racing bank
-const LEAN_SPEED      = 14;     // fast lean response
+const LEAN_SPEED      = 7;      // lean response más lento = más peso
 const DRIFT_LEAN      = 0.82;   // ~47° during drift
 const DRIFT_DURATION  = 0.65;   // seconds
 const WHEEL_SPIN      = 3.0;    // rad per (m traveled)
@@ -291,8 +291,8 @@ export class MotoManager {
       while (diff < -Math.PI) diff += Math.PI * 2;
 
       const speedF    = Math.max(0, moto._speedFactor ?? 0);
-      const stiffness = 6  + speedF * 10;
-      const damping   = 4  + speedF * 6;
+      const stiffness = 3  + speedF * 5;   // más lento al girar = más inercia
+      const damping   = 3  + speedF * 8;   // amortigua bien en velocidad
       moto._turnRate += (diff * stiffness - moto._turnRate * damping) * dt;
       moto._displayRY += moto._turnRate * dt;
       while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
@@ -422,11 +422,11 @@ export class MotoManager {
     const dx0 = x - moto.x, dz0 = z - moto.z;
     const isMoving = Math.sqrt(dx0 * dx0 + dz0 * dz0) * 60 > 0.5;
     if (isMoving) {
-      const tau   = 0.15 + 3.5 * moto._speedFactor;   // τ: 0.15s → 3.65s
+      const tau   = 0.4 + 5.0 * moto._speedFactor;   // arranque más lento, top speed más gradual
       const alpha = 1 - Math.exp(-(1 / 60) / tau);
       moto._speedFactor = Math.min(1, moto._speedFactor + alpha * (1 - moto._speedFactor));
     } else {
-      moto._speedFactor *= 0.85;   // quick decay when stopped
+      moto._speedFactor *= 0.92;   // frenado más suave — inercia al soltar
     }
 
     moto.x = x; moto.z = z;
