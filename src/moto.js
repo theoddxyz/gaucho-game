@@ -126,42 +126,53 @@ export class MotoManager {
 
   // ── Crear mundo físico al montar ──────────────────────────────────────────
   _createPhysics(x, z, ry) {
-    if (!this._RAPIER) return;
+    if (!this._RAPIER) { console.warn('[Moto] Rapier aún no listo'); return; }
     const R = this._RAPIER;
+    try {
+      this._phyWorld   = new R.World({ x: 0, y: -9.81, z: 0 });
+      this._phyAccum   = 0;
+      this._phySpeed   = 0;
+      this._phyLeanVel = 0;
 
-    this._phyWorld          = new R.World({ x: 0, y: -9.81, z: 0 });
-    this._phyWorld.timestep = 1 / 60;
-    this._phyAccum          = 0;
-    this._phySpeed          = 0;
-    this._phyLeanVel        = 0;
+      // Suelo: rigid body fijo con un cubo muy plano y grande
+      const groundRb = this._phyWorld.createRigidBody(
+        R.RigidBodyDesc.fixed().setTranslation(0, -0.1, 0)
+      );
+      this._phyWorld.createCollider(
+        R.ColliderDesc.cuboid(1000, 0.1, 1000).setFriction(0.8),
+        groundRb
+      );
 
-    // Plano de suelo infinito en Y=0
-    this._phyWorld.createCollider(
-      R.ColliderDesc.halfSpace(new R.Vector3(0, 1, 0))
-    );
+      // Cuerpo rígido del chasis
+      const bodyDesc = R.RigidBodyDesc.dynamic()
+        .setTranslation(x, 0.45, z)
+        .setLinearDamping(PHY_LINEAR_DAMP)
+        .setAngularDamping(PHY_ANGULAR_DAMP);
+      this._phyBody = this._phyWorld.createRigidBody(bodyDesc);
 
-    // Cuerpo rígido del chasis
-    const bodyDesc = R.RigidBodyDesc.dynamic()
-      .setTranslation(x, 0.4, z)
-      .setLinearDamping(PHY_LINEAR_DAMP)
-      .setAngularDamping(PHY_ANGULAR_DAMP);
-    this._phyBody = this._phyWorld.createRigidBody(bodyDesc);
+      // Bloquear rotaciones X y Z — la moto no se cae
+      this._phyBody.setEnabledRotations(false, true, false, true);
 
-    // Bloquear rotación X y Z (la moto no se cae)
-    this._phyBody.setEnabledRotations(false, true, false, true);
+      // Orientación inicial
+      const halfRy = ry / 2;
+      this._phyBody.setRotation(
+        { x: 0, y: Math.sin(halfRy), z: 0, w: Math.cos(halfRy) }, true
+      );
 
-    // Orientación inicial
-    const halfRy = ry / 2;
-    this._phyBody.setRotation({ x: 0, y: Math.sin(halfRy), z: 0, w: Math.cos(halfRy) }, true);
-
-    // Colisionador del chasis (mitades: 0.25m ancho, 0.35m alto, 1.0m largo)
-    this._phyWorld.createCollider(
-      R.ColliderDesc.cuboid(0.25, 0.35, 1.0)
-        .setMass(PHY_MASS)
-        .setFriction(0.7)
-        .setRestitution(0.05),
-      this._phyBody
-    );
+      // Colisionador del chasis (half-extents: 0.25 ancho, 0.35 alto, 1.0 largo)
+      this._phyWorld.createCollider(
+        R.ColliderDesc.cuboid(0.25, 0.35, 1.0)
+          .setMass(PHY_MASS)
+          .setFriction(0.6)
+          .setRestitution(0.0),
+        this._phyBody
+      );
+      console.log('[Moto] Physics body created at', x.toFixed(1), z.toFixed(1));
+    } catch(e) {
+      console.error('[Moto] _createPhysics falló:', e);
+      this._phyWorld = null;
+      this._phyBody  = null;
+    }
   }
 
   _destroyPhysics() {
@@ -227,13 +238,9 @@ export class MotoManager {
     const dragF  = -Math.sign(fwdSpd) * PHY_DRAG * speed2 * dt;
     body.applyImpulse({ x: fwdX * dragF, y: 0, z: fwdZ * dragF }, true);
 
-    // ── Paso físico (fixed timestep accumulator) ─────────────────────────────
-    this._phyAccum += dt;
-    const FIXED = 1 / 60;
-    while (this._phyAccum >= FIXED) {
-      world.step();
-      this._phyAccum -= FIXED;
-    }
+    // ── Paso físico ───────────────────────────────────────────────────────────
+    world.timestep = Math.min(dt, 1 / 30);  // máximo 30ms por paso
+    world.step();
 
     // ── Cancelar velocidad lateral (fricción neumático) ──────────────────────
     // Se hace DESPUÉS del step para anular la componente que Rapier dejó
