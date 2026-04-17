@@ -15,20 +15,20 @@ const RIDER_HEIGHT     = 0.82;
 const MOUNT_DUR        = 0.25;
 const DISMOUNT_DUR     = 0.35;
 const SIDE_DIST        = 2.0;
-const LEAN_MAX         = 0.52;
-const LEAN_SPEED       = 9;
-const DRIFT_LEAN       = 0.82;
+const LEAN_MAX         = 0.55;
+const LEAN_SPEED       = 11;
+const DRIFT_LEAN       = 0.95;
 const WHEEL_SPIN       = 3.0;
 const STEER_FACTOR     = 1.6;
 const SEAT_BACK_OFFSET = 0.7;
 
 // ── Rapier physics constants ──────────────────────────────────────────────────
 const PHY_MASS          = 180;    // kg
-const PHY_THROTTLE      = 3200;   // N  — fuerza de aceleración
-const PHY_BRAKE         = 5500;   // N  — fuerza de frenado
+const PHY_THROTTLE      = 6500;   // N  — fuerza de aceleración
+const PHY_BRAKE         = 7000;   // N  — fuerza de frenado
 const PHY_STEER_TORQUE  = 700;    // N·m — torque de dirección
-const PHY_MAX_SPEED     = 20;     // m/s ≈ 72 km/h
-const PHY_MAX_REVERSE   = 5;      // m/s marcha atrás
+const PHY_MAX_SPEED     = 32;     // m/s ≈ 115 km/h
+const PHY_MAX_REVERSE   = 6;      // m/s marcha atrás
 const PHY_DRAG          = 18;     // resistencia de aire (escala con vel²)
 const PHY_LINEAR_DAMP   = 0.55;   // amortiguación lineal Rapier
 const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros locos)
@@ -439,9 +439,7 @@ export class MotoManager {
     const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
     if (!moto) return false;
     if (this._phyBody) {
-      // Con Rapier: activar flag; la reducción de fricción lateral se aplica en stepRapier
-      const spd = Math.abs(this._phySpeed);
-      if (spd < 3) return false;
+      // Con Rapier: siempre activar drift al presionar espacio
       moto._drifting   = true;
       moto._driftTimer = 0.7;
       moto._driftSign  = (this._phyLeanVel >= 0) ? 1 : -1;

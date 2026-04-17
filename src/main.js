@@ -2260,8 +2260,6 @@ function gameLoop() {
 
     // ── Moto ─────────────────────────────────────────────────────────────────
     if (motoManager) {
-      motoManager.update(pos, dt);
-
       const motoLand = motoManager.consumeMountLand();
       if (motoLand) controls.setPosition(motoLand.x, 0, motoLand.z);
 
@@ -2269,7 +2267,7 @@ function gameLoop() {
         if (_driftThisFrame && motoManager.startDrift()) Audio.motoTireScreech?.();
 
         if (motoManager.isRapierActive()) {
-          // ── Física Rapier: la moto maneja su propia posición ───────────────
+          // ── Física Rapier: step primero, DESPUÉS update visual ─────────────
           const moto = motoManager.motos.get(motoManager.myMotoId);
           const phys = motoManager.stepRapier(
             controls.keys,
@@ -2279,7 +2277,7 @@ function gameLoop() {
           );
           if (phys) {
             controls.setPosition(phys.x, 0, phys.z);
-            pos = controls.getPosition();
+            pos = controls.getPosition();  // pos actualizado = personaje sigue a la moto
             Network.sendMotoMoved({ motoId: motoManager.myMotoId, x: phys.x, z: phys.z, ry: phys.ry });
             Audio.updateMotoEngine?.(phys.speedFactor);
           }
@@ -2292,6 +2290,9 @@ function gameLoop() {
           Audio.updateMotoEngine?.(motoManager.getSpeedFactor());
         }
       }
+
+      // update visual DESPUÉS del step para que el mesh use la pos actualizada
+      motoManager.update(pos, dt);
 
       // Stop engine when dismounted (uses _wasMoto to detect transition)
       if (_wasMoto && !motoManager.isMounted()) Audio.stopMotoEngine?.();
