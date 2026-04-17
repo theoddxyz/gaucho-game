@@ -24,11 +24,11 @@ const SEAT_BACK_OFFSET = 0.7;
 
 // ── Rapier physics constants ──────────────────────────────────────────────────
 const PHY_MASS          = 180;    // kg
-const PHY_THROTTLE      = 11000;  // N  — fuerza de aceleración
-const PHY_BRAKE         = 9000;   // N  — fuerza de frenado
+const PHY_THROTTLE      = 28000;  // N  — fuerza de aceleración
+const PHY_BRAKE         = 18000;  // N  — fuerza de frenado
 const PHY_STEER_TORQUE  = 700;    // N·m — torque de dirección
-const PHY_MAX_SPEED     = 45;     // m/s ≈ 162 km/h
-const PHY_MAX_REVERSE   = 7;      // m/s marcha atrás
+const PHY_MAX_SPEED     = 90;     // m/s ≈ 324 km/h
+const PHY_MAX_REVERSE   = 10;     // m/s marcha atrás
 const PHY_DRAG          = 18;     // resistencia de aire (escala con vel²)
 const PHY_LINEAR_DAMP   = 0.55;   // amortiguación lineal Rapier
 const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros locos)
@@ -411,12 +411,7 @@ export class MotoManager {
   }
 
   getMotoLean() {
-    if (this._phyBody) {
-      // Inclinación basada en velocidad angular Y y velocidad forward
-      const absSpd = Math.min(1, Math.abs(this._phySpeed) / PHY_MAX_SPEED);
-      const target = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -this._phyLeanVel * absSpd * 1.8));
-      return target;
-    }
+    // Siempre devolver el lean real del mesh (suavizado) para que personaje y moto coincidan
     const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
     return m?._lean ?? 0;
   }
