@@ -8,6 +8,7 @@
     "start": "node --env-file=.env server.js"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "@gltf-transform/core": "^4.3.0",
     "@google/generative-ai": "^0.24.1",
     "@tonejs/midi": "^2.0.28",

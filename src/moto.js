@@ -1,4 +1,4 @@
-// --- Moto (Motorcycle) system ---
+// --- Moto (Motorcycle) system — Rapier physics ---
 // GLB structure (scene index 2):
 //   CARROCERIA.003      — body mesh
 //   RUEDA TRASCERA.002  — rear wheel mesh  (pivot ≠ axle center)
@@ -6,60 +6,68 @@
 //   EJE TRASERO.002     — rear axle EMPTY  at correct wheel center
 //   EJE DELANERO .002   — front axle EMPTY at correct wheel center
 //   LUGAR CONDUCTOR     — rider seat EMPTY
-// Strategy: reset EJE scale → attach RUEDA to EJE → spin EJE on local Z.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const MOUNT_RADIUS    = 4.0;
-const SPEED_MULT      = 5.0;    // fast — racing feel
-const SPRINT_MULT     = 1.25;
-const RIDER_HEIGHT    = 0.82;   // seat height above ground (m)
-const MOUNT_DUR       = 0.25;
-const DISMOUNT_DUR    = 0.35;
-const SIDE_DIST       = 2.0;
-const LEAN_MAX        = 0.52;   // ~30° — racing bank
-const LEAN_SPEED      = 7;      // lean response más lento = más peso
-const DRIFT_LEAN      = 0.82;   // ~47° during drift
-const DRIFT_DURATION  = 0.65;   // seconds
-const WHEEL_SPIN      = 3.0;    // rad per (m traveled)
-const STEER_FACTOR    = 1.6;    // front wheel steer multiplier from lean
-const SEAT_BACK_OFFSET = 0.7;   // meters the moto center sits ahead of rider
+// ── Visual constants (unchanged) ─────────────────────────────────────────────
+const MOUNT_RADIUS     = 4.0;
+const RIDER_HEIGHT     = 0.82;
+const MOUNT_DUR        = 0.25;
+const DISMOUNT_DUR     = 0.35;
+const SIDE_DIST        = 2.0;
+const LEAN_MAX         = 0.52;
+const LEAN_SPEED       = 9;
+const DRIFT_LEAN       = 0.82;
+const WHEEL_SPIN       = 3.0;
+const STEER_FACTOR     = 1.6;
+const SEAT_BACK_OFFSET = 0.7;
+
+// ── Rapier physics constants ──────────────────────────────────────────────────
+const PHY_MASS          = 180;    // kg
+const PHY_THROTTLE      = 3200;   // N  — fuerza de aceleración
+const PHY_BRAKE         = 5500;   // N  — fuerza de frenado
+const PHY_STEER_TORQUE  = 700;    // N·m — torque de dirección
+const PHY_MAX_SPEED     = 20;     // m/s ≈ 72 km/h
+const PHY_MAX_REVERSE   = 5;      // m/s marcha atrás
+const PHY_DRAG          = 18;     // resistencia de aire (escala con vel²)
+const PHY_LINEAR_DAMP   = 0.55;   // amortiguación lineal Rapier
+const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros locos)
+const PHY_LAT_KEEP      = 0.0;    // fracción de vel. lateral que se conserva (0 = sin patinaje)
+const PHY_DRIFT_KEEP    = 0.55;   // idem durante drift (0.55 = mucho patinaje)
+const PHY_STEER_SPEED_SCALE = 0.12; // reduce torque a alta velocidad
+
+// Fallback legacy constants (cuando Rapier no está listo aún)
+const SPEED_MULT   = 5.0;
+const SPRINT_MULT  = 1.25;
 
 export const MOTO_SPAWNS = [
   { id: 0, x:  12, z: -58 },
   { id: 1, x: -50, z:  55 },
 ];
 
-// ── Load only scene 2 from the GLB (has all moto parts) ──────────────────────
+// ── GLB loader ────────────────────────────────────────────────────────────────
 let _tplPromise = null;
 function _loadTemplate() {
   if (_tplPromise) return _tplPromise;
   _tplPromise = new Promise(resolve => {
     new GLTFLoader().load('/models/MOTO.glb', gltf => {
-      // Scene 2 = complete motorcycle: body + wheels + axle empties + seat
       const src = gltf.scenes?.[2] ?? gltf.scene;
       resolve(src);
-    }, undefined, err => {
-      resolve(null);
-    });
+    }, undefined, () => resolve(null));
   });
   return _tplPromise;
 }
 
-// ── Fallback: simple procedural moto facing −Z ────────────────────────────────
+// ── Fallback procedural moto ──────────────────────────────────────────────────
 function _buildFallback() {
   const root = new THREE.Group();
   const red = new THREE.MeshStandardMaterial({ color: 0xcc2222, metalness: 0.7, roughness: 0.3 });
   const met = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.15 });
   const blk = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.5, roughness: 0.7 });
-
-  // Body (long axis = Z = forward)
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 1.4), red);
   body.position.y = 0.72; body.castShadow = true; root.add(body);
   const tank = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.55), red);
   tank.position.set(0, 1.02, -0.14); root.add(tank);
-
-  // Wheels — pivot at axle center, cylinder axis along X (so rotation.x = spin)
   const wheels = [], frontPivot = new THREE.Group(), rearPivot = new THREE.Group();
   [[rearPivot, 0.62], [frontPivot, -0.62]].forEach(([piv, z]) => {
     piv.position.set(0, 0.33, z);
@@ -67,10 +75,9 @@ function _buildFallback() {
     tire.rotation.z = Math.PI / 2; piv.add(tire);
     root.add(piv); wheels.push(piv);
   });
-
-  root._fbWheels    = wheels;
-  root._fbFront     = frontPivot;
-  root._isFallback  = true;
+  root._fbWheels   = wheels;
+  root._fbFront    = frontPivot;
+  root._isFallback = true;
   return root;
 }
 
@@ -82,29 +89,199 @@ export class MotoManager {
     this.motos    = new Map();
     this.myMotoId = null;
     this._nearestMotoId = null;
-    this._mountPrompt  = this._createPrompt();
-    this._anim         = null;
-    this._mountLandPos = null;
-    this._lean         = 0;
+    this._mountPrompt   = this._createPrompt();
+    this._anim          = null;
+    this._mountLandPos  = null;
+    this._lean          = 0;
+
     // Tire tracks
-    this._trackGeo = new THREE.PlaneGeometry(0.13, 0.38);  // ancho neumático moto, largo segmento
-    this._trackMat = new THREE.MeshBasicMaterial({ color: 0x0a0804, transparent: true, opacity: 0.60, depthWrite: false });
-    this._tracks   = [];   // { mesh, age, maxAge }
+    this._trackGeo   = new THREE.PlaneGeometry(0.13, 0.38);
+    this._trackMat   = new THREE.MeshBasicMaterial({ color: 0x0a0804, transparent: true, opacity: 0.60, depthWrite: false });
+    this._tracks     = [];
     this._trackTimer = 0;
+
+    // ── Rapier physics state ──────────────────────────────────────────────────
+    this._RAPIER     = null;    // módulo Rapier (listo tras init async)
+    this._phyWorld   = null;    // RAPIER.World activo
+    this._phyBody    = null;    // RigidBody de la moto
+    this._phyAccum   = 0;       // acumulador de tiempo (fixed-step)
+    this._phySpeed   = 0;       // velocidad forward actual (m/s)
+    this._phyLeanVel = 0;       // velocidad angular Y (para visual lean)
+
+    this._initRapier();
     this._init();
   }
 
+  // ── Cargar módulo Rapier (async WASM) ─────────────────────────────────────
+  async _initRapier() {
+    try {
+      const R = await import('@dimforge/rapier3d-compat');
+      await R.init();
+      this._RAPIER = R;
+      console.log('[Moto] Rapier physics ready ✓');
+    } catch (e) {
+      console.warn('[Moto] Rapier no disponible, usando física legacy:', e);
+    }
+  }
+
+  // ── Crear mundo físico al montar ──────────────────────────────────────────
+  _createPhysics(x, z, ry) {
+    if (!this._RAPIER) return;
+    const R = this._RAPIER;
+
+    this._phyWorld          = new R.World({ x: 0, y: -9.81, z: 0 });
+    this._phyWorld.timestep = 1 / 60;
+    this._phyAccum          = 0;
+    this._phySpeed          = 0;
+    this._phyLeanVel        = 0;
+
+    // Plano de suelo infinito en Y=0
+    this._phyWorld.createCollider(
+      R.ColliderDesc.halfSpace(new R.Vector3(0, 1, 0))
+    );
+
+    // Cuerpo rígido del chasis
+    const bodyDesc = R.RigidBodyDesc.dynamic()
+      .setTranslation(x, 0.4, z)
+      .setLinearDamping(PHY_LINEAR_DAMP)
+      .setAngularDamping(PHY_ANGULAR_DAMP);
+    this._phyBody = this._phyWorld.createRigidBody(bodyDesc);
+
+    // Bloquear rotación X y Z (la moto no se cae)
+    this._phyBody.setEnabledRotations(false, true, false, true);
+
+    // Orientación inicial
+    const halfRy = ry / 2;
+    this._phyBody.setRotation({ x: 0, y: Math.sin(halfRy), z: 0, w: Math.cos(halfRy) }, true);
+
+    // Colisionador del chasis (mitades: 0.25m ancho, 0.35m alto, 1.0m largo)
+    this._phyWorld.createCollider(
+      R.ColliderDesc.cuboid(0.25, 0.35, 1.0)
+        .setMass(PHY_MASS)
+        .setFriction(0.7)
+        .setRestitution(0.05),
+      this._phyBody
+    );
+  }
+
+  _destroyPhysics() {
+    this._phyWorld = null;
+    this._phyBody  = null;
+    this._phyAccum = 0;
+    this._phySpeed = 0;
+  }
+
+  // ── Paso de física Rapier — llamado cada frame cuando montado ─────────────
+  // Devuelve { x, z, ry, speedFactor, drifting } o null si Rapier no está listo
+  stepRapier(keys, dt, sprinting, isDrifting) {
+    if (!this._phyBody || !this._phyWorld) return null;
+
+    const R       = this._RAPIER;
+    const body    = this._phyBody;
+    const world   = this._phyWorld;
+
+    // ── Extraer estado actual ───────────────────────────────────────────────
+    const rot    = body.rotation();                          // quaternion
+    const ry     = 2 * Math.atan2(rot.y, rot.w);            // ángulo Y del cuerpo
+    const fwdX   = Math.sin(ry);
+    const fwdZ   = Math.cos(ry);
+    const rightX = Math.cos(ry);
+    const rightZ = -Math.sin(ry);
+
+    const linVel  = body.linvel();
+    const fwdSpd  = linVel.x * fwdX + linVel.z * fwdZ;     // velocidad forward
+    const latSpd  = linVel.x * rightX + linVel.z * rightZ;  // velocidad lateral
+    const absSpd  = Math.abs(fwdSpd);
+
+    // ── Aceleración / frenado ───────────────────────────────────────────────
+    const throttle = PHY_THROTTLE * (sprinting ? 1.4 : 1.0) * dt;
+    const brake    = PHY_BRAKE * dt;
+
+    if (keys.w && fwdSpd < PHY_MAX_SPEED) {
+      body.applyImpulse({ x: fwdX * throttle, y: 0, z: fwdZ * throttle }, true);
+    }
+    if (keys.s) {
+      if (fwdSpd > 0.3) {
+        // Freno
+        body.applyImpulse({ x: -fwdX * brake, y: 0, z: -fwdZ * brake }, true);
+      } else if (fwdSpd > -PHY_MAX_REVERSE) {
+        // Marcha atrás lenta
+        body.applyImpulse({ x: -fwdX * throttle * 0.25, y: 0, z: -fwdZ * throttle * 0.25 }, true);
+      }
+    }
+
+    // ── Dirección — torque en Y, se reduce a alta velocidad ─────────────────
+    // A mayor velocidad el radio de giro es mayor (comportamiento real)
+    const steerT = PHY_STEER_TORQUE * dt / (1 + absSpd * PHY_STEER_SPEED_SCALE);
+    if (keys.a) body.applyTorqueImpulse({ x: 0, y:  steerT, z: 0 }, true);
+    if (keys.d) body.applyTorqueImpulse({ x: 0, y: -steerT, z: 0 }, true);
+
+    // Si no hay tecla de dirección, frenar rotación angular suavemente
+    if (!keys.a && !keys.d) {
+      const angVel = body.angvel();
+      body.applyTorqueImpulse({ x: 0, y: -angVel.y * 12 * dt, z: 0 }, true);
+    }
+
+    // ── Resistencia de aire (proporcional a vel²) ────────────────────────────
+    const speed2 = absSpd * absSpd;
+    const dragF  = -Math.sign(fwdSpd) * PHY_DRAG * speed2 * dt;
+    body.applyImpulse({ x: fwdX * dragF, y: 0, z: fwdZ * dragF }, true);
+
+    // ── Paso físico (fixed timestep accumulator) ─────────────────────────────
+    this._phyAccum += dt;
+    const FIXED = 1 / 60;
+    while (this._phyAccum >= FIXED) {
+      world.step();
+      this._phyAccum -= FIXED;
+    }
+
+    // ── Cancelar velocidad lateral (fricción neumático) ──────────────────────
+    // Se hace DESPUÉS del step para anular la componente que Rapier dejó
+    const velPost   = body.linvel();
+    const latPost   = velPost.x * rightX + velPost.z * rightZ;
+    const keepLat   = isDrifting ? PHY_DRIFT_KEEP : PHY_LAT_KEEP;
+    const cancelLat = latPost * (1 - keepLat);
+    body.setLinvel({
+      x: velPost.x - rightX * cancelLat,
+      y: velPost.y,
+      z: velPost.z - rightZ * cancelLat,
+    }, true);
+
+    // ── Clamp Y (siempre en el suelo) ────────────────────────────────────────
+    const pos = body.translation();
+    if (pos.y < 0.38) body.setTranslation({ x: pos.x, y: 0.38, z: pos.z }, true);
+
+    // ── Estado de salida ─────────────────────────────────────────────────────
+    const finalVel   = body.linvel();
+    const finalRot   = body.rotation();
+    const finalRy    = 2 * Math.atan2(finalRot.y, finalRot.w);
+    const finalFwdX  = Math.sin(finalRy);
+    const finalFwdZ  = Math.cos(finalRy);
+    const finalSpd   = finalVel.x * finalFwdX + finalVel.z * finalFwdZ;
+    const speedFactor = Math.min(1, Math.abs(finalSpd) / PHY_MAX_SPEED);
+    const angVelY    = body.angvel().y;
+
+    this._phySpeed   = finalSpd;
+    this._phyLeanVel = angVelY;
+
+    return {
+      x: pos.x, z: pos.z,
+      ry: finalRy,
+      speedFactor,
+      speed: finalSpd,
+      angVelY,
+    };
+  }
+
+  // ── Init GLB + moto objects ───────────────────────────────────────────────
   async _init() {
     const tpl = await _loadTemplate();
 
     for (const spawn of MOTO_SPAWNS) {
-      const outer = new THREE.Group();  // heading + position
+      const outer = new THREE.Group();
       let wheels = [], frontWheel = null, isFallback = false;
 
       if (tpl) {
-        // ── Inner orientation-correction group ──────────────────────────────
-        // GLB faces −X; rotate so the nose points −Z (Three.js forward convention).
-        // Then _targetRY = moveAngle + PI works identically to the horse.
         const inner = new THREE.Group();
         inner.rotation.y = Math.PI / 2;
         outer.add(inner);
@@ -112,7 +289,6 @@ export class MotoManager {
         const clone = tpl.clone(true);
         clone.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
 
-        // ── Material enhancements ─────────────────────────────────────────────
         clone.traverse(o => {
           if (!o.isMesh || !o.material) return;
           const meshName = o.name.toLowerCase();
@@ -121,16 +297,12 @@ export class MotoManager {
           mats.forEach(m => {
             if (!m.color) return;
             const { r, g, b } = m.color;
-            // Dark material = glass / visor → high gloss (skip wheel rubber)
             if (!isWheel && r + g + b < 0.25 && (m.roughness ?? 1) > 0.2) {
-              m.roughness       = 0.02;
-              m.metalness       = 0.15;
-              m.envMapIntensity = 2.0;
+              m.roughness = 0.02; m.metalness = 0.15; m.envMapIntensity = 2.0;
             }
-            // Red / warm material → metallic paint look
             if (r > 0.35 && r > g * 1.8 && r > b * 1.8) {
-              m.metalness       = Math.max(m.metalness ?? 0, 0.5);
-              m.roughness       = Math.min(m.roughness ?? 1, 0.35);
+              m.metalness = Math.max(m.metalness ?? 0, 0.5);
+              m.roughness = Math.min(m.roughness ?? 1, 0.35);
               m.envMapIntensity = Math.max(m.envMapIntensity ?? 1, 1.8);
             }
           });
@@ -138,37 +310,25 @@ export class MotoManager {
 
         inner.add(clone);
 
-        // ── Find nodes by name ───────────────────────────────────────────────
-        const ejeNodes  = [], ruedaNodes = [];
-        let   seatNode  = null;
+        const ejeNodes = [], ruedaNodes = [];
         clone.traverse(o => {
           const n = o.name.toLowerCase();
-          if (n.includes('eje'))    ejeNodes.push(o);
-          if (n.includes('rueda'))  ruedaNodes.push(o);
-          if (n.includes('conductor') || n.includes('seat')) seatNode = o;
+          if (n.includes('eje'))   ejeNodes.push(o);
+          if (n.includes('rueda')) ruedaNodes.push(o);
         });
 
-        // ── Pair EJE ↔ RUEDA by trasero/delanero keywords ──────────────────
-        // EJE TRASERO  ↔ RUEDA TRASCERA  (rear)
-        // EJE DELANERO ↔ RUEDA DELANTERA (front)
         const find = (arr, kw) => arr.find(o => o.name.toLowerCase().includes(kw)) ?? null;
         const ejeR  = find(ejeNodes,   'trasero');
         const ejeF  = find(ejeNodes,   'delanero') ?? find(ejeNodes, 'delantera');
-        // GLB typo: "TRASCERA" (with C) instead of "TRASERA" — search both spellings
         const ruedaR = find(ruedaNodes, 'trasera') ?? find(ruedaNodes, 'trascera') ?? find(ruedaNodes, 'trasero');
         const ruedaF = find(ruedaNodes, 'delantera') ?? find(ruedaNodes, 'delanero');
 
-        // ── Reset EJE scale (Blender visual-only scale breaks attach math) ──
-        // Then attach each RUEDA to its EJE so it spins around the axle center.
         [ejeR, ejeF].forEach(e => { if (e) { e.scale.set(1,1,1); e.updateMatrixWorld(true); }});
-
-        // Update full subtree matrices before calling attach()
         outer.updateWorldMatrix(false, true);
 
         if (ejeR && ruedaR) { ejeR.attach(ruedaR); wheels.push(ejeR); }
         if (ejeF && ruedaF) { ejeF.attach(ruedaF); wheels.push(ejeF); frontWheel = ejeF; }
 
-        // Fallback if names didn't match
         if (wheels.length === 0) {
           ejeNodes.forEach((e, i) => {
             e.scale.set(1,1,1); e.updateMatrixWorld(true);
@@ -177,24 +337,13 @@ export class MotoManager {
           frontWheel = wheels[0] ?? null;
         }
 
-        // ── Auto-scale so the motorcycle is ~2m long ─────────────────────────
         outer.updateWorldMatrix(false, true);
         const box = new THREE.Box3().setFromObject(inner);
         const sz  = box.getSize(new THREE.Vector3());
         const longest = Math.max(sz.x, sz.y, sz.z);
         if (longest > 0.01) inner.scale.setScalar(6.8 / longest);
 
-        // ── Seat height (for rider Y offset) ─────────────────────────────────
-        // We use a fixed constant (RIDER_HEIGHT) but log it for calibration
-        if (seatNode) {
-          const sp = new THREE.Vector3();
-          seatNode.getWorldPosition(sp);
-          // seatNode.y in inner-local space (after inner rotation only) = sp.y
-          // (inner is a rotation-only group at outer origin)
-        }
-
       } else {
-        // ── Procedural fallback ───────────────────────────────────────────────
         isFallback = true;
         const fb = _buildFallback();
         outer.add(fb);
@@ -206,20 +355,21 @@ export class MotoManager {
       this.scene.add(outer);
 
       this.motos.set(spawn.id, {
-        mesh:        outer,
+        mesh:       outer,
         wheels,
         frontWheel,
         isFallback,
-        riderId:     null,
+        riderId:    null,
         x: spawn.x, z: spawn.z,
-        _targetRY:   0,
-        _displayRY:  0,
-        _lean:       0,
-        _wheelRot:   0,
-        _prevX:      spawn.x,
-        _prevZ:      spawn.z,
-        _speedFactor: 0,   // 0..1, drives acceleration ramp
-        _turnRate:    0,   // rad/s angular momentum
+        _targetRY:  0,
+        _displayRY: 0,
+        _lean:      0,
+        _wheelRot:  0,
+        _prevX:     spawn.x,
+        _prevZ:     spawn.z,
+        // Legacy speed factor (fallback)
+        _speedFactor: 0,
+        _turnRate:    0,
         _drifting:    false,
         _driftTimer:  0,
         _driftSign:   1,
@@ -239,26 +389,62 @@ export class MotoManager {
     return el;
   }
 
-  // ── Public API ───────────────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
+  isMounted()        { return this.myMotoId !== null; }
+  isMountAnimating() { return this._anim?.type === 'mount'; }
+  isRapierActive()   { return !!this._phyBody; }
 
-  isMounted()           { return this.myMotoId !== null; }
-  isMountAnimating()    { return this._anim?.type === 'mount'; }
-  getMotoHeading()      { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._displayRY ?? 0; }
-  getMotoLean()         { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._lean ?? 0; }
-  getSpeedFactor()      { const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null; return m?._speedFactor ?? 0; }
+  getMotoHeading() {
+    if (this._phyBody) {
+      const rot = this._phyBody.rotation();
+      return 2 * Math.atan2(rot.y, rot.w);
+    }
+    const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
+    return m?._displayRY ?? 0;
+  }
+
+  getMotoLean() {
+    if (this._phyBody) {
+      // Inclinación basada en velocidad angular Y y velocidad forward
+      const absSpd = Math.min(1, Math.abs(this._phySpeed) / PHY_MAX_SPEED);
+      const target = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -this._phyLeanVel * absSpd * 1.8));
+      return target;
+    }
+    const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
+    return m?._lean ?? 0;
+  }
+
+  getSpeedFactor() {
+    if (this._phyBody) return Math.min(1, Math.abs(this._phySpeed) / PHY_MAX_SPEED);
+    const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
+    return m?._speedFactor ?? 0;
+  }
+
+  // Cuando Rapier está activo, devolver 0 para que controls no mueva al player
+  speedMultiplier(spr) {
+    if (this._phyBody) return 0;
+    const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
+    const sf   = Math.max(0.15, moto?._speedFactor ?? 0);
+    return SPEED_MULT * sf * (spr ? SPRINT_MULT : 1.0);
+  }
 
   startDrift() {
     const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
-    if (!moto || moto._drifting || moto._speedFactor < 0.2) return false;
+    if (!moto) return false;
+    if (this._phyBody) {
+      // Con Rapier: activar flag; la reducción de fricción lateral se aplica en stepRapier
+      const spd = Math.abs(this._phySpeed);
+      if (spd < 3) return false;
+      moto._drifting   = true;
+      moto._driftTimer = 0.7;
+      moto._driftSign  = (this._phyLeanVel >= 0) ? 1 : -1;
+      return true;
+    }
+    if (moto._drifting || moto._speedFactor < 0.2) return false;
     moto._drifting   = true;
-    moto._driftTimer = DRIFT_DURATION;
+    moto._driftTimer = 0.65;
     moto._driftSign  = moto._lean >= 0 ? 1 : -1;
     return true;
-  }
-  speedMultiplier(spr) {
-    const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
-    const sf   = Math.max(0.15, moto?._speedFactor ?? 0);  // min 15% so it starts
-    return SPEED_MULT * sf * (spr ? SPRINT_MULT : 1.0);
   }
 
   getRiderY() {
@@ -270,10 +456,8 @@ export class MotoManager {
     const p = this._mountLandPos; this._mountLandPos = null; return p;
   }
 
-  // ── Per-frame update ─────────────────────────────────────────────────────────
-
+  // ── Per-frame visual update ───────────────────────────────────────────────
   update(playerPos, dt) {
-    // Tick mount/dismount animation
     if (this._anim) {
       this._anim.t += dt / this._anim.dur;
       if (this._anim.t >= 1) {
@@ -284,71 +468,98 @@ export class MotoManager {
       }
     }
 
-    for (const [, moto] of this.motos) {
-      // ── Heading via spring-damper toward _targetRY ────────────────────────
-      let diff = moto._targetRY - moto._displayRY;
-      while (diff >  Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
+    for (const [id, moto] of this.motos) {
+      const isMyMoto = id === this.myMotoId;
 
-      const speedF    = Math.max(0, moto._speedFactor ?? 0);
-      const stiffness = 3  + speedF * 5;   // más lento al girar = más inercia
-      const damping   = 3  + speedF * 8;   // amortigua bien en velocidad
-      moto._turnRate += (diff * stiffness - moto._turnRate * damping) * dt;
-      moto._displayRY += moto._turnRate * dt;
-      while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
-      while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
+      if (isMyMoto && this._phyBody) {
+        // ── Con Rapier: leer posición del body ──────────────────────────────
+        const pos    = this._phyBody.translation();
+        const rot    = this._phyBody.rotation();
+        const phyRy  = 2 * Math.atan2(rot.y, rot.w);
 
-      // ── Lean = banking INTO the turn (heading error × speed) ─────────────
-      if (moto._drifting) {
-        moto._driftTimer -= dt;
-        if (moto._driftTimer <= 0) moto._drifting = false;
-        // Snap to full drift lean + spin heading fast
-        const driftLeanTarget = moto._driftSign * DRIFT_LEAN;
-        moto._lean += (driftLeanTarget - moto._lean) * Math.min(1, 22 * dt);
-        moto._turnRate += moto._driftSign * 12 * dt;  // rear slides out
+        moto.x = pos.x; moto.z = pos.z;
+        moto._displayRY = phyRy;
+
+        // Decrement drift timer
+        if (moto._drifting) {
+          moto._driftTimer -= dt;
+          if (moto._driftTimer <= 0) moto._drifting = false;
+        }
+
+        // Lean visual — basado en angVelY y velocidad forward
+        const absSpd    = Math.min(1, Math.abs(this._phySpeed) / PHY_MAX_SPEED);
+        const leanTgt   = moto._drifting
+          ? moto._driftSign * DRIFT_LEAN
+          : Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -this._phyLeanVel * absSpd * 1.8));
+        moto._lean += (leanTgt - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+
+        moto.mesh.position.set(
+          pos.x + Math.sin(phyRy) * SEAT_BACK_OFFSET,
+          0,
+          pos.z + Math.cos(phyRy) * SEAT_BACK_OFFSET,
+        );
+        moto.mesh.rotation.y = phyRy;
+        moto.mesh.rotation.z = moto._lean;
+
       } else {
-        const leanTarget = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -diff * speedF * 2.8));
-        moto._lean += (leanTarget - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+        // ── Legacy: spring-damper sobre _targetRY ───────────────────────────
+        let diff = moto._targetRY - moto._displayRY;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+
+        const speedF    = Math.max(0, moto._speedFactor ?? 0);
+        const stiffness = 3 + speedF * 5;
+        const damping   = 3 + speedF * 8;
+        moto._turnRate += (diff * stiffness - moto._turnRate * damping) * dt;
+        moto._displayRY += moto._turnRate * dt;
+        while (moto._displayRY >  Math.PI) moto._displayRY -= Math.PI * 2;
+        while (moto._displayRY < -Math.PI) moto._displayRY += Math.PI * 2;
+
+        if (moto._drifting) {
+          moto._driftTimer -= dt;
+          if (moto._driftTimer <= 0) moto._drifting = false;
+          const driftLeanTgt = moto._driftSign * DRIFT_LEAN;
+          moto._lean += (driftLeanTgt - moto._lean) * Math.min(1, 22 * dt);
+          moto._turnRate += moto._driftSign * 12 * dt;
+        } else {
+          const leanTarget = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -diff * speedF * 2.8));
+          moto._lean += (leanTarget - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+        }
+
+        moto.mesh.rotation.y = moto._displayRY;
+        moto.mesh.rotation.z = moto._lean;
       }
 
-      moto.mesh.rotation.y = moto._displayRY;
-      moto.mesh.rotation.z = moto._lean;
-
-      // Wheel spin — distance traveled this frame
+      // ── Ruedas: giro y dirección ─────────────────────────────────────────
       const dx  = moto.x - moto._prevX;
       const dz  = moto.z - moto._prevZ;
       const spd = Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001);
       moto._wheelRot += spd * dt * WHEEL_SPIN;
 
       for (const w of moto.wheels) {
-        if (moto.isFallback) {
-          w.rotation.x = moto._wheelRot;  // fallback: axle along X
-        } else {
-          w.rotation.z = moto._wheelRot;  // GLB: axle along Z (EJE scale.z largest)
-        }
+        if (moto.isFallback) w.rotation.x = moto._wheelRot;
+        else                 w.rotation.z = moto._wheelRot;
       }
 
-      // Front wheel steering from lean
       if (moto.frontWheel) {
+        const steerAngle = -moto._lean * STEER_FACTOR;
         if (moto.isFallback) {
-          moto.frontWheel.rotation.y = -moto._lean * STEER_FACTOR;
+          moto.frontWheel.rotation.y = steerAngle;
         } else {
-          // Steer around the pivot's Y axis (vertical in inner-local space)
-          const prev = moto.frontWheel.rotation.z; // preserve spin
-          moto.frontWheel.rotation.y = -moto._lean * STEER_FACTOR;
-          moto.frontWheel.rotation.z = prev;
+          const prevSpin = moto.frontWheel.rotation.z;
+          moto.frontWheel.rotation.y = steerAngle;
+          moto.frontWheel.rotation.z = prevSpin;
         }
       }
 
       moto._prevX = moto.x;
       moto._prevZ = moto.z;
 
-        // Tire tracks when drifting — guardar dirección real de movimiento
+      // Tire tracks during drift
       if (moto._drifting) {
         this._trackTimer -= dt;
         if (this._trackTimer <= 0) {
           this._trackTimer = 0.05;
-          // Dirección real de movimiento (puede diferir del heading en derrape)
           const mvDx = moto.x - moto._prevX;
           const mvDz = moto.z - moto._prevZ;
           const moveAngle = (Math.abs(mvDx) + Math.abs(mvDz) > 0.0001)
@@ -359,7 +570,7 @@ export class MotoManager {
       }
     }
 
-    // Fade + remove old tracks
+    // Fade tracks
     for (let i = this._tracks.length - 1; i >= 0; i--) {
       const t = this._tracks[i];
       t.age += dt;
@@ -388,60 +599,46 @@ export class MotoManager {
   }
 
   _emitTrack(moto, moveAngle) {
-    // Posición de la rueda trasera: centro del mesh - forward * media_distancia_entre_ejes
-    const HALF_WB = 0.62;  // ~media distancia entre ejes en metros
+    const HALF_WB = 0.62;
     const ry  = moto._displayRY;
     const fwdX = Math.sin(ry), fwdZ = Math.cos(ry);
-    const meshX = moto.mesh.position.x;
-    const meshZ = moto.mesh.position.z;
-    const rearX = meshX - fwdX * HALF_WB;
-    const rearZ = meshZ - fwdZ * HALF_WB;
-
-    // Una sola huella angosta (rueda de moto), orientada según dirección real de movimiento
+    const rearX = moto.mesh.position.x - fwdX * HALF_WB;
+    const rearZ = moto.mesh.position.z - fwdZ * HALF_WB;
     const mat  = this._trackMat.clone();
     const mesh = new THREE.Mesh(this._trackGeo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.rotation.z = -moveAngle;   // alineada con dirección de movimiento real
+    mesh.rotation.z = -moveAngle;
     mesh.position.set(rearX, 0.018, rearZ);
     mesh.renderOrder = 1;
     this.scene.add(mesh);
     this._tracks.push({ mesh, age: 0, maxAge: 5.5 });
-
-    while (this._tracks.length > 120) {
-      this.scene.remove(this._tracks.shift().mesh);
-    }
+    while (this._tracks.length > 120) this.scene.remove(this._tracks.shift().mesh);
   }
 
-  /** Update moto position to rider position and compute lean from turn rate */
+  // ── syncRiderPosition (legacy fallback — solo cuando Rapier no está listo) ─
   syncRiderPosition(x, z, moveAngle, sprinting) {
     if (this.myMotoId === null) return;
     const moto = this.motos.get(this.myMotoId);
     if (!moto) return;
-
-    // ── Speed factor ramp-up (variable tau: fast start, slow to reach max) ──
     const dx0 = x - moto.x, dz0 = z - moto.z;
     const isMoving = Math.sqrt(dx0 * dx0 + dz0 * dz0) * 60 > 0.5;
     if (isMoving) {
-      const tau   = 0.4 + 5.0 * moto._speedFactor;   // arranque más lento, top speed más gradual
+      const tau   = 0.4 + 5.0 * moto._speedFactor;
       const alpha = 1 - Math.exp(-(1 / 60) / tau);
       moto._speedFactor = Math.min(1, moto._speedFactor + alpha * (1 - moto._speedFactor));
     } else {
-      moto._speedFactor *= 0.92;   // frenado más suave — inercia al soltar
+      moto._speedFactor *= 0.92;
     }
-
     moto.x = x; moto.z = z;
-    moto._targetRY = moveAngle;   // spring-damper in update() drives toward this
-    // Offset moto mesh forward of rider so rider appears to sit toward the rear
+    moto._targetRY = moveAngle;
     const ry = moto._displayRY;
     moto.mesh.position.set(
-      x + Math.sin(ry) * SEAT_BACK_OFFSET,
-      0,
-      z + Math.cos(ry) * SEAT_BACK_OFFSET
+      x + Math.sin(ry) * SEAT_BACK_OFFSET, 0,
+      z + Math.cos(ry) * SEAT_BACK_OFFSET,
     );
   }
 
-  // ── Mount / dismount ─────────────────────────────────────────────────────────
-
+  // ── Mount / Dismount ──────────────────────────────────────────────────────
   tryMount(playerId, startY, fromX, fromZ) {
     if (this.myMotoId !== null) { this._dismount(playerId); return null; }
     if (this._nearestMotoId === null) return null;
@@ -456,9 +653,12 @@ export class MotoManager {
     this._nearestMotoId = null;
     this._lean = moto._lean = 0;
 
+    // Crear física Rapier con la orientación actual de la moto
+    this._createPhysics(moto.x, moto.z, moto._displayRY);
+
     this._anim = {
       type: 'mount', t: 0,
-      dur:   startY > 0.5 ? 0.18 : MOUNT_DUR,
+      dur:  startY > 0.5 ? 0.18 : MOUNT_DUR,
       startY, fromX, fromZ,
       toX: moto.x, toZ: moto.z,
     };
@@ -470,6 +670,10 @@ export class MotoManager {
     if (this.myMotoId === null) return;
     const moto = this.motos.get(this.myMotoId);
     if (!moto) return;
+
+    // Destruir cuerpo físico
+    this._destroyPhysics();
+
     const ry    = moto._displayRY;
     const sideX = moto.x + Math.sin(ry + Math.PI / 2) * SIDE_DIST;
     const sideZ = moto.z + Math.cos(ry + Math.PI / 2) * SIDE_DIST;
@@ -485,8 +689,7 @@ export class MotoManager {
     this._prevAngle = null;
   }
 
-  // ── Animation helpers for main.js player-model arc ───────────────────────────
-
+  // ── Animation helpers ─────────────────────────────────────────────────────
   getAnimY() {
     if (!this._anim) return null;
     const ts = this._anim.t * this._anim.t * (3 - 2 * this._anim.t);
@@ -513,8 +716,7 @@ export class MotoManager {
     };
   }
 
-  // ── Remote events ────────────────────────────────────────────────────────────
-
+  // ── Remote events ─────────────────────────────────────────────────────────
   onRemoteMount(motoId, riderId) {
     const m = this.motos.get(motoId); if (m) m.riderId = riderId;
   }

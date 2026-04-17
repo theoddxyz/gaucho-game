@@ -2267,11 +2267,30 @@ function gameLoop() {
 
       if (motoManager.isMounted() && !motoManager.isMountAnimating()) {
         if (_driftThisFrame && motoManager.startDrift()) Audio.motoTireScreech?.();
-        const moveAngle = controls.getMovementAngle();
-        const sprinting = controls.isSprinting();
-        motoManager.syncRiderPosition(pos.x, pos.z, moveAngle, sprinting);
-        Network.sendMotoMoved({ motoId: motoManager.myMotoId, x: pos.x, z: pos.z, ry: moveAngle });
-        Audio.updateMotoEngine?.(motoManager.getSpeedFactor());
+
+        if (motoManager.isRapierActive()) {
+          // ── Física Rapier: la moto maneja su propia posición ───────────────
+          const moto = motoManager.motos.get(motoManager.myMotoId);
+          const phys = motoManager.stepRapier(
+            controls.keys,
+            dt,
+            controls.isSprinting(),
+            moto?._drifting ?? false,
+          );
+          if (phys) {
+            controls.setPosition(phys.x, 0, phys.z);
+            pos = controls.getPosition();
+            Network.sendMotoMoved({ motoId: motoManager.myMotoId, x: phys.x, z: phys.z, ry: phys.ry });
+            Audio.updateMotoEngine?.(phys.speedFactor);
+          }
+        } else {
+          // ── Fallback legacy (mientras Rapier carga) ────────────────────────
+          const moveAngle = controls.getMovementAngle();
+          const sprinting = controls.isSprinting();
+          motoManager.syncRiderPosition(pos.x, pos.z, moveAngle, sprinting);
+          Network.sendMotoMoved({ motoId: motoManager.myMotoId, x: pos.x, z: pos.z, ry: moveAngle });
+          Audio.updateMotoEngine?.(motoManager.getSpeedFactor());
+        }
       }
 
       // Stop engine when dismounted (uses _wasMoto to detect transition)
