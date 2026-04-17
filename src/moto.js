@@ -17,7 +17,9 @@ const DISMOUNT_DUR     = 0.35;
 const SIDE_DIST        = 2.0;
 const LEAN_MAX         = 0.55;
 const LEAN_SPEED       = 11;
-const DRIFT_LEAN       = 0.95;
+const LEAN_SPEED_DRIFT = 28;   // snap rápido al inclinar durante drift
+const DRIFT_LEAN       = 1.25; // inclinación durante drift (moto + personaje)
+const DRIFT_LEAN_RIDER = 1.55; // idem para el personaje (más agresivo visualmente)
 const WHEEL_SPIN       = 3.0;
 const STEER_FACTOR     = 1.6;
 const SEAT_BACK_OFFSET = 0.7;
@@ -37,7 +39,7 @@ const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros 
 // A alta velocidad: poco grip (⁓8 %) → understeer / inercia real
 const PHY_GRIP_LOW      = 12.0;   // grip a vel=0  (cancelación / s)
 const PHY_GRIP_HIGH     = 1.2;    // grip a vel máx
-const PHY_GRIP_DRIFT    = 0.8;    // grip durante drift (patinaje)
+const PHY_GRIP_DRIFT    = 2.2;    // grip durante drift — slip controlado (no hielo)
 const PHY_STEER_SPEED_SCALE = 0.10; // reduce torque a alta velocidad
 
 // Fallback legacy constants (cuando Rapier no está listo aún)
@@ -98,9 +100,9 @@ export class MotoManager {
     this._mountLandPos  = null;
     this._lean          = 0;
 
-    // Tire tracks
-    this._trackGeo   = new THREE.PlaneGeometry(0.13, 0.38);
-    this._trackMat   = new THREE.MeshBasicMaterial({ color: 0x0a0804, transparent: true, opacity: 0.60, depthWrite: false });
+    // Tire tracks — dos huellas paralelas (rueda izq y der)
+    this._trackGeo   = new THREE.PlaneGeometry(0.11, 0.42);
+    this._trackMat   = new THREE.MeshBasicMaterial({ color: 0x080603, transparent: true, opacity: 0.80, depthWrite: false });
     this._tracks     = [];
     this._trackTimer = 0;
 
@@ -422,9 +424,12 @@ export class MotoManager {
   }
 
   getMotoLean() {
-    // Siempre devolver el lean real del mesh (suavizado) para que personaje y moto coincidan
     const m = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
-    return m?._lean ?? 0;
+    if (!m) return 0;
+    // Durante drift el personaje amplifica el lean de la moto
+    if (m._drifting && Math.abs(m._lean) > 0.01)
+      return m._lean * (DRIFT_LEAN_RIDER / DRIFT_LEAN);
+    return m._lean;
   }
 
   getSpeedFactor() {
@@ -445,16 +450,27 @@ export class MotoManager {
     const moto = this.myMotoId !== null ? this.motos.get(this.myMotoId) : null;
     if (!moto) return false;
     if (this._phyBody) {
-      // Con Rapier: siempre activar drift al presionar espacio
       moto._drifting   = true;
-      moto._driftTimer = 0.7;
-      // Signo correcto: angVelY>0 = girando izquierda → lean izquierda (negativo)
-      moto._driftSign  = this._phyLeanVel > 0.05 ? -1 : (this._phyLeanVel < -0.05 ? 1 : (moto._lean <= 0 ? -1 : 1));
+      moto._driftTimer = 1.6;
+      // Signo: angVelY>0 = girando izq → lean izq (negativo)
+      moto._driftSign  = this._phyLeanVel > 0.05 ? -1
+                       : this._phyLeanVel < -0.05 ? 1
+                       : moto._lean <= 0 ? -1 : 1;
+
+      // ── Patada lateral inicial (freno de mano real) ───────────────────────
+      // Aplica un impulso lateral fuerte para que el trasero salga disparado
+      const rot   = this._phyBody.rotation();
+      const ry    = 2 * Math.atan2(rot.y, rot.w);
+      const rightX = Math.cos(ry);
+      const rightZ = -Math.sin(ry);
+      const kick   = 7500 * moto._driftSign; // N·s — empuja en dirección del drift
+      this._phyBody.applyImpulse({ x: rightX * kick, y: 0, z: rightZ * kick }, true);
+
       return true;
     }
     if (moto._drifting || moto._speedFactor < 0.2) return false;
     moto._drifting   = true;
-    moto._driftTimer = 0.65;
+    moto._driftTimer = 1.2;
     moto._driftSign  = moto._lean >= 0 ? 1 : -1;
     return true;
   }
@@ -503,7 +519,9 @@ export class MotoManager {
         const leanTgt   = moto._drifting
           ? moto._driftSign * DRIFT_LEAN
           : Math.max(-LEAN_MAX, Math.min(LEAN_MAX, -this._phyLeanVel * absSpd * 1.8));
-        moto._lean += (leanTgt - moto._lean) * Math.min(1, LEAN_SPEED * dt);
+        // Durante drift: snap rápido a la inclinación máxima
+        const leanSpd = moto._drifting ? LEAN_SPEED_DRIFT : LEAN_SPEED;
+        moto._lean += (leanTgt - moto._lean) * Math.min(1, leanSpd * dt);
 
         moto.mesh.position.set(
           pos.x + Math.sin(phyRy) * SEAT_BACK_OFFSET,
@@ -571,7 +589,7 @@ export class MotoManager {
       if (moto._drifting) {
         this._trackTimer -= dt;
         if (this._trackTimer <= 0) {
-          this._trackTimer = 0.05;
+          this._trackTimer = 0.022;
           const mvDx = moto.x - moto._prevX;
           const mvDz = moto.z - moto._prevZ;
           const moveAngle = (Math.abs(mvDx) + Math.abs(mvDz) > 0.0001)
@@ -589,8 +607,8 @@ export class MotoManager {
       if (t.age > t.maxAge) {
         this.scene.remove(t.mesh);
         this._tracks.splice(i, 1);
-      } else if (t.age > t.maxAge * 0.55) {
-        t.mesh.material.opacity = 0.60 * (1 - (t.age - t.maxAge * 0.55) / (t.maxAge * 0.45));
+      } else if (t.age > t.maxAge * 0.65) {
+        t.mesh.material.opacity = 0.80 * (1 - (t.age - t.maxAge * 0.65) / (t.maxAge * 0.35));
       }
     }
 
@@ -611,20 +629,28 @@ export class MotoManager {
   }
 
   _emitTrack(moto, moveAngle) {
-    const HALF_WB = 0.62;
-    const ry  = moto._displayRY;
+    const HALF_WB   = 0.62;
+    const AXLE_HALF = 0.16; // semidistancia entre las dos huellas
+    const ry   = moto._displayRY;
     const fwdX = Math.sin(ry), fwdZ = Math.cos(ry);
+    const rtX  = Math.cos(ry), rtZ  = -Math.sin(ry);
     const rearX = moto.mesh.position.x - fwdX * HALF_WB;
     const rearZ = moto.mesh.position.z - fwdZ * HALF_WB;
-    const mat  = this._trackMat.clone();
-    const mesh = new THREE.Mesh(this._trackGeo, mat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.rotation.z = -moveAngle;
-    mesh.position.set(rearX, 0.018, rearZ);
-    mesh.renderOrder = 1;
-    this.scene.add(mesh);
-    this._tracks.push({ mesh, age: 0, maxAge: 5.5 });
-    while (this._tracks.length > 120) this.scene.remove(this._tracks.shift().mesh);
+
+    // Dos huellas paralelas (rueda izq y der del eje trasero)
+    for (const side of [-1, 1]) {
+      const tx  = rearX + rtX * AXLE_HALF * side;
+      const tz  = rearZ + rtZ * AXLE_HALF * side;
+      const mat = this._trackMat.clone();
+      const mesh = new THREE.Mesh(this._trackGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = -moveAngle;
+      mesh.position.set(tx, 0.019, tz);
+      mesh.renderOrder = 1;
+      this.scene.add(mesh);
+      this._tracks.push({ mesh, age: 0, maxAge: 9.0 });
+    }
+    while (this._tracks.length > 280) this.scene.remove(this._tracks.shift().mesh);
   }
 
   // ── syncRiderPosition (legacy fallback — solo cuando Rapier no está listo) ─
