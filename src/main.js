@@ -43,8 +43,9 @@ let _isSleeping   = false;
 let _sleepWarp    = null;  // { startT, targetT, durationSky, durationTotal } or null
 
 // ── Plant system ──────────────────────────────────────────────────────────────
-const _cropMeshes = new Map();  // cropId → THREE.Group
-let   _chunkMgr   = null;       // set after ChunkManager is created (ref for plant access)
+const _cropMeshes     = new Map();  // cropId → THREE.Group
+const _farmCooldowns  = [0, 0, 0, 0, 0];  // cooldown de labranza por aldeano (segundos)
+let   _chunkMgr       = null;       // set after ChunkManager is created (ref for plant access)
 
 function _makeCropMesh(grown) {
   const g = new THREE.Group();
@@ -128,6 +129,50 @@ function _canPlantAt(x, z) {
     }
   }
   return true;
+}
+
+// ── Labranza de aldeanos (solo host) ─────────────────────────────────────────
+function _updateAldeanFarming(dt) {
+  if (!isHost) return;
+  const units = soulSystem?.units;
+  if (!units) return;
+  units.forEach((unit, i) => {
+    _farmCooldowns[i] = Math.max(0, _farmCooldowns[i] - dt);
+    if (_farmCooldowns[i] > 0) return;
+    if (unit.isSleeping || unit.energy < 20) return;
+    if (unit.intention !== 'CONSUMING') return;
+    // Solo actuar si el aldeano ya llegó a su chacra
+    const farm = unit.farmPos;
+    const dx   = unit.terraPos.x - farm.x;
+    const dz   = unit.terraPos.y - farm.y;  // terraPos.y = 3D z
+    if (dx * dx + dz * dz > 36) return;     // radio 6 m
+    // ¿Hay cultivo maduro cerca?
+    const ripe = _getNearbyRipeCrop(farm.x, farm.y, 14);
+    if (ripe) {
+      Network.sendHarvestCrop(ripe._cropId);
+      _farmCooldowns[i] = 5 + Math.random() * 5;
+      return;
+    }
+    // ¿Hay algún cultivo creciendo cerca?
+    let hasCrop = false;
+    for (const mesh of _cropMeshes.values()) {
+      const cx = mesh.position.x - farm.x, cz = mesh.position.z - farm.y;
+      if (cx * cx + cz * cz < 196) { hasCrop = true; break; }  // radio 14
+    }
+    if (!hasCrop) {
+      // Plantar en un lugar aleatorio de la chacra
+      const angle = Math.random() * Math.PI * 2;
+      const r  = 2 + Math.random() * 4;
+      const px = farm.x + Math.cos(angle) * r;
+      const pz = farm.y + Math.sin(angle) * r;
+      if (_canPlantAt(px, pz)) {
+        Network.sendPlantSeed(px, pz);
+        _farmCooldowns[i] = 10 + Math.random() * 10;
+      }
+    } else {
+      _farmCooldowns[i] = 3 + Math.random() * 2;  // esperar a que madure
+    }
+  });
 }
 
 // Sleep picker UI
@@ -1565,7 +1610,6 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
   // === COMIDA: click izquierdo con food seleccionado → comer ===
   if (currentWeapon === 'food') {
-    if (Inventory.getSelected() === 'seed') return;  // semillas no se comen
     const item = Inventory.removeSelected();
     if (item) {
       restoreHunger(item.hunger);
@@ -2473,6 +2517,7 @@ function gameLoop() {
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
+  _updateAldeanFarming(dt);
   // Víboras: cazan gallinas si están cerca
   if (isHost) viboraSystem.update(dt, { playerPos: pos, preyPositions: chickenSystem._chickens.filter(c => !c.removed).map(c => ({ x: c.mesh?.position.x, z: c.mesh?.position.z })) });
   else viboraSystem.renderOnly(dt, pos);

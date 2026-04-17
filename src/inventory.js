@@ -18,7 +18,7 @@ const _vals    = {
   beef:    { hunger: 0, hp: 0 },
   ostrich: { hunger: 0, hp: 0 },
   fruit:   { hunger: 12, hp: 4 },
-  seed:    { hunger: 0,  hp: 0 },
+  seed:    { hunger: 3,  hp: 0 },
 };
 let _selected  = 'chicken';  // tipo activo para comer/tirar
 let _total     = 0;
@@ -56,7 +56,7 @@ export function removeSelected() {
   return result;
 }
 
-const _NOT_EDIBLE = new Set(['seed']);  // tipos que no se comen ni ciclan
+const _NOT_EDIBLE = new Set();  // todos los tipos son comestibles
 
 export function cycleSelected(dir = 1) {
   const types = Object.keys(_counts);

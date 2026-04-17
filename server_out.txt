@@ -1,15 +1,9 @@
 [GM] Gemini INACTIVO (sin API key)
 
-  GAUCHO dev server at http://localhost:3000
+  GAUCHO production server at http://localhost:3000
 
-  PUBLIC URL (comparte este link!):
-  https://light-cloths-guess.loca.lt
+  ╔══════════════════════════════════════════════╗
+  ║  LINK PARA EL OTRO JUGADOR:                  ║
+  ║  https://bryant-automation-hydraulic-remembered.trycloudflare.com║
+  ╚══════════════════════════════════════════════╝
 
-[2m23:03:59[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m23:07:54[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m23:32:50[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m23:37:54[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m23:55:24[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m0:24:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m0:41:57[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m
-[2m1:12:10[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mindex.html[22m

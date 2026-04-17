@@ -488,6 +488,17 @@ export class SoulSystem {
           terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
         }
 
+      } else if (intention === 'CONSUMING' && energy > 20) {
+        // ── Labranza: ir a la chacra personal ─────────────────────────────────
+        const distFarm = vec.dist(unit.terraPos, unit.farmPos);
+        if (distFarm > 3) {
+          const desired = vec.setMag(vec.sub(unit.farmPos, unit.terraPos), unit.maxSpeed);
+          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+        } else {
+          terraVel = { x: 0, y: 0 };
+          terraAcc = { x: 0, y: 0 };
+        }
+
       } else if (inventory < unit.maxInventory && energy > 30) {
         // ── Buscar recursos ───────────────────────────────────────────────────
         const isTargetValid = targetResource
