@@ -78,6 +78,7 @@ function _makeCropMesh(grown) {
     berry._ownGeo = true; berry.castShadow = true;
     berry.position.y = bushR * 0.85 + bushR * 0.78;
     g.add(berry);
+    g._berry = berry;  // referencia directa para mostrar/ocultar el fruto
   }
   return g;
 }
@@ -90,6 +91,7 @@ function _spawnCropMesh(crop, scene) {
   mesh._plantedAt = crop.plantedAt;
   mesh._grownAt   = crop.grownAt;
   mesh._isGrown   = grown;
+  mesh._isBush    = grown;  // si ya es arbusto al spawnear, marcar como tal
   // No escalar el marcador de siembra — siempre visible al 100%
   scene.add(mesh);
   _cropMeshes.set(crop.id, mesh);
@@ -738,6 +740,18 @@ Network.onTimeWarp(({ hours }) => {
 const _cropGrowAnims = []; // { mesh, startMs } — scale pop 0→1 over 400ms
 
 function _growCrop(mesh) {
+  if (mesh._isBush) {
+    // El arbusto ya existe — solo mostrar la baya con pop animation
+    mesh._isGrown = true;
+    if (mesh._berry) {
+      mesh._berry.visible = true;
+      mesh._berry.scale.setScalar(0.05);
+      _cropGrowAnims.push({ mesh: mesh._berry, startMs: Date.now(), berryOnly: true });
+    }
+    Audio.eatSound?.();
+    return;
+  }
+  // Primera madurez: reemplazar estaca por arbusto
   mesh.traverse(c => { if (c.isMesh) c.geometry?.dispose(); });
   scene.remove(mesh);
   const grown = _makeCropMesh(true);
@@ -745,6 +759,7 @@ function _growCrop(mesh) {
   grown._cropId  = mesh._cropId;
   grown._grownAt = mesh._grownAt;
   grown._isGrown = true;
+  grown._isBush  = true;
   grown.scale.setScalar(0.05);  // empieza chico
   scene.add(grown);
   _cropMeshes.set(grown._cropId, grown);
@@ -774,6 +789,8 @@ function _updateCropAnims() {
   }
 }
 
+
+
 Network.onWakeUp(() => {
   _stopSleeping();
   _sleepWarp = null;
@@ -801,8 +818,16 @@ Network.onCropHarvested(({ id, harvesterId }) => {
 });
 
 Network.onCropReset(({ id, plantedAt, grownAt }) => {
-  // Replace grown crop mesh with stake marker (crop regrows)
   const oldMesh = _cropMeshes.get(id);
+  if (oldMesh?._isBush) {
+    // Arbusto ya existe — solo ocultar la baya y actualizar timer
+    oldMesh._plantedAt = plantedAt;
+    oldMesh._grownAt   = grownAt;
+    oldMesh._isGrown   = false;
+    if (oldMesh._berry) oldMesh._berry.visible = false;
+    return;
+  }
+  // Primera vez o mesh de estaca — reemplazar normalmente
   const pos = oldMesh ? oldMesh.position.clone() : null;
   if (oldMesh) { oldMesh.traverse(c => { if (c.isMesh) c.geometry?.dispose(); }); scene.remove(oldMesh); _cropMeshes.delete(id); }
   if (!pos) return;
