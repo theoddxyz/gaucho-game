@@ -319,6 +319,8 @@ document.addEventListener('keydown', (e) => {
         trayectoria: unit.trayectoria,
         energia:     unit.energia,
         recursos:    unit.recursos,
+        ix:          unit.ix ?? 0,
+        iy:          unit.iy ?? 0,
         vecinos:     units.filter(u => u.name !== nearby.name)
                        .map(u => `${u.name} (${u.cuadrante})`).join(', '),
       });

@@ -522,6 +522,11 @@ export class SoulSystem {
       trayectoria: _calcTrayectoria(u),
       energia:     Math.round(u.energy),
       recursos:    u.inventory,
+      // Coordenadas reales del metaplano, normalizadas a -1..+1
+      // ix: INDIVIDUO(-1) ↔ COMUNIDAD(+1)
+      // iy: MATERIA(-1)   ↔ TRASCENDENCIA(+1)
+      ix: Math.round(((u.metaPos.x / META_W) * 2 - 1) * 100) / 100,
+      iy: Math.round((1 - (u.metaPos.y / META_H) * 2) * 100) / 100,
     }));
   }
 

@@ -1,7 +1,7 @@
 // conversation-ui.js — Sistema de conversación con aldeanos
 import * as Network from './network.js';
 import { speakNpc, stopSpeech } from './speech.js';
-import { startThinkingSound, stopThinkingSound, speakAldeanoReal } from './aldeano-voice.js';
+import { startPhase1, startPhase2, startPhase3, stopTheater, speakAldeanoReal } from './aldeano-voice.js';
 
 const MOOD_LABEL = {
   OFFERING:  'sereno, espiritual',
@@ -28,38 +28,38 @@ export class ConversationUI {
   init() {
     Network.onAldeanoChatResponse(({ response, impulso }) => {
       this._waiting = false;
-      stopThinkingSound();
+      stopTheater();  // cortar fase 1/2/3 sea cual sea
       if (!this._current) return;
-      const name = this._current.name;
+      const name    = this._current.name;
+      const ix      = this._current.ix    ?? 0;
+      const iy      = this._current.iy    ?? 0;
+      const energia = this._current.energia ?? 100;
 
       // Impulso metafísico
       if (impulso && this._souls && (Math.abs(impulso.ix) > 0.1 || Math.abs(impulso.iy) > 0.1)) {
         this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
       }
 
-      // Empujar al historial pero NO renderizar todavía — el texto aparece
-      // exactamente cuando Daniela empieza a hablar (onStart)
+      // Guardar texto en historial — NO renderizar todavía
       const hist = (this._history[name] = this._history[name] || []);
       hist.push({ from: 'npc', text: response });
 
-      // Lengua real del aldeano — arranca ANTES que Daniela
-      const intention = this._current.intention;
-      const energia   = this._current.energia ?? 100;
-      speakAldeanoReal(response, intention, energia);
+      // Fase 4: lengua real del aldeano arranca inmediatamente (unfiltered)
+      speakAldeanoReal(response, ix, iy, energia);
 
-      // Fallback: si Piper tarda mucho o falla, mostrar texto igual
+      // Fallback: mostrar texto si Piper tarda más de 5s o falla
       let _shown = false;
       const showText = () => {
         if (_shown) return;
         _shown = true;
-        if (this._current && this._current.name === name) {
+        if (this._current?.name === name) {
           this._renderHistory();
           this._renderInput();
         }
       };
-      setTimeout(showText, 5000); // máximo 5s de espera
+      setTimeout(showText, 5000);
 
-      // Texto aparece exactamente cuando Daniela arranca
+      // Texto aparece exactamente cuando Daniela arranca (onStart)
       speakNpc(response, { charName: name, onStart: showText });
     });
   }
@@ -88,7 +88,7 @@ export class ConversationUI {
     this._waiting = false;
     this._panel.style.display = 'none';
     this._current = null;
-    stopThinkingSound();
+    stopTheater();
     stopSpeech();
     if (this.onClose) this.onClose(name);
   }
@@ -189,28 +189,41 @@ export class ConversationUI {
   _sendCustom(message) {
     if (this._waiting) return;
     this._waiting = true;
-    const a = this._current;
+    const a  = this._current;
+    const ix = a.ix ?? 0;
+    const iy = a.iy ?? 0;
+
     (this._history[a.name] = this._history[a.name] || []).push({ from: 'player', text: message });
     this._renderHistory();
     this._renderInput(); // muestra "pensando..."
-    startThinkingSound();
 
+    // Disparar el request al servidor INMEDIATAMENTE (mientras corre el teatro)
     Network.sendAldeanoChat({
-      name:       a.name,
+      name:        a.name,
       message,
-      playerName: this._playerName,
-      cuadrante:  a.cuadrante,
+      playerName:  this._playerName,
+      cuadrante:   a.cuadrante,
       trayectoria: a.trayectoria,
-      energia:    a.energia,
-      recursos:   a.recursos,
-      vecinos:    a.vecinos,
-      historial:  (this._history[a.name] || []).slice(-6),
+      energia:     a.energia,
+      recursos:    a.recursos,
+      vecinos:     a.vecinos,
+      historial:   (this._history[a.name] || []).slice(-6),
+    });
+
+    // Teatro: fase 1 → fase 2 → fase 3 (en paralelo al tiempo de servidor)
+    startPhase1(() => {
+      if (!this._waiting) return; // servidor respondió durante fase 1, no continuar
+      startPhase2(message, ix, iy, () => {
+        if (!this._waiting) return; // servidor respondió durante fase 2
+        startPhase3(ix, iy); // loop hasta que llegue la respuesta
+      });
     });
 
     // Timeout de seguridad: 35s
     setTimeout(() => {
       if (!this._waiting) return;
       this._waiting = false;
+      stopTheater();
       if (this._current) {
         (this._history[this._current.name] = this._history[this._current.name] || [])
           .push({ from: 'npc', text: '...' });

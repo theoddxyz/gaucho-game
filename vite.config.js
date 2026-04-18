@@ -7,6 +7,9 @@ export default defineConfig({
     port: 3000,
     allowedHosts: 'all',
   },
+  worker: {
+    format: 'es',   // necesario para workers con dynamic imports (ONNX/piper)
+  },
   build: {
     rollupOptions: {
       input: {
