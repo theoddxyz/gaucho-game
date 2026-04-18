@@ -1,12 +1,19 @@
-// piper-tts.js — Síntesis de voz offline con Piper TTS
-// Voz: es_MX-ald-medium (español mexicano, 63MB, más cercano al rioplatense disponible)
-// es_AR-daniela NO existe en este paquete
+// piper-tts.js — Piper TTS con voz es_AR-daniela-high
+// El paquete @mintplex-labs/piper-tts-web no incluye es_AR en su lista,
+// pero sí soporta voces personalizadas si las pre-cargamos en OPFS
+// con la misma estructura que usa internamente.
 
 import * as tts from '@mintplex-labs/piper-tts-web';
 
-const VOICE_ID = 'es_MX-ald-medium';
+const VOICE_ID  = 'es_AR-daniela-high';
+const RHASSPY   = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
+const ONNX_PATH = 'es/es_AR/daniela/high/es_AR-daniela-high.onnx';
 
-// ── Pitch por personaje via playbackRate ──────────────────────────────────────
+// Parchear PATH_MAP para que el paquete sepa la ruta de daniela
+// (aunque use diffusionstudio como base, readBlob busca por nombre de archivo en OPFS)
+tts.PATH_MAP[VOICE_ID] = ONNX_PATH;
+
+// ── Pitch por personaje ───────────────────────────────────────────────────────
 const CHAR_RATES = {
   'Ramón':     0.90,
   'Ofelia':    1.15,
@@ -18,9 +25,9 @@ const CHAR_RATES = {
 
 let _state = 'idle';  // 'idle' | 'loading' | 'ready' | 'failed'
 
-// ── Badge de progreso en pantalla ─────────────────────────────────────────────
+// ── Badge de progreso ─────────────────────────────────────────────────────────
 let _badge = null;
-function _badge_show(text) {
+function _badge_set(text) {
   if (!_badge) {
     _badge = document.createElement('div');
     _badge.style.cssText = [
@@ -35,24 +42,95 @@ function _badge_show(text) {
   if (text) _badge.textContent = text;
 }
 
-// ── Init: descarga el modelo ──────────────────────────────────────────────────
-export async function initPiper() {
+// ── OPFS helpers (replica exacta de la estructura interna del paquete) ─────────
+async function _opfsWrite(filename, blob) {
+  const root = await navigator.storage.getDirectory();
+  const dir  = await root.getDirectoryHandle('piper', { create: true });
+  const file = await dir.getFileHandle(filename, { create: true });
+  const wr   = await file.createWritable();
+  await wr.write(blob);
+  await wr.close();
+}
+
+async function _opfsExists(filename) {
+  try {
+    const root = await navigator.storage.getDirectory();
+    const dir  = await root.getDirectoryHandle('piper', { create: false });
+    await dir.getFileHandle(filename, { create: false });
+    return true;
+  } catch (_) { return false; }
+}
+
+// ── Descarga daniela desde rhasspy → guarda en OPFS ───────────────────────────
+async function _downloadDaniela(onProgress) {
+  const onnxFile = ONNX_PATH.split('/').at(-1);          // es_AR-daniela-high.onnx
+  const jsonFile = onnxFile + '.json';
+
+  // Verificar si ya está cacheada
+  const [hasOnnx, hasJson] = await Promise.all([
+    _opfsExists(onnxFile),
+    _opfsExists(jsonFile),
+  ]);
+
+  if (hasOnnx && hasJson) {
+    console.log('[PIPER] daniela ya cacheada ✓');
+    return;
+  }
+
+  // Descargar .onnx (114 MB) con progreso
+  console.log('[PIPER] descargando daniela desde rhasspy...');
+  const onnxUrl = `${RHASSPY}/${ONNX_PATH}`;
+  const jsonUrl = `${RHASSPY}/${ONNX_PATH}.json`;
+
+  // Descargar JSON (pequeño, sin progreso)
+  if (!hasJson) {
+    const jRes  = await fetch(jsonUrl);
+    if (!jRes.ok) throw new Error(`JSON ${jRes.status}`);
+    await _opfsWrite(jsonFile, await jRes.blob());
+    console.log('[PIPER] config descargada');
+  }
+
+  // Descargar ONNX con progreso
+  if (!hasOnnx) {
+    const res = await fetch(onnxUrl);
+    if (!res.ok) throw new Error(`ONNX ${res.status}`);
+
+    const total  = parseInt(res.headers.get('content-length') || '0');
+    const reader = res.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      if (total > 0 && onProgress) {
+        onProgress(Math.round(loaded / total * 100));
+        _badge_set(`daniela: ${Math.round(loaded / total * 100)}%`);
+      }
+    }
+
+    const blob = new Blob(chunks, { type: 'application/octet-stream' });
+    await _opfsWrite(onnxFile, blob);
+    console.log('[PIPER] ONNX descargado y guardado ✓');
+  }
+}
+
+// ── Init público ──────────────────────────────────────────────────────────────
+export async function initPiper(onProgress) {
   if (_state !== 'idle') return;
   _state = 'loading';
-  _badge_show('voz: 0%');
+  _badge_set('daniela: 0%');
   try {
-    await tts.download(VOICE_ID, (p) => {
-      const pct = p.total ? Math.round(p.loaded / p.total * 100) : '?';
-      _badge_show(`voz: ${pct}%`);
-      console.log(`[PIPER] ${pct}%`);
-    });
+    await _downloadDaniela(onProgress);
     _state = 'ready';
-    _badge_show(null);
-    console.log('[PIPER] listo ✓', VOICE_ID);
+    _badge_set(null);
+    console.log('[PIPER] daniela lista ✓');
   } catch (e) {
     _state = 'failed';
-    _badge_show(null);
-    console.error('[PIPER] fallo:', e);
+    _badge_set(null);
+    console.error('[PIPER] fallo descargando daniela:', e);
   }
 }
 
@@ -67,7 +145,7 @@ function _ctx() {
 }
 
 // ── Reproducción ──────────────────────────────────────────────────────────────
-let _src = null;
+let _src  = null;
 let _busy = false;
 
 function _stop() {
@@ -79,10 +157,12 @@ function _stop() {
 export function cancelPiper() { _stop(); }
 
 export async function speakPiper(text, charName = 'GM', volume = 1.0) {
-  // Esperar si todavía está descargando
+  // Esperar descarga si está en progreso
   if (_state === 'loading') {
     await new Promise(r => {
-      const iv = setInterval(() => { if (_state !== 'loading') { clearInterval(iv); r(); } }, 400);
+      const iv = setInterval(() => {
+        if (_state !== 'loading') { clearInterval(iv); r(); }
+      }, 400);
     });
   }
   if (_state !== 'ready') return false;
@@ -91,12 +171,12 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0) {
   _busy = true;
 
   try {
-    console.log('[PIPER] sintetizando:', text.slice(0, 40));
+    console.log('[PIPER] sintetizando:', text.slice(0, 50));
     const wav = await tts.predict({ text, voiceId: VOICE_ID });
     if (!_busy) return false;
 
-    const ctx = _ctx();
-    const buf = await ctx.decodeAudioData(await wav.arrayBuffer());
+    const ctx  = _ctx();
+    const buf  = await ctx.decodeAudioData(await wav.arrayBuffer());
     if (!_busy) return false;
 
     const src  = ctx.createBufferSource();
@@ -109,11 +189,11 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0) {
     _src = src;
     src.onended = () => { if (_src === src) { _src = null; _busy = false; } };
     src.start();
-    console.log('[PIPER] reproduciendo ✓', charName, 'rate:', src.playbackRate.value);
+    console.log('[PIPER] reproduciendo ✓', charName);
     return true;
   } catch (e) {
     _busy = false;
-    console.error('[PIPER] error sintetizando:', e);
+    console.error('[PIPER] error:', e);
     return false;
   }
 }
