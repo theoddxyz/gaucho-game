@@ -144,7 +144,7 @@ function _updateAldeanFarming(dt) {
     const farm = unit.farmPos;
     const dx   = unit.terraPos.x - farm.x;
     const dz   = unit.terraPos.y - farm.y;  // terraPos.y = 3D z
-    if (dx * dx + dz * dz > 36) return;     // radio 6 m
+    if (dx * dx + dz * dz > 144) return;    // radio 12 m
     // ¿Hay cultivo maduro cerca?
     const ripe = _getNearbyRipeCrop(farm.x, farm.y, 14);
     if (ripe) {

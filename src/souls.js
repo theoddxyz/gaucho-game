@@ -111,28 +111,6 @@ function getDoor(bKey, houseId) {
   return HOUSES[houseId].pos;
 }
 
-// ─── Recurso 3D: atado de trigo ───────────────────────────────────────────────
-const _resMat  = new THREE.MeshStandardMaterial({ color: 0xC89420, emissive: 0x4a3008, roughness: 0.85 });
-const _resMat2 = new THREE.MeshStandardMaterial({ color: 0xDDAA28, emissive: 0x503810, roughness: 0.80 });
-// Atado de trigo: cilindro central + cuatro "espigas" inclinadas alrededor
-function _buildWheatMesh() {
-  const grp = new THREE.Group();
-  // Paja central (tallo del atado)
-  const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.50, 5), _resMat.clone());
-  stalk.castShadow = true;
-  grp.add(stalk);
-  // Cuatro espigas inclinadas
-  for (let i = 0; i < 4; i++) {
-    const ang = (i / 4) * Math.PI * 2;
-    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.34, 4), _resMat2.clone());
-    s.castShadow = true;
-    s.position.set(Math.cos(ang) * 0.07, 0.14, Math.sin(ang) * 0.07);
-    s.rotation.z = (Math.random() > 0.5 ? 1 : -1) * 0.28;
-    s.rotation.x = Math.cos(ang) * 0.20;
-    grp.add(s);
-  }
-  return grp;
-}
 
 // ─── Helpers para contexto de chat ───────────────────────────────────────────
 function _intentionLabel(intention) {
@@ -163,16 +141,14 @@ function _calcTrayectoria(u) {
 export class SoulSystem {
   constructor(scene) {
     this._scene     = scene;
-    this._resMeshes = new Map();   // resourceId → THREE.Mesh
-    this._resources = [];
-    this._spawnTimer = 0;
+    this._resources = [];   // vacío — los cultivos vienen del mundo 3D real
 
     this._stocks = {
-      OFFERING:  10,
-      SHARING:   10,
-      CONSUMING: 10,
-      BAR:       10,
-      HOUSES:    [10, 10, 10, 10, 10],
+      OFFERING:  0,
+      SHARING:   0,
+      CONSUMING: 0,
+      BAR:       0,
+      HOUSES:    [0, 0, 0, 0, 0],
     };
 
     this._time = { hour: 12, day: 1, month: 0, year: 1, totalSeconds: 12 };
@@ -223,7 +199,6 @@ export class SoulSystem {
   get units()          { return this._units;          }
   get guardianPos()    { return this._guardianPos;    }
   get playerGuardian() { return this._playerGuardian; }
-  get resources()      { return this._resources;      }
   get stocks()         { return this._stocks;         }
   get time()           { return this._time;           }
 
@@ -353,7 +328,7 @@ export class SoulSystem {
     // Recursos internos desactivados — todo lo visible proviene del mundo 3D real
 
     // ─── Decay de stocks ──────────────────────────────────────────────────────
-    if (Math.random() < 0.005 * dt * 60) {
+    if (Math.random() < 0.0005 * dt * 60) {
       this._stocks.OFFERING  = Math.max(0, this._stocks.OFFERING  - 1);
       this._stocks.SHARING   = Math.max(0, this._stocks.SHARING   - 1);
       this._stocks.CONSUMING = Math.max(0, this._stocks.CONSUMING - 1);
@@ -478,20 +453,6 @@ export class SoulSystem {
         buildingTimer = 0;
       }
 
-      // Recoger recursos del plano interno al pasar cerca
-      if (!isSleeping && inventory < unit.maxInventory) {
-        for (let ri = this._resources.length - 1; ri >= 0; ri--) {
-          const r = this._resources[ri];
-          if (vec.dist(terraPos, r.pos) < 2) {
-            inventory++;
-            energy -= 3;
-            this._resources.splice(ri, 1);
-            this._resMeshes.delete(r.id);
-            break;
-          }
-        }
-      }
-
       // Entregar recursos cuando el gusano está en el destino del plan
       if (!isSleeping && deliveryPlan && deliveryPlan.length > 0) {
         const step = deliveryPlan[0];
@@ -565,12 +526,6 @@ export class SoulSystem {
   }
 
   dispose() {
-    this._resMeshes.forEach((mesh) => {
-      if (!mesh) return;
-      this._scene.remove(mesh);
-      mesh.traverse(c => { if (c.isMesh) { c.geometry?.dispose(); c.material?.dispose(); } });
-    });
-    this._resMeshes.clear();
     this._resources = [];
   }
 }

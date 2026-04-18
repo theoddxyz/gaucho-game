@@ -283,7 +283,7 @@ function _getDestForUnit(unit, idx) {
     if (step.label === 'BAR')                                    return { x: DEST.BAR.x,         z: DEST.BAR.y        };
     if (step.label === 'HOARDING' || step.label === 'CONSUMING') return { x: HOUSES[idx].pos.x,  z: HOUSES[idx].pos.y };
   }
-  if (unit.energy < 45 || unit.intention === 'CONSUMING') return { x: HOUSES[idx].farm.x, z: HOUSES[idx].farm.y };
+  if (unit.energy < 65 || unit.intention === 'CONSUMING' || unit.inventory === 0) return { x: HOUSES[idx].farm.x, z: HOUSES[idx].farm.y };
   if (unit.intention === 'OFFERING')                      return { x: DEST.OFFERING.x,    z: DEST.OFFERING.y   };
   if (unit.intention === 'SHARING')                       return { x: DEST.SHARING.x,     z: DEST.SHARING.y    };
   if (unit.intention === 'BAR')                           return { x: DEST.BAR.x,         z: DEST.BAR.y        };
