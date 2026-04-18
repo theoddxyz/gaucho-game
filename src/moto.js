@@ -25,22 +25,25 @@ const STEER_FACTOR     = 1.6;
 const SEAT_BACK_OFFSET = 0.7;
 
 // ── Rapier physics constants ──────────────────────────────────────────────────
-const PHY_MASS          = 180;    // kg
-const PHY_THROTTLE      = 68000;  // N  — fuerza de aceleración (terminal ≈ 75 m/s con drag=12)
-const PHY_BRAKE         = 32000;  // N  — fuerza de frenado
-const PHY_STEER_TORQUE  = 700;    // N·m — torque de dirección
-const PHY_MAX_SPEED     = 85;     // m/s ≈ 306 km/h  (cap de seguridad para speedFactor)
-const PHY_MAX_REVERSE   = 10;     // m/s marcha atrás
-const PHY_DRAG          = 12;     // resistencia de aire (escala con vel²)
-const PHY_LINEAR_DAMP   = 0.0;    // 0 = solo el drag manual controla la desaceleración
-const PHY_ANGULAR_DAMP  = 6.0;    // amortiguación angular Rapier (evita giros locos)
-// Grip model — fracción de velocidad lateral que se cancela por frame
-// A baja velocidad: mucho grip (⁓80 % de corrección)
-// A alta velocidad: poco grip (⁓8 %) → understeer / inercia real
-const PHY_GRIP_LOW      = 12.0;   // grip a vel=0  (cancelación / s)
-const PHY_GRIP_HIGH     = 1.2;    // grip a vel máx
-const PHY_GRIP_DRIFT    = 2.2;    // grip durante drift — slip controlado (no hielo)
-const PHY_STEER_SPEED_SCALE = 0.10; // reduce torque a alta velocidad
+const PHY_MASS         = 180;    // kg
+const PHY_THROTTLE     = 68000;  // N   aceleración máxima
+const PHY_BRAKE        = 32000;  // N   frenado máximo
+const PHY_MAX_SPEED    = 85;     // m/s ≈ 306 km/h (cap speedFactor)
+const PHY_MAX_REVERSE  = 10;     // m/s marcha atrás
+const PHY_DRAG         = 12;     // resistencia de aire (v²)
+
+// ── Modelo de contacto de neumáticos ─────────────────────────────────────────
+// Cada rueda aplica una fuerza lateral en su punto de contacto con el suelo.
+// Esto crea torques naturales → la moto gira de verdad.
+const PHY_WHEELBASE    = 1.8;    // m  distancia entre ejes
+const PHY_FRONT_GRIP   = 2400;   // N·s/m  rigidez lateral neumático delantero
+const PHY_REAR_GRIP    = 1900;   // N·s/m  rigidez lateral neumático trasero
+const PHY_DRIFT_FRONT  = 0.15;   // fracción de grip delantero durante handbrake
+const PHY_DRIFT_REAR   = 0.02;   // fracción de grip trasero durante handbrake (freno de mano)
+const PHY_STEER_MAX    = 0.50;   // rad ángulo máximo de manillar
+const PHY_STEER_RATE   = 3.4;    // rad/s velocidad de giro del manillar
+const PHY_STEER_RETURN = 7.0;    // rad/s retorno a centro
+const PHY_ANG_DAMP     = 12.0;   // N·m·s  amortiguación angular manual
 
 // Fallback legacy constants (cuando Rapier no está listo aún)
 const SPEED_MULT   = 5.0;
@@ -107,12 +110,13 @@ export class MotoManager {
     this._trackTimer = 0;
 
     // ── Rapier physics state ──────────────────────────────────────────────────
-    this._RAPIER     = null;    // módulo Rapier (listo tras init async)
-    this._phyWorld   = null;    // RAPIER.World activo
-    this._phyBody    = null;    // RigidBody de la moto
-    this._phyAccum   = 0;       // acumulador de tiempo (fixed-step)
-    this._phySpeed   = 0;       // velocidad forward actual (m/s)
-    this._phyLeanVel = 0;       // velocidad angular Y (para visual lean)
+    this._RAPIER      = null;   // módulo Rapier (listo tras init async)
+    this._phyWorld    = null;   // RAPIER.World activo
+    this._phyBody     = null;   // RigidBody de la moto
+    this._phyAccum    = 0;
+    this._phySpeed    = 0;      // velocidad forward actual (m/s)
+    this._phyLeanVel  = 0;      // velocidad angular Y (para visual lean)
+    this._steerAngle  = 0;      // ángulo actual del manillar (rad)
 
     this._initRapier();
     this._init();
@@ -152,8 +156,8 @@ export class MotoManager {
       // Cuerpo rígido del chasis
       const bodyDesc = R.RigidBodyDesc.dynamic()
         .setTranslation(x, 0.45, z)
-        .setLinearDamping(0)        // sin amortiguación automática — el drag manual es suficiente
-        .setAngularDamping(PHY_ANGULAR_DAMP);
+        .setLinearDamping(0)
+        .setAngularDamping(0);   // amortiguación manual en stepRapier
       this._phyBody = this._phyWorld.createRigidBody(bodyDesc);
 
       // Bloquear rotaciones X y Z — la moto no se cae
@@ -182,114 +186,119 @@ export class MotoManager {
   }
 
   _destroyPhysics() {
-    this._phyWorld = null;
-    this._phyBody  = null;
-    this._phyAccum = 0;
-    this._phySpeed = 0;
+    this._phyWorld   = null;
+    this._phyBody    = null;
+    this._phyAccum   = 0;
+    this._phySpeed   = 0;
+    this._steerAngle = 0;
   }
 
-  // ── Paso de física Rapier — llamado cada frame cuando montado ─────────────
-  // Devuelve { x, z, ry, speedFactor, drifting } o null si Rapier no está listo
+  // ── Paso de física Rapier — modelo de contacto de ruedas ─────────────────
+  // Las fuerzas laterales se aplican en los puntos de contacto delantero y trasero,
+  // creando torques naturales. El handbrake elimina el grip trasero → derrape real.
   stepRapier(keys, dt, sprinting, isDrifting) {
     if (!this._phyBody || !this._phyWorld) return null;
 
-    const R       = this._RAPIER;
-    const body    = this._phyBody;
-    const world   = this._phyWorld;
+    const body  = this._phyBody;
+    const world = this._phyWorld;
+    const HALF  = PHY_WHEELBASE * 0.5;   // 0.9 m: distancia eje→centro
 
-    // ── Extraer estado actual ───────────────────────────────────────────────
-    const rot    = body.rotation();                          // quaternion
-    const ry     = 2 * Math.atan2(rot.y, rot.w);            // ángulo Y del cuerpo
+    // ── Estado actual ──────────────────────────────────────────────────────
+    const rot    = body.rotation();
+    const ry     = 2 * Math.atan2(rot.y, rot.w);
     const fwdX   = Math.sin(ry);
     const fwdZ   = Math.cos(ry);
-    const rightX = Math.cos(ry);
-    const rightZ = -Math.sin(ry);
+    const rtX    = Math.cos(ry);          // vector derecha
+    const rtZ    = -Math.sin(ry);
+    const vel    = body.linvel();
+    const omega  = body.angvel().y;
+    const fwdSpd = vel.x * fwdX + vel.z * fwdZ;
+    const absSpd = Math.abs(fwdSpd);
 
-    const linVel  = body.linvel();
-    const fwdSpd  = linVel.x * fwdX + linVel.z * fwdZ;     // velocidad forward
-    const latSpd  = linVel.x * rightX + linVel.z * rightZ;  // velocidad lateral
-    const absSpd  = Math.abs(fwdSpd);
-
-    // ── Aceleración / frenado ───────────────────────────────────────────────
+    // ── Aceleración / Frenado ──────────────────────────────────────────────
     const throttle = PHY_THROTTLE * (sprinting ? 1.4 : 1.0) * dt;
-    const brake    = PHY_BRAKE * dt;
-
-    if (keys.w && fwdSpd < PHY_MAX_SPEED) {
+    const brakeF   = PHY_BRAKE * dt;
+    if (keys.w && fwdSpd < PHY_MAX_SPEED)
       body.applyImpulse({ x: fwdX * throttle, y: 0, z: fwdZ * throttle }, true);
-    }
     if (keys.s) {
-      if (fwdSpd > 0.3) {
-        // Freno
-        body.applyImpulse({ x: -fwdX * brake, y: 0, z: -fwdZ * brake }, true);
-      } else if (fwdSpd > -PHY_MAX_REVERSE) {
-        // Marcha atrás lenta
+      if (fwdSpd > 0.3)
+        body.applyImpulse({ x: -fwdX * brakeF, y: 0, z: -fwdZ * brakeF }, true);
+      else if (fwdSpd > -PHY_MAX_REVERSE)
         body.applyImpulse({ x: -fwdX * throttle * 0.25, y: 0, z: -fwdZ * throttle * 0.25 }, true);
-      }
     }
 
-    // ── Dirección — torque en Y, se reduce a alta velocidad ─────────────────
-    // A mayor velocidad el radio de giro es mayor (comportamiento real)
-    const steerT = PHY_STEER_TORQUE * dt / (1 + absSpd * PHY_STEER_SPEED_SCALE);
-    if (keys.a) body.applyTorqueImpulse({ x: 0, y:  steerT, z: 0 }, true);
-    if (keys.d) body.applyTorqueImpulse({ x: 0, y: -steerT, z: 0 }, true);
+    // ── Ángulo de manillar (A/D) ───────────────────────────────────────────
+    // Se reduce a alta velocidad (dirección sensible a la velocidad)
+    const steerLim = PHY_STEER_MAX * Math.max(0.15, 1 - absSpd / PHY_MAX_SPEED * 0.75);
+    const steerIn  = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
+    this._steerAngle += steerIn * PHY_STEER_RATE * dt;
+    if (steerIn === 0) this._steerAngle *= Math.max(0, 1 - PHY_STEER_RETURN * dt);
+    this._steerAngle = Math.max(-steerLim, Math.min(steerLim, this._steerAngle));
 
-    // Si no hay tecla de dirección, frenar rotación angular suavemente
-    if (!keys.a && !keys.d) {
-      const angVel = body.angvel();
-      body.applyTorqueImpulse({ x: 0, y: -angVel.y * 12 * dt, z: 0 }, true);
-    }
+    // ── Velocidad lateral en cada punto de contacto ────────────────────────
+    // v_rueda = v_cm + ω × r     (en el plano XZ)
+    // ω × r_delantera = (+ω*fwdZ*HALF, 0, -ω*fwdX*HALF)
+    // ω × r_trasera   = (-ω*fwdZ*HALF, 0, +ω*fwdX*HALF)
+    const fLatVel = (vel.x + omega * fwdZ * HALF) * rtX
+                  + (vel.z - omega * fwdX * HALF) * rtZ;
+    const rLatVel = (vel.x - omega * fwdZ * HALF) * rtX
+                  + (vel.z + omega * fwdX * HALF) * rtZ;
 
-    // ── Resistencia de aire (proporcional a vel²) ────────────────────────────
-    const speed2 = absSpd * absSpd;
-    const dragF  = -Math.sign(fwdSpd) * PHY_DRAG * speed2 * dt;
-    body.applyImpulse({ x: fwdX * dragF, y: 0, z: fwdZ * dragF }, true);
+    // ── Fuerzas laterales de neumático ────────────────────────────────────
+    // La delantera tiene una velocidad lateral "deseada" = -steer * vel
+    // (negativo porque steer>0=izq → front debe ir a la izquierda)
+    const fDesired  = -this._steerAngle * Math.min(absSpd, 55);
+    const fGrip     = isDrifting ? PHY_FRONT_GRIP * PHY_DRIFT_FRONT : PHY_FRONT_GRIP;
+    const rGrip     = isDrifting ? PHY_REAR_GRIP  * PHY_DRIFT_REAR  : PHY_REAR_GRIP;
 
-    // ── Paso físico ───────────────────────────────────────────────────────────
-    world.timestep = Math.min(dt, 1 / 30);  // máximo 30ms por paso
+    const frontLF   = -fGrip * (fLatVel - fDesired) * dt;   // N·s (impulso)
+    const rearLF    = -rGrip * rLatVel * dt;
+
+    // Aplicar: impulso lineal total + torque equivalente
+    // torque_y_delantera = -HALF * frontLF
+    // torque_y_trasera   = +HALF * rearLF
+    body.applyImpulse(
+      { x: rtX * (frontLF + rearLF), y: 0, z: rtZ * (frontLF + rearLF) }, true
+    );
+    body.applyTorqueImpulse(
+      { x: 0, y: HALF * (rearLF - frontLF), z: 0 }, true
+    );
+
+    // Torque de apoyo a velocidad baja (girar en parado)
+    const slowT = Math.max(0, 1 - absSpd / 5);
+    if (steerIn !== 0 && slowT > 0)
+      body.applyTorqueImpulse({ x: 0, y: steerIn * 150 * slowT * dt, z: 0 }, true);
+
+    // ── Resistencia de aire (v²) ───────────────────────────────────────────
+    const dragImp = -Math.sign(fwdSpd) * PHY_DRAG * absSpd * absSpd * dt;
+    body.applyImpulse({ x: fwdX * dragImp, y: 0, z: fwdZ * dragImp }, true);
+
+    // ── Amortiguación angular manual ───────────────────────────────────────
+    body.applyTorqueImpulse({ x: 0, y: -omega * PHY_ANG_DAMP * dt, z: 0 }, true);
+
+    // ── Paso físico ────────────────────────────────────────────────────────
+    world.timestep = Math.min(dt, 1 / 30);
     world.step();
 
-    // ── Cancelar velocidad lateral (modelo de grip neumático) ────────────────
-    // Se hace DESPUÉS del step para anular la componente lateral que Rapier dejó.
-    // El grip decae con la velocidad → a alta vel la moto tiende a seguir recto
-    // (understeer natural / inercia real), en lugar de cancelar el slip al instante.
-    const velPost    = body.linvel();
-    const latPost    = velPost.x * rightX + velPost.z * rightZ;
-    const speedRatio = Math.min(1, absSpd / PHY_MAX_SPEED);
-    // Interpolamos el grip entre PHY_GRIP_LOW (vel=0) y PHY_GRIP_HIGH (vel=max)
-    const gripPerSec = isDrifting
-      ? PHY_GRIP_DRIFT
-      : PHY_GRIP_LOW + (PHY_GRIP_HIGH - PHY_GRIP_LOW) * speedRatio;
-    // Fracción a cancelar este frame (capped a 1 para no overshoot)
-    const latFraction = Math.min(1, gripPerSec * world.timestep);
-    body.setLinvel({
-      x: velPost.x - rightX * latPost * latFraction,
-      y: velPost.y,
-      z: velPost.z - rightZ * latPost * latFraction,
-    }, true);
-
-    // ── Clamp Y (siempre en el suelo) ────────────────────────────────────────
+    // ── Clamp Y ────────────────────────────────────────────────────────────
     const pos = body.translation();
     if (pos.y < 0.38) body.setTranslation({ x: pos.x, y: 0.38, z: pos.z }, true);
 
-    // ── Estado de salida ─────────────────────────────────────────────────────
-    const finalVel   = body.linvel();
-    const finalRot   = body.rotation();
-    const finalRy    = 2 * Math.atan2(finalRot.y, finalRot.w);
-    const finalFwdX  = Math.sin(finalRy);
-    const finalFwdZ  = Math.cos(finalRy);
-    const finalSpd   = finalVel.x * finalFwdX + finalVel.z * finalFwdZ;
-    const speedFactor = Math.min(1, Math.abs(finalSpd) / PHY_MAX_SPEED);
-    const angVelY    = body.angvel().y;
+    // ── Salida ─────────────────────────────────────────────────────────────
+    const fv  = body.linvel();
+    const fr  = body.rotation();
+    const fRy = 2 * Math.atan2(fr.y, fr.w);
+    const fSpd = fv.x * Math.sin(fRy) + fv.z * Math.cos(fRy);
 
-    this._phySpeed   = finalSpd;
-    this._phyLeanVel = angVelY;
+    this._phySpeed   = fSpd;
+    this._phyLeanVel = body.angvel().y;
 
     return {
       x: pos.x, z: pos.z,
-      ry: finalRy,
-      speedFactor,
-      speed: finalSpd,
-      angVelY,
+      ry: fRy,
+      speedFactor: Math.min(1, Math.abs(fSpd) / PHY_MAX_SPEED),
+      speed: fSpd,
+      angVelY: this._phyLeanVel,
     };
   }
 
@@ -457,14 +466,14 @@ export class MotoManager {
                        : this._phyLeanVel < -0.05 ? 1
                        : moto._lean <= 0 ? -1 : 1;
 
-      // ── Patada lateral inicial (freno de mano real) ───────────────────────
-      // Aplica un impulso lateral fuerte para que el trasero salga disparado
-      const rot   = this._phyBody.rotation();
-      const ry    = 2 * Math.atan2(rot.y, rot.w);
-      const rightX = Math.cos(ry);
-      const rightZ = -Math.sin(ry);
-      const kick   = 7500 * moto._driftSign; // N·s — empuja en dirección del drift
-      this._phyBody.applyImpulse({ x: rightX * kick, y: 0, z: rightZ * kick }, true);
+      // ── Pequeño impulso inicial para definir dirección del derrape ─────────
+      // El modelo de contacto de ruedas hará el resto
+      const rot  = this._phyBody.rotation();
+      const ry2  = 2 * Math.atan2(rot.y, rot.w);
+      const rkX  = Math.cos(ry2);
+      const rkZ  = -Math.sin(ry2);
+      const kick = 3500 * moto._driftSign;
+      this._phyBody.applyImpulse({ x: rkX * kick, y: 0, z: rkZ * kick }, true);
 
       return true;
     }

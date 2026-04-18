@@ -10,3 +10,5 @@
 [gaucho] Gaucho joined (1 players, host=YES)
 [gaucho] Player left (0 players)
 [gaucho] Gaucho joined (1 players, host=YES)
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)
