@@ -4,14 +4,18 @@
 // con la misma estructura que usa internamente.
 
 import * as tts from '@mintplex-labs/piper-tts-web';
+import { TtsSession } from '@mintplex-labs/piper-tts-web';
 
 const VOICE_ID  = 'es_AR-daniela-high';
 const RHASSPY   = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
 const ONNX_PATH = 'es/es_AR/daniela/high/es_AR-daniela-high.onnx';
 
 // Parchear PATH_MAP para que el paquete sepa la ruta de daniela
-// (aunque use diffusionstudio como base, readBlob busca por nombre de archivo en OPFS)
 tts.PATH_MAP[VOICE_ID] = ONNX_PATH;
+
+// El paquete apunta a cdnjs 1.18.0 que no tiene ort-wasm-simd-threaded.jsep.mjs
+// → redirigir a unpkg que sí tiene todos los archivos
+TtsSession.WASM_LOCATIONS.onnxWasm = 'https://unpkg.com/onnxruntime-web@1.18.0/dist/';
 
 // ── Pitch por personaje ───────────────────────────────────────────────────────
 const CHAR_RATES = {
