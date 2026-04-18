@@ -27,6 +27,7 @@ export class SoulMap {
     this._mode     = 0;          // 0=oculto  1=almas  2=criaturas
     this._creatures = null;      // datos de fauna en vivo
     this._crops     = [];        // cultivos 3D del mundo
+    this._player    = null;      // { x, z, name } — posición real del jugador local
 
     this._canvas = document.createElement('canvas');
     this._canvas.style.cssText = [
@@ -55,6 +56,9 @@ export class SoulMap {
   // Llamado cada frame con los cultivos 3D del mundo
   // crops: array de { x, z, grown }
   setCropData(crops) { this._crops = crops; }
+
+  // Posición real del jugador local en el mapa territorial
+  setPlayerData(x, z, name) { this._player = { x, z, name: name || '?' }; }
 
   _resize() {
     this._canvas.width  = window.innerWidth;
@@ -417,6 +421,41 @@ export class SoulMap {
       const foodStr = unit.food > 0 ? `${unit.intention} 🌿${unit.food.toFixed(1)}` : unit.intention;
       ctx.fillText(foodStr, up.x + 7, up.y + 12);
     });
+
+    // ── Jugador local ─────────────────────────────────────────────────────────
+    if (this._player) {
+      const pp   = this._t2c({ x: this._player.x, y: this._player.z }, ox, oy, w, h);
+      const now  = Date.now();
+      const pulse = Math.sin(now * 0.004) * 0.5 + 0.5;  // 0..1
+
+      // Anillo pulsante exterior
+      ctx.beginPath();
+      ctx.arc(pp.x, pp.y, 9 + pulse * 4, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,220,80,${0.15 + pulse * 0.2})`;
+      ctx.lineWidth   = 1;
+      ctx.stroke();
+
+      // Triángulo/cursor apuntando hacia arriba — indica "tú estás aquí"
+      ctx.beginPath();
+      ctx.moveTo(pp.x,      pp.y - 9);   // vértice superior
+      ctx.lineTo(pp.x - 6,  pp.y + 5);   // esquina inferior izquierda
+      ctx.lineTo(pp.x + 6,  pp.y + 5);   // esquina inferior derecha
+      ctx.closePath();
+      ctx.fillStyle   = `rgba(255,220,80,${0.85 + pulse * 0.15})`;
+      ctx.shadowBlur  = 8 + pulse * 6;
+      ctx.shadowColor = 'rgba(255,200,40,0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth   = 0.8;
+      ctx.stroke();
+      ctx.shadowBlur  = 0;
+
+      // Nombre
+      ctx.font      = 'bold 9px monospace';
+      ctx.fillStyle = 'rgba(255,230,100,0.95)';
+      ctx.textAlign = 'center';
+      ctx.fillText(this._player.name, pp.x, pp.y + 19);
+    }
   }
 
   // ─── Helpers de coordenadas ───────────────────────────────────────────────

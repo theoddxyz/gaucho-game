@@ -629,6 +629,7 @@ let _remoteCarrosaDriver     = null;  // socket.id of whoever is remotely drivin
 let _remoteCarrosaPassenger  = null;  // socket.id of whoever is remotely riding as passenger
 const remotePlayers   = new Map();
 let myId   = null;
+let myName = 'gaucho';
 let myData = { hp: 100, kills: 0, deaths: 0 };
 let isDead = false;
 let _monturaCnt = 0;  // monturas en inventario del jugador
@@ -1032,6 +1033,7 @@ function startGame(name) {
 
 Network.onJoined((data) => {
   myId   = data.self.id;
+  myName = data.self.name || 'gaucho';
   myData = { hp: data.self.hp, kills: data.self.kills, deaths: data.self.deaths };
   isHost = data.isHost || false;
   console.log(`[JOIN] isHost=${isHost}`);
@@ -3031,6 +3033,10 @@ function gameLoop() {
       cropArr.push({ x: mesh.position.x, z: mesh.position.z, grown: !!mesh._isGrown });
     }
     soulMap.setCropData(cropArr);
+  }
+  // Posición del jugador en el mapa territorial (modo 1)
+  if (soulMap._mode === 1 && pos) {
+    soulMap.setPlayerData(pos.x, pos.z, myName);
   }
   // Alimentar datos de fauna al mapa ecológico (solo cuando está visible)
   if (soulMap._mode === 2) {
