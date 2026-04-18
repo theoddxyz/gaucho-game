@@ -222,6 +222,32 @@ export class SoulSystem {
   get stocks()      { return this._stocks;      }
   get time()        { return this._time;        }
 
+  // ─── Impulso metafísico por diálogo ──────────────────────────────────────────
+  // ix: INDIVIDUO(-1)↔COMUNIDAD(+1), iy: MATERIA(-1)↔TRASCENDENCIA(+1)
+  // Translates to metaPos: x=INDIVIDUO↔GRUPO (0-META_W), y=TRASCENDENTE↔MATERIA (0-META_H)
+  applyImpulso(name, ix, iy) {
+    const unit = this._units.find(u => u.name === name);
+    if (!unit) return;
+    // META_W: 0=individuo izq, META_W=grupo der  → ix(+1)=grupo=x grande
+    // META_H: 0=trascendente arriba, META_H=materia abajo  → iy(+1)=trascendente=y pequeña
+    const FORCE = 60; // unidades de impulso en el metaplano
+    unit.metaVel.x += ix * FORCE;
+    unit.metaVel.y -= iy * FORCE;  // iy+ = trascendencia = y menor (arriba en canvas)
+  }
+
+  // Punto guardián temporal para el diálogo (ix,iy en -1..1)
+  setDialogGuardian(ix, iy) {
+    // Convierte ix/iy a coordenadas del metaplano
+    this._guardianPos.x = META_W * 0.5 + ix * META_W * 0.45;
+    this._guardianPos.y = META_H * 0.5 - iy * META_H * 0.45;
+    // Auto-reset a posición neutral después de 4 segundos
+    clearTimeout(this._guardianResetT);
+    this._guardianResetT = setTimeout(() => {
+      this._guardianPos.x = META_W * 0.75;
+      this._guardianPos.y = META_H * 0.25;
+    }, 4000);
+  }
+
   // ─── Update principal ─────────────────────────────────────────────────────
   // dt: segundos reales del frame
   // externalHour: hora del juego (0-23) de daynight.js

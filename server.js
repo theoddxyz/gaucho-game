@@ -996,27 +996,41 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
     const histStr = Array.isArray(historial) && historial.length
       ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? 'Gaucho' : name}: "${h.text}"`).join('\n') + '\n'
       : '';
+    // Pedimos respuesta corta + impulso metafísico como JSON
     const prompt =
-`Sos ${name}, aldeano de la pampa argentina.
+`Sos ${name}, aldeano gaucho de la pampa argentina.
 Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
 Vecinos: ${vecinos}.${histStr}
 El gaucho te dice: "${message.trim()}"
 
-Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra cómo hablás.`;
+Respondé con JSON válido, sin markdown, sin texto extra:
+{"r":"tu respuesta en máximo 12 palabras, estilo seco gaucho rioplatense","ix":0.0,"iy":0.0}
+
+ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0) que provoca lo que dijo el gaucho
+iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0) que provoca lo que dijo el gaucho
+Valores entre -1.0 y 1.0. Sé preciso según el contenido del mensaje.`;
     try {
-      let response;
+      let raw;
       if (_gmModel) {
         const _timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000));
         const r = await Promise.race([_gmModel.generateContent(prompt), _timeout]);
-        response = r.response.text().trim();
+        raw = r.response.text().trim();
       } else {
-        // Ollama local (gemma3:4b) — timeout generoso
-        response = await ollamaGenerate(prompt, 40000);
+        raw = await ollamaGenerate(prompt, 40000);
       }
-      socket.emit('aldeanoChatResponse', { response });
+      // Limpiar y parsear JSON
+      raw = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
+      // Extraer primer objeto JSON del string (Gemma a veces agrega texto antes/después)
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('no JSON en respuesta');
+      const parsed = JSON.parse(jsonMatch[0]);
+      const response = String(parsed.r || '...').slice(0, 120);
+      const ix = Math.max(-1, Math.min(1, Number(parsed.ix) || 0));
+      const iy = Math.max(-1, Math.min(1, Number(parsed.iy) || 0));
+      socket.emit('aldeanoChatResponse', { response, impulso: { ix, iy } });
     } catch(e) {
-      console.warn('[aldeanoChat] FALLO:', e.message, e.status ?? '', e.statusText ?? '');
-      socket.emit('aldeanoChatResponse', { response: `(${name} no responde)` });
+      console.warn('[aldeanoChat] FALLO:', e.message);
+      socket.emit('aldeanoChatResponse', { response: `(${name} no responde)`, impulso: null });
     }
   });
 

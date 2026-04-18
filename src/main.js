@@ -754,7 +754,7 @@ function _worldSpawns(count, worldR, seed) {
 const soulSystem      = new SoulSystem(scene);
 const soulMap         = new SoulMap(soulSystem);
 const campesinoSystem = new CampesinoSystem(scene);
-const conversationUI  = new ConversationUI();  // sin socket aún — init() se llama en onJoined
+const conversationUI  = new ConversationUI(soulSystem);  // sin socket aún — init() se llama en onJoined
 conversationUI.onClose = (name) => { if (name) campesinoSystem.endTalk(name); };
 
 const _convPrompt = document.createElement('div');

@@ -14,7 +14,8 @@ const MOOD_LABEL = {
 };
 
 export class ConversationUI {
-  constructor() {
+  constructor(soulSystem) {
+    this._souls          = soulSystem || null;
     this._panel          = null;
     this._active         = false;
     this._current        = null;
@@ -23,6 +24,7 @@ export class ConversationUI {
     this._customUsed     = {};   // name → gameDay
     this._currentGameDay = 1;
     this._waiting        = false;
+    this._typeTimer      = null; // typewriter interval
     this.onClose         = null;
     this._buildPanel();
     // ⚠️ NO registrar socket listeners aquí — llamar init() después de connect()
@@ -39,13 +41,40 @@ export class ConversationUI {
       if (this._active) this._renderQuestions();
     });
 
-    Network.onAldeanoChatResponse(({ response }) => {
+    Network.onAldeanoChatResponse(({ response, impulso }) => {
       this._waiting = false;
       if (!this._current) return;
       const name = this._current.name;
-      (this._history[name] = this._history[name] || []).push({ from: 'npc', text: response });
+
+      // Aplicar impulso metafísico al mapa de almas
+      if (impulso && this._souls) {
+        this._souls.applyImpulso(name, impulso.ix, impulso.iy);
+        this._souls.setDialogGuardian(impulso.ix, impulso.iy);
+      }
+
+      // Agregar al historial con texto vacío — typewriter lo completa
+      const hist = (this._history[name] = this._history[name] || []);
+      hist.push({ from: 'npc', text: '' });
       this._renderHistory();
-      this._renderQuestions();
+      this._renderQuestions(); // muestra botones deshabilitados mientras escribe
+
+      // Typewriter
+      let i = 0;
+      clearInterval(this._typeTimer);
+      this._typeTimer = setInterval(() => {
+        if (!this._current || this._current.name !== name) {
+          clearInterval(this._typeTimer); return;
+        }
+        const entry = hist[hist.length - 1];
+        if (!entry) { clearInterval(this._typeTimer); return; }
+        entry.text = response.slice(0, ++i);
+        this._renderHistory();
+        if (i >= response.length) {
+          clearInterval(this._typeTimer);
+          this._typeTimer = null;
+          this._renderQuestions(); // habilita botones al terminar
+        }
+      }, 28);
     });
   }
 
@@ -179,9 +208,10 @@ export class ConversationUI {
       }
     }
 
-    // Siempre mostrar "Decirle algo..." — sin límite por día
-    const customBtn = _mkBtn('Decirle algo...', false);
-    customBtn.addEventListener('click', () => this._openCustomInput());
+    // "Decirle algo..." — deshabilitado mientras escribe o espera
+    const busy = this._waiting || !!this._typeTimer;
+    const customBtn = _mkBtn(busy ? '...' : 'Decirle algo...', busy);
+    if (!busy) customBtn.addEventListener('click', () => this._openCustomInput());
     container.appendChild(customBtn);
   }
 

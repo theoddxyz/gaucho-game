@@ -1,38 +1,4 @@
 [GM] Gemini INACTIVO (sin API key)
 
   GAUCHO production server at http://localhost:3000
-
-  ╔══════════════════════════════════════════════╗
-  ║  LINK PARA EL OTRO JUGADOR:                  ║
-  ║  https://wilson-surround-ferrari-donors.trycloudflare.com║
-  ╚══════════════════════════════════════════════╝
-
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
-[gaucho] Player left (0 players)
-[gaucho] Gaucho joined (1 players, host=YES)
+[AI] Ollama ACTIVO → gemma3:4b en http://localhost:11434
