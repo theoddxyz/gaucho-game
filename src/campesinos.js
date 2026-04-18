@@ -1,5 +1,6 @@
 // campesinos.js — NPCs gusano, patrullan el pueblo
 import * as THREE from 'three';
+import { HOUSES, DEST } from './souls.js';
 
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
@@ -259,6 +260,25 @@ function makeLabel(name) {
   return sp;
 }
 
+// ─── Destino 3D según intención del alma ──────────────────────────────────────
+function _getDestForUnit(unit, idx) {
+  if (unit.isSleeping || unit.intention === 'SLEEPING')
+    return { x: HOUSES[idx].pos.x, z: HOUSES[idx].pos.y };
+  // Plan de entrega tiene prioridad
+  if (unit.deliveryPlan && unit.deliveryPlan.length > 0) {
+    const step = unit.deliveryPlan[0];
+    if (step.label === 'OFFERING')                               return { x: DEST.OFFERING.x,    z: DEST.OFFERING.y   };
+    if (step.label === 'SHARING')                                return { x: DEST.SHARING.x,     z: DEST.SHARING.y    };
+    if (step.label === 'BAR')                                    return { x: DEST.BAR.x,         z: DEST.BAR.y        };
+    if (step.label === 'HOARDING' || step.label === 'CONSUMING') return { x: HOUSES[idx].pos.x,  z: HOUSES[idx].pos.y };
+  }
+  if (unit.energy < 45 || unit.intention === 'CONSUMING') return { x: HOUSES[idx].farm.x, z: HOUSES[idx].farm.y };
+  if (unit.intention === 'OFFERING')                      return { x: DEST.OFFERING.x,    z: DEST.OFFERING.y   };
+  if (unit.intention === 'SHARING')                       return { x: DEST.SHARING.x,     z: DEST.SHARING.y    };
+  if (unit.intention === 'BAR')                           return { x: DEST.BAR.x,         z: DEST.BAR.y        };
+  return { x: HOUSES[idx].pos.x, z: HOUSES[idx].pos.y };
+}
+
 // ─── Sistema principal ────────────────────────────────────────────────────────
 export class CampesinoSystem {
   constructor(scene) {
@@ -268,8 +288,9 @@ export class CampesinoSystem {
     CHARS.forEach((char, i) => {
       const patrol = PATROLS[i];
       const root   = buildWorm(char, i);
-      const startX = (patrol.from.x + patrol.to.x) / 2;
-      const startZ = (patrol.from.z + patrol.to.z) / 2;
+      // Empezar en la casa del personaje (no en la zona de patrulla)
+      const startX = HOUSES[i].pos.x;
+      const startZ = HOUSES[i].pos.y;  // souls.js: .y = 3D z
 
       root.position.set(startX, 0, startZ);
 
@@ -403,13 +424,31 @@ export class CampesinoSystem {
       let speed = npc.speed;
 
       if (unit && !npc.isTalking) {
-        targetX  = unit.terraPos.x;
-        targetZ  = unit.terraPos.y;
-        root.position.x = targetX;
-        root.position.z = targetZ;
+        const dest = _getDestForUnit(unit, i);
+        const head = root._segs[0];
+        const distToDest = Math.sqrt((dest.x - head.x) ** 2 + (dest.z - head.z) ** 2);
+
+        if (distToDest < 4) {
+          // En destino: vagar suavemente alrededor
+          npc._wanderT = (npc._wanderT || 0) + dt;
+          if (!npc._wanderOff || npc._wanderT > 2 + Math.random() * 3) {
+            npc._wanderT = 0;
+            npc._wanderOff = { x: (Math.random() - 0.5) * 8, z: (Math.random() - 0.5) * 8 };
+          }
+          targetX = dest.x + (npc._wanderOff?.x || 0);
+          targetZ = dest.z + (npc._wanderOff?.z || 0);
+          speed   = npc.speed * 0.35;
+        } else {
+          targetX   = dest.x;
+          targetZ   = dest.z;
+          speed     = npc.speed * (unit.isSleeping ? 0.5 : 1.0);
+        }
+        isWalking = true;
+
+        // Sincronizar root al head para que hitboxes sean correctos
+        root.position.x = head.x;
+        root.position.z = head.z;
         root.position.y = 0;
-        speed = Math.sqrt(unit.terraVel.x ** 2 + unit.terraVel.y ** 2);
-        isWalking = speed > 0.05;
       }
 
       // ── Evitación del jugador ─────────────────────────────────────────────

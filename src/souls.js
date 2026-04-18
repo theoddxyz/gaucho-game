@@ -373,10 +373,7 @@ export class SoulSystem {
       this._stocks.HOUSES    = this._stocks.HOUSES.map(s => Math.max(0, s - 1));
     }
 
-    // ─── Guardar estado previo para detección de entradas ────────────────────
-    const prevBuildings = this._units.map(u => u.insideBuilding);
-
-    // ─── Loop de units (igual que A/B animate()) ─────────────────────────────
+    // ─── Loop de units ───────────────────────────────────────────────────────
     this._units = this._units.map((unit, idx) => {
 
       // ── METAPLANO ──────────────────────────────────────────────────────────
@@ -458,7 +455,7 @@ export class SoulSystem {
       let food = unit.food || 0;
       if (!isSleeping) {
         const wf = 1 + (unit.inventory / unit.maxInventory) * 0.5;
-        energy  -= (0.005 + vec.mag(unit.terraVel) * 0.01 * wf) * simDt;
+        energy  -= (0.008 * wf) * simDt;
         // Comer: convertir comida en energía (lento y gradual)
         if (food > 0 && energy < 92) {
           const eatRate  = 0.004 * simDt;
@@ -471,197 +468,92 @@ export class SoulSystem {
       if (energy < 20 && !isSleeping) intention  = 'SLEEPING';
       if (isSleeping)                 intention  = 'SLEEPING';
 
-      // ── PLANO FÍSICO ───────────────────────────────────────────────────────
-      const isIsolationist = metaPos.y > META_H / 2
-        && metaPos.x < META_W / 2
-        && !(metaPos.x < META_W * 0.15 && metaPos.y > META_H * 0.85);
-
-      let terraAcc      = { x: 0, y: 0 };
-      let inventory     = unit.inventory;
-      let targetResource = unit.targetResource;
-      let deliveryPlan  = unit.deliveryPlan ? [...unit.deliveryPlan] : null;
+      // ── PLANO FÍSICO (posición real del gusano — sincronizada desde main.js) ──
+      // terraPos ya contiene la posición real del gusano 3D (sincronizada cada frame)
+      const terraPos     = { ...unit.terraPos };
+      let inventory      = unit.inventory;
+      let targetResource = null;
+      let deliveryPlan   = unit.deliveryPlan ? [...unit.deliveryPlan] : null;
       let insideBuilding = unit.insideBuilding;
       let buildingTimer  = unit.buildingTimer;
-      let terraVel      = { ...unit.terraVel };
 
+      // Recuperación al dormir (cuando el gusano está cerca de su casa)
       if (isSleeping) {
-        // ── Dormir: ir a la cama ─────────────────────────────────────────────
-        if (insideBuilding === 'HOUSE') {
-          const dh = vec.dist(unit.terraPos, unit.housePos);
-          if (dh > 2) {
-            const desired = vec.setMag(vec.sub(unit.housePos, unit.terraPos), unit.maxSpeed * 0.5);
-            terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-          } else {
-            terraVel = { x: 0, y: 0 };
-          }
-        }
+        const atHome = vec.dist(terraPos, unit.housePos) < 6;
+        insideBuilding = atHome ? 'HOUSE' : null;
         const recov = insideBuilding === 'HOUSE'
           ? (this._stocks.HOUSES[unit.houseId] > 0 ? 0.8 : 0.3)
           : 0.1;
         energy += recov * simDt;
         if (energy >= 100) { energy = 100; isSleeping = false; insideBuilding = null; }
+      } else {
+        buildingTimer = 0;
+      }
 
-      } else if (insideBuilding) {
-        // ── Dentro de un edificio ────────────────────────────────────────────
-        buildingTimer -= simDt;
-        if (buildingTimer <= 0) {
-          const door = getDoor(insideBuilding, unit.houseId);
-          if (vec.dist(unit.terraPos, door) < 3) {
-            insideBuilding = null;
-          } else {
-            const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
-            terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-          }
-        } else {
-          terraAcc = vec.limit(brownian(0.2), unit.maxForce * 0.5);
-        }
-
-      } else if (intention === 'SLEEPING') {
-        // ── Ir a dormir ───────────────────────────────────────────────────────
-        const door = HOUSES[unit.houseId].pos;
-        if (vec.dist(unit.terraPos, door) < 3) {
-          insideBuilding = 'HOUSE';
-          isSleeping     = true;
-        } else {
-          const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
-          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-        }
-
-      } else if (isGathering) {
-        // ── Ritual: círculo alrededor de la iglesia ───────────────────────────
-        const altar = DEST.OFFERING;
-        const angle = (idx / this._units.length) * Math.PI * 2
-                    + performance.now() * 0.001;
-        const target = {
-          x: altar.x + Math.cos(angle) * 8,
-          y: altar.y + Math.sin(angle) * 8,
-        };
-        const desired = vec.setMag(vec.sub(target, unit.terraPos), unit.maxSpeed);
-        terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-
-      } else if (intention === 'BAR') {
-        // ── Ir al bar ─────────────────────────────────────────────────────────
-        const door = DEST.BAR;
-        if (vec.dist(unit.terraPos, door) < 3) {
-          if (inventory > 0) {
-            inventory--;
-            insideBuilding = 'BAR';
-            buildingTimer  = 100 + Math.random() * 200;
-          }
-        } else {
-          const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
-          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-        }
-
-      } else if (deliveryPlan && deliveryPlan.length > 0) {
-        // ── Entregar recursos ─────────────────────────────────────────────────
-        const step = deliveryPlan[0];
-        const door = getDoor(step.label, unit.houseId);
-        if (vec.dist(unit.terraPos, door) < 3) {
-          insideBuilding = step.label === 'HOARDING' ? 'HOUSE' : step.label;
-          buildingTimer  = 30;
-          deliveryPlan.shift();
-          if (deliveryPlan.length === 0) { inventory = 0; deliveryPlan = null; }
-        } else {
-          const desired = vec.setMag(vec.sub(door, unit.terraPos), unit.maxSpeed);
-          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-        }
-
-      } else if ((intention === 'CONSUMING' || energy < 45) && energy > 20) {
-        // ── Labranza: ir a la chacra personal ─────────────────────────────────
-        // Se activa tanto por intención CONSUMING como por hambre (energy < 45)
-        const distFarm = vec.dist(unit.terraPos, unit.farmPos);
-        if (distFarm > 3) {
-          const desired = vec.setMag(vec.sub(unit.farmPos, unit.terraPos), unit.maxSpeed);
-          terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
-        } else {
-          terraVel = { x: 0, y: 0 };
-          terraAcc = { x: 0, y: 0 };
-        }
-
-      } else if (inventory < unit.maxInventory && energy > 30) {
-        // ── Buscar recursos ───────────────────────────────────────────────────
-        const isTargetValid = targetResource
-          && this._resources.some(r => r.id === targetResource.id);
-
-        if (!isTargetValid) {
-          let closest = null, minD = Infinity;
-          this._resources.forEach(r => {
-            if (isIsolationist && r.ownerHouseId !== unit.houseId) return;
-            const d     = vec.dist(unit.terraPos, r.pos);
-            const dFarm = vec.dist(r.pos, unit.farmPos);
-            const eff   = d * (dFarm < 15 ? 0.3 : 1.0);
-            if (eff < minD) { minD = eff; closest = r; }
-          });
-          targetResource = closest
-            ? { x: closest.pos.x, y: closest.pos.y, id: closest.id, ownerHouseId: closest.ownerHouseId }
-            : null;
-        }
-
-        if (targetResource) {
-          if (vec.dist(unit.terraPos, targetResource) < 2) {
+      // Recoger recursos del plano interno al pasar cerca
+      if (!isSleeping && inventory < unit.maxInventory) {
+        for (let ri = this._resources.length - 1; ri >= 0; ri--) {
+          const r = this._resources[ri];
+          if (vec.dist(terraPos, r.pos) < 2) {
             inventory++;
             energy -= 3;
-            const rid  = targetResource.id;
-            this._resources = this._resources.filter(r => r.id !== rid);
-            const mesh = this._resMeshes.get(rid);
-            if (mesh) {
-              this._scene.remove(mesh);
-              mesh.traverse(c => { if (c.isMesh) { c.geometry?.dispose(); c.material?.dispose(); } });
-            }
-            this._resMeshes.delete(rid);
-            targetResource = null;
-          } else {
-            const desired = vec.setMag(vec.sub(targetResource, unit.terraPos), unit.maxSpeed);
-            terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
+            this._resources.splice(ri, 1);
+            this._resMeshes.delete(r.id);
+            break;
           }
         }
+      }
 
-      } else if (inventory > 0) {
-        // ── Calcular plan de distribución (igual que A/B) ────────────────────
+      // Entregar recursos cuando el gusano está en el destino del plan
+      if (!isSleeping && deliveryPlan && deliveryPlan.length > 0) {
+        const step = deliveryPlan[0];
+        let dest = null;
+        if (step.label === 'OFFERING')  dest = DEST.OFFERING;
+        if (step.label === 'SHARING')   dest = DEST.SHARING;
+        if (step.label === 'BAR')       dest = DEST.BAR;
+        if (step.label === 'HOARDING' || step.label === 'CONSUMING') dest = unit.housePos;
+        if (dest && vec.dist(terraPos, dest) < 5) {
+          const amt = step.amount || 1;
+          if (step.label === 'BAR')       this._stocks.BAR                 = (this._stocks.BAR       || 0) + amt;
+          if (step.label === 'OFFERING')  this._stocks.OFFERING            = (this._stocks.OFFERING  || 0) + amt;
+          if (step.label === 'SHARING')   this._stocks.SHARING             = (this._stocks.SHARING   || 0) + amt;
+          if (step.label === 'HOARDING' || step.label === 'CONSUMING')
+            this._stocks.HOUSES[unit.houseId] = (this._stocks.HOUSES[unit.houseId] || 0) + amt;
+          inventory = Math.max(0, inventory - amt);
+          deliveryPlan.shift();
+          if (deliveryPlan.length === 0) deliveryPlan = null;
+        }
+      }
+
+      // Crear plan de distribución cuando tiene inventario y no está entregando
+      if (!isSleeping && inventory > 0 && !deliveryPlan) {
         const wO = (META_H - metaPos.y) / META_H;
         const wC = metaPos.y / META_H;
         const wH = (META_W - metaPos.x) / META_W;
         const wS = metaPos.x / META_W;
         const total = wO + wC + wH + wS;
-
         const types = [
-          { type: 'OFFERING',  w: wO, label: 'OFFERING'  },
-          { type: 'CONSUMING', w: wC, label: 'CONSUMING' },
-          { type: 'HOARDING',  w: wH, label: 'HOARDING'  },
-          { type: 'SHARING',   w: wS, label: 'SHARING'   },
+          { w: wO, label: 'OFFERING'  },
+          { w: wC, label: 'CONSUMING' },
+          { w: wH, label: 'HOARDING'  },
+          { w: wS, label: 'SHARING'   },
         ].sort((a, b) => b.w - a.w);
-
         let remaining = inventory;
         const plan = [];
-        types.forEach((t, i) => {
-          let amt = i === types.length - 1
-            ? remaining
-            : Math.min(remaining, Math.round(inventory * t.w / total));
+        types.forEach((t, ti) => {
+          const amt = ti === types.length - 1 ? remaining
+                    : Math.min(remaining, Math.round(inventory * t.w / total));
           if (amt > 0) { plan.push({ amount: amt, label: t.label }); remaining -= amt; }
         });
         deliveryPlan = plan;
       }
-
-      // ── Física terra ──────────────────────────────────────────────────────
-      terraVel = vec.add(terraVel, vec.mul(terraAcc, dt));   // dt real, no simDt
-      if (isSleeping && (!insideBuilding || vec.dist(unit.terraPos, unit.housePos) < 4)) {
-        terraVel = { x: 0, y: 0 };
-      }
-      terraVel = vec.limit(terraVel, unit.maxSpeed * 0.6);   // velocidad en m/s
-      let terraPos = vec.add(unit.terraPos, vec.mul(terraVel, dt));
-
-      if (terraPos.x < TERRA_XMIN) { terraPos.x = TERRA_XMIN; terraVel.x *= -0.5; }
-      if (terraPos.x > TERRA_XMAX) { terraPos.x = TERRA_XMAX; terraVel.x *= -0.5; }
-      if (terraPos.y < TERRA_YMIN) { terraPos.y = TERRA_YMIN; terraVel.y *= -0.5; }
-      if (terraPos.y > TERRA_YMAX) { terraPos.y = TERRA_YMAX; terraVel.y *= -0.5; }
 
       const history = [...unit.history, { ...metaPos }].slice(-15);
 
       return {
         ...unit,
         metaPos, metaVel, metaAcc,
-        terraPos, terraVel, terraAcc,
+        terraPos,
         food,
         inventory, maxInventory: unit.maxInventory,
         targetResource, deliveryPlan, intention,
@@ -670,22 +562,6 @@ export class SoulSystem {
       };
     });
 
-    // ─── Stock updates por entregas (igual que A/B) ───────────────────────────
-    this._units.forEach((unit, i) => {
-      if (prevBuildings[i] === null && unit.insideBuilding !== null) {
-        const prev = unit; // el insideBuilding ya está actualizado
-        if (unit.insideBuilding === 'BAR') {
-          this._stocks.BAR += 1;
-        } else {
-          // Buscar el paso que corresponde al label
-          const bKey = unit.insideBuilding;
-          if (bKey === 'OFFERING')  this._stocks.OFFERING  = (this._stocks.OFFERING  || 0) + 1;
-          if (bKey === 'SHARING')   this._stocks.SHARING   = (this._stocks.SHARING   || 0) + 1;
-          if (bKey === 'CONSUMING') this._stocks.CONSUMING = (this._stocks.CONSUMING || 0) + 1;
-          if (bKey === 'HOUSE')     this._stocks.HOUSES[unit.houseId] = (this._stocks.HOUSES[unit.houseId] || 0) + 1;
-        }
-      }
-    });
   }
 
   getContextForChat() {

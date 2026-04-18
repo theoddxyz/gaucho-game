@@ -2580,6 +2580,18 @@ function gameLoop() {
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
   campesinoSystem.update(dt, pos, soulSystem.units);
+
+  // Sincronizar posición real del gusano → terraPos del alma (1 frame de lag, imperceptible)
+  if (soulSystem && campesinoSystem) {
+    soulSystem.units.forEach((unit, i) => {
+      const npc = campesinoSystem._npcs[i];
+      if (npc && !npc.dead) {
+        const head = npc.root._segs[0];
+        unit.terraPos = { x: head.x, y: head.z };
+      }
+    });
+  }
+
   _updateAldeanFarming(dt);
   // Víboras: cazan gallinas si están cerca
   if (isHost) viboraSystem.update(dt, { playerPos: pos, preyPositions: chickenSystem._chickens.filter(c => !c.removed).map(c => ({ x: c.mesh?.position.x, z: c.mesh?.position.z })) });
