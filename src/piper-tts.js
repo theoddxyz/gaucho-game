@@ -152,7 +152,7 @@ function _stop() {
 
 export function cancelPiper() { _stop(); }
 
-export async function speakPiper(text, charName = 'GM', volume = 1.0) {
+export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = null) {
   // Esperar descarga si está en progreso
   if (_state === 'loading') {
     await new Promise(r => {
@@ -185,6 +185,7 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0) {
     _src = src;
     src.onended = () => { if (_src === src) { _src = null; _busy = false; } };
     src.start();
+    if (onStart) onStart();   // texto aparece exactamente cuando arranca el audio
     console.log('[PIPER] reproduciendo ✓', charName);
     return true;
   } catch (e) {

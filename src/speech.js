@@ -48,13 +48,12 @@ function _speakFallback(text, opts = {}) {
  */
 export function speakNpc(text, opts = {}) {
   const charName = opts.charName || 'GM';
-  if (isPiperReady()) {
-    speakPiper(text, charName, opts.volume ?? 1.0);
-  } else if (isPiperLoading()) {
-    // Piper todavía descargando — encolar para cuando esté lista
-    speakPiper(text, charName, opts.volume ?? 1.0);
+  const onStart  = opts.onStart  || null;
+  if (isPiperReady() || isPiperLoading()) {
+    speakPiper(text, charName, opts.volume ?? 1.0, onStart);
   } else {
-    // Piper falló o no está disponible — Web Speech
+    // Piper no disponible — Web Speech (onStart dispara inmediato)
+    if (onStart) onStart();
     _speakFallback(text, opts);
   }
 }

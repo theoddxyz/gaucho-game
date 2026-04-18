@@ -1,6 +1,7 @@
 // conversation-ui.js — Sistema de conversación con aldeanos
 import * as Network from './network.js';
 import { speakNpc, stopSpeech } from './speech.js';
+import { startThinkingSound, stopThinkingSound, speakAldeanoReal } from './aldeano-voice.js';
 
 const MOOD_LABEL = {
   OFFERING:  'sereno, espiritual',
@@ -27,6 +28,7 @@ export class ConversationUI {
   init() {
     Network.onAldeanoChatResponse(({ response, impulso }) => {
       this._waiting = false;
+      stopThinkingSound();
       if (!this._current) return;
       const name = this._current.name;
 
@@ -35,14 +37,30 @@ export class ConversationUI {
         this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
       }
 
-      // Mostrar respuesta completa de una vez (sin typewriter)
+      // Empujar al historial pero NO renderizar todavía — el texto aparece
+      // exactamente cuando Daniela empieza a hablar (onStart)
       const hist = (this._history[name] = this._history[name] || []);
       hist.push({ from: 'npc', text: response });
-      this._renderHistory();
-      this._renderInput();
 
-      // Voz de Daniela
-      speakNpc(response, { charName: name });
+      // Lengua real del aldeano — arranca ANTES que Daniela
+      const intention = this._current.intention;
+      const energia   = this._current.energia ?? 100;
+      speakAldeanoReal(response, intention, energia);
+
+      // Fallback: si Piper tarda mucho o falla, mostrar texto igual
+      let _shown = false;
+      const showText = () => {
+        if (_shown) return;
+        _shown = true;
+        if (this._current && this._current.name === name) {
+          this._renderHistory();
+          this._renderInput();
+        }
+      };
+      setTimeout(showText, 5000); // máximo 5s de espera
+
+      // Texto aparece exactamente cuando Daniela arranca
+      speakNpc(response, { charName: name, onStart: showText });
     });
   }
 
@@ -70,6 +88,7 @@ export class ConversationUI {
     this._waiting = false;
     this._panel.style.display = 'none';
     this._current = null;
+    stopThinkingSound();
     stopSpeech();
     if (this.onClose) this.onClose(name);
   }
@@ -174,6 +193,7 @@ export class ConversationUI {
     (this._history[a.name] = this._history[a.name] || []).push({ from: 'player', text: message });
     this._renderHistory();
     this._renderInput(); // muestra "pensando..."
+    startThinkingSound();
 
     Network.sendAldeanoChat({
       name:       a.name,
