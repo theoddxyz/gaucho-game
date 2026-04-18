@@ -157,22 +157,19 @@ export class SoulMap {
       ctx.fillText('✦ RITUAL ACTIVO ✦', ox + w / 2, oy + h - 6);
     }
 
-    // Guardian — más brillante si fue activado por diálogo reciente
+    // Guardian
     const gp = this._m2c(guardianPos, ox, oy, w, h);
-    const dialogActive = this._souls._guardianResetT != null;
-    const pulse = Math.sin(Date.now() * (dialogActive ? 0.012 : 0.005)) * (dialogActive ? 9 : 5) + (dialogActive ? 18 : 12);
+    const pulse = Math.sin(Date.now() * 0.005) * 5 + 12;
     ctx.beginPath(); ctx.arc(gp.x, gp.y, pulse, 0, Math.PI * 2);
-    ctx.strokeStyle = dialogActive ? 'rgba(251,191,36,0.7)' : 'rgba(167,139,250,0.35)';
-    ctx.lineWidth   = dialogActive ? 2.5 : 1.5;
+    ctx.strokeStyle = 'rgba(167,139,250,0.35)';
+    ctx.lineWidth   = 1.5;
     ctx.stroke();
-    ctx.fillStyle = dialogActive ? 'rgba(251,191,36,0.10)' : 'rgba(167,139,250,0.07)';
-    ctx.fill();
-    ctx.beginPath(); ctx.arc(gp.x, gp.y, dialogActive ? 6 : 4, 0, Math.PI * 2);
-    ctx.fillStyle = dialogActive ? '#fbbf24' : '#a78bfa'; ctx.fill();
-    ctx.font = '7px monospace';
-    ctx.fillStyle = dialogActive ? 'rgba(251,191,36,0.9)' : 'rgba(167,139,250,0.6)';
+    ctx.fillStyle = 'rgba(167,139,250,0.07)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(gp.x, gp.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#a78bfa'; ctx.fill();
+    ctx.font = '7px monospace'; ctx.fillStyle = 'rgba(167,139,250,0.6)';
     ctx.textAlign = 'left';
-    ctx.fillText(dialogActive ? '✦ impulso' : 'guardian', gp.x + 8, gp.y + 3);
+    ctx.fillText('guardian', gp.x + 7, gp.y + 3);
 
     // Units
     units.forEach((unit, i) => {
