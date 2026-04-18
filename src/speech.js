@@ -1,12 +1,10 @@
 // speech.js — Voz de NPCs
-// Usa Piper TTS (es_AR-daniela) cuando está lista, Web Speech API como fallback
+// Piper TTS (es_AR-daniela) cuando está lista, Web Speech API como fallback
 
 import { speakPiper, cancelPiper, isPiperReady, isPiperLoading, initPiper } from './piper-tts.js';
 
-// ── Arrancar descarga de daniela en cuanto el módulo se importa ───────────────
-initPiper((pct) => {
-  console.log(`[PIPER] daniela: ${pct}%`);
-});
+// Arrancar descarga de daniela al importar
+initPiper();
 
 // ── Web Speech API fallback ───────────────────────────────────────────────────
 let _voiceES   = null;
@@ -27,18 +25,17 @@ function _initVoice() {
   speechSynthesis.onvoiceschanged = tryLoad;
   tryLoad();
 }
-
 _initVoice();
 
 function _speakFallback(text, opts = {}) {
   if (!window.speechSynthesis) return;
   speechSynthesis.cancel();
-  const utt   = new SpeechSynthesisUtterance(text);
-  utt.voice   = _voiceES;
-  utt.lang    = _voiceES?.lang || 'es-AR';
-  utt.pitch   = opts.pitch  ?? 0.6;
-  utt.rate    = opts.rate   ?? 0.82;
-  utt.volume  = opts.volume ?? 1.0;
+  const utt  = new SpeechSynthesisUtterance(text);
+  utt.voice  = _voiceES;
+  utt.lang   = _voiceES?.lang || 'es-AR';
+  utt.pitch  = opts.pitch  ?? 0.6;
+  utt.rate   = opts.rate   ?? 0.82;
+  utt.volume = opts.volume ?? 1.0;
   speechSynthesis.speak(utt);
 }
 
@@ -47,24 +44,24 @@ function _speakFallback(text, opts = {}) {
 /**
  * Habla texto como NPC.
  * @param {string} text
- * @param {{ charName?: string, pitch?: number, rate?: number, volume?: number }} opts
+ * @param {{ charName?: string, volume?: number }} opts
  */
 export function speakNpc(text, opts = {}) {
   const charName = opts.charName || 'GM';
-  if (isPiperReady() || isPiperLoading()) {
-    cancelPiper();
+  if (isPiperReady()) {
+    speakPiper(text, charName, opts.volume ?? 1.0);
+  } else if (isPiperLoading()) {
+    // Piper todavía descargando — encolar para cuando esté lista
     speakPiper(text, charName, opts.volume ?? 1.0);
   } else {
+    // Piper falló o no está disponible — Web Speech
     _speakFallback(text, opts);
   }
 }
 
-/**
- * Habla el texto del Game Master / narrador.
- */
+/** Narrador GM */
 export function speakGm(text) {
   if (isPiperReady() || isPiperLoading()) {
-    cancelPiper();
     speakPiper(text, 'GM', 0.85);
   } else {
     _speakFallback(text, { pitch: 0.4, rate: 0.72, volume: 0.85 });
