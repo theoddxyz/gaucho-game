@@ -46,10 +46,9 @@ export class ConversationUI {
       if (!this._current) return;
       const name = this._current.name;
 
-      // Aplicar impulso metafísico al mapa de almas
-      if (impulso && this._souls) {
-        this._souls.applyImpulso(name, impulso.ix, impulso.iy);
-        this._souls.setDialogGuardian(impulso.ix, impulso.iy);
+      // Crear player guardian en el metaplano
+      if (impulso && this._souls && (Math.abs(impulso.ix) > 0.1 || Math.abs(impulso.iy) > 0.1)) {
+        this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName || '?', 10);
       }
 
       // Agregar al historial con texto vacío — typewriter lo completa
@@ -77,6 +76,8 @@ export class ConversationUI {
       }, 28);
     });
   }
+
+  setPlayerName(name) { this._playerName = name; }
 
   setGameDay(day) {
     if (day !== this._currentGameDay) {

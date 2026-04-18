@@ -1096,6 +1096,7 @@ Network.onJoined((data) => {
 
   // Inicializar conversationUI (registra listeners de socket ahora que está conectado)
   conversationUI.init();
+  conversationUI.setPlayerName(data.self.name || 'gaucho');
   conversationUI.requestQA(soulSystem.getContextForChat(), Math.floor(getDayProgress() * 24));
 
   controls.onEPress = () => {

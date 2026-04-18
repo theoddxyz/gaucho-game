@@ -89,7 +89,7 @@ export class SoulMap {
 
   // ─── Metaplano ────────────────────────────────────────────────────────────
   _drawMeta(ctx, ox, oy, w, h) {
-    const { units, guardianPos, time } = this._souls;
+    const { units, guardianPos, playerGuardian, time } = this._souls;
     const hr = time.hour;
     const isRitual = hr >= 19 || hr < 12;
 
@@ -157,7 +157,7 @@ export class SoulMap {
       ctx.fillText('✦ RITUAL ACTIVO ✦', ox + w / 2, oy + h - 6);
     }
 
-    // Guardian
+    // Guardian principal
     const gp = this._m2c(guardianPos, ox, oy, w, h);
     const pulse = Math.sin(Date.now() * 0.005) * 5 + 12;
     ctx.beginPath(); ctx.arc(gp.x, gp.y, pulse, 0, Math.PI * 2);
@@ -170,6 +170,33 @@ export class SoulMap {
     ctx.font = '7px monospace'; ctx.fillStyle = 'rgba(167,139,250,0.6)';
     ctx.textAlign = 'left';
     ctx.fillText('guardian', gp.x + 7, gp.y + 3);
+
+    // Player guardian (temporal — aparece cuando el jugador habla con un aldeano)
+    if (playerGuardian) {
+      const remaining = (playerGuardian.expiresAt - performance.now()) / playerGuardian.duration;
+      const pgAlpha   = Math.max(0, remaining);
+      const pgp       = this._m2c(playerGuardian.pos, ox, oy, w, h);
+      const pgPulse   = Math.sin(Date.now() * 0.014) * 6 + 10;
+      ctx.globalAlpha = pgAlpha;
+      ctx.beginPath(); ctx.arc(pgp.x, pgp.y, pgPulse, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(251,191,36,0.8)';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(251,191,36,0.12)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(pgp.x, pgp.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#fbbf24'; ctx.fill();
+      // Línea hacia el target
+      const tgt = this._m2c(playerGuardian.targetPos, ox, oy, w, h);
+      ctx.beginPath(); ctx.moveTo(pgp.x, pgp.y); ctx.lineTo(tgt.x, tgt.y);
+      ctx.strokeStyle = 'rgba(251,191,36,0.25)';
+      ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+      ctx.stroke(); ctx.setLineDash([]);
+      // Label con nombre del jugador
+      ctx.font = '7px monospace'; ctx.fillStyle = 'rgba(251,191,36,0.9)';
+      ctx.textAlign = 'left';
+      ctx.fillText(playerGuardian.playerName, pgp.x + 8, pgp.y + 3);
+      ctx.globalAlpha = 1;
+    }
 
     // Units
     units.forEach((unit, i) => {

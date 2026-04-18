@@ -181,6 +181,9 @@ export class SoulSystem {
     this._guardianPos = { x: META_W * 0.75, y: META_H * 0.25 };
     this._guardianVel = { x: 0, y: 0 };
 
+    // Guardian del jugador — temporal, creado por diálogo
+    this._playerGuardian = null;
+
     const NAMES = ['Ramón', 'Ofelia', 'Facundo', 'Celestino', 'Zulma'];
     this._units = NAMES.map((name, i) => ({
       id:         `unit-${i}`,
@@ -216,36 +219,37 @@ export class SoulSystem {
   }
 
   // ─── Accessors ───────────────────────────────────────────────────────────────
-  get units()       { return this._units;       }
-  get guardianPos() { return this._guardianPos; }
-  get resources()   { return this._resources;   }
-  get stocks()      { return this._stocks;      }
-  get time()        { return this._time;        }
+  get units()          { return this._units;          }
+  get guardianPos()    { return this._guardianPos;    }
+  get playerGuardian() { return this._playerGuardian; }
+  get resources()      { return this._resources;      }
+  get stocks()         { return this._stocks;         }
+  get time()           { return this._time;           }
 
-  // ─── Impulso metafísico por diálogo ──────────────────────────────────────────
+  // ─── Guardian del jugador — pastor temporal creado por diálogo ──────────────
   // ix: INDIVIDUO(-1)↔COMUNIDAD(+1), iy: MATERIA(-1)↔TRASCENDENCIA(+1)
-  // Translates to metaPos: x=INDIVIDUO↔GRUPO (0-META_W), y=TRASCENDENTE↔MATERIA (0-META_H)
-  applyImpulso(name, ix, iy) {
-    const unit = this._units.find(u => u.name === name);
+  // duración en segundos (default 10)
+  setPlayerGuardian(targetName, ix, iy, playerName, duration = 10) {
+    const unit = this._units.find(u => u.name === targetName);
     if (!unit) return;
-    // META_W: 0=individuo izq, META_W=grupo der  → ix(+1)=grupo=x grande
-    // META_H: 0=trascendente arriba, META_H=materia abajo  → iy(+1)=trascendente=y pequeña
-    const FORCE = 60; // unidades de impulso en el metaplano
-    unit.metaVel.x += ix * FORCE;
-    unit.metaVel.y -= iy * FORCE;  // iy+ = trascendencia = y menor (arriba en canvas)
-  }
-
-  // Punto guardián temporal para el diálogo (ix,iy en -1..1)
-  setDialogGuardian(ix, iy) {
-    // Convierte ix/iy a coordenadas del metaplano
-    this._guardianPos.x = META_W * 0.5 + ix * META_W * 0.45;
-    this._guardianPos.y = META_H * 0.5 - iy * META_H * 0.45;
-    // Auto-reset a posición neutral después de 4 segundos
-    clearTimeout(this._guardianResetT);
-    this._guardianResetT = setTimeout(() => {
-      this._guardianPos.x = META_W * 0.75;
-      this._guardianPos.y = META_H * 0.25;
-    }, 4000);
+    // Posición target en el metaplano
+    const tx = META_W * 0.5 + ix * META_W * 0.48;
+    const ty = META_H * 0.5 - iy * META_H * 0.48;
+    // Empieza detrás del aldeano (entre él y la dirección opuesta al target)
+    const toTarget = vec.norm({ x: tx - unit.metaPos.x, y: ty - unit.metaPos.y });
+    const startPos = {
+      x: Math.max(0, Math.min(META_W, unit.metaPos.x - toTarget.x * 80)),
+      y: Math.max(0, Math.min(META_H, unit.metaPos.y - toTarget.y * 80)),
+    };
+    this._playerGuardian = {
+      targetName,
+      targetPos: { x: tx, y: ty },
+      pos:       { ...startPos },
+      vel:       { x: 0, y: 0 },
+      playerName: playerName || '?',
+      expiresAt:  performance.now() + duration * 1000,
+      duration:   duration * 1000,
+    };
   }
 
   // ─── Update principal ─────────────────────────────────────────────────────
@@ -307,6 +311,28 @@ export class SoulSystem {
     this._guardianPos = gp;
     this._guardianVel = gv;
 
+    // ─── Player guardian (pastor temporal del jugador) ────────────────────────
+    const pg = this._playerGuardian;
+    if (pg) {
+      if (performance.now() > pg.expiresAt) {
+        this._playerGuardian = null;
+      } else {
+        const tUnit = this._units.find(u => u.name === pg.targetName);
+        if (tUnit) {
+          // Se posiciona detrás del aldeano respecto al targetPos (igual que el guardian principal)
+          const toTgt  = vec.norm(vec.sub(pg.targetPos, tUnit.metaPos));
+          const behind = vec.sub(tUnit.metaPos, vec.mul(toTgt, 70));
+          const pgDes  = vec.setMag(vec.sub(behind, pg.pos), gMaxSpeed * 1.2);
+          const pgAcc  = vec.limit(vec.sub(pgDes, pg.vel), gMaxForce * 1.5);
+          pg.vel = vec.limit(vec.add(pg.vel, vec.mul(pgAcc, simDt)), gMaxSpeed * 1.2);
+          pg.pos = {
+            x: Math.max(0, Math.min(META_W, pg.pos.x + pg.vel.x * simDt)),
+            y: Math.max(0, Math.min(META_H, pg.pos.y + pg.vel.y * simDt)),
+          };
+        }
+      }
+    }
+
     // ─── Spawn de recursos (igual que A/B) ───────────────────────────────────
     this._spawnTimer += dt;
     if (this._spawnTimer > 0.4) {
@@ -355,7 +381,7 @@ export class SoulSystem {
       });
       const brown = brownian(0.15);
 
-      // Repulsión del guardian
+      // Repulsión del guardian principal
       let guardFlee = { x: 0, y: 0 };
       const dg = vec.dist(unit.metaPos, gp);
       if (dg < 100) {
@@ -363,7 +389,21 @@ export class SoulSystem {
         guardFlee = vec.limit(vec.sub(desired, unit.metaVel), unit.maxForce * 3);
       }
 
-      let metaAcc = vec.add(vec.add(flockForce, brown), vec.mul(guardFlee, gRepPower));
+      // Repulsión del player guardian (solo afecta al aldeano target)
+      let pgFlee = { x: 0, y: 0 };
+      const cpg = this._playerGuardian;
+      if (cpg && cpg.targetName === unit.name) {
+        const dpg = vec.dist(unit.metaPos, cpg.pos);
+        if (dpg < 130) {
+          const desired = vec.setMag(vec.sub(unit.metaPos, cpg.pos), unit.maxSpeed * 2.5);
+          pgFlee = vec.limit(vec.sub(desired, unit.metaVel), unit.maxForce * 4);
+        }
+      }
+
+      let metaAcc = vec.add(
+        vec.add(vec.add(flockForce, brown), vec.mul(guardFlee, gRepPower)),
+        vec.mul(pgFlee, gRepPower * 1.5)
+      );
       const mSF   = 0.3;
       let metaVel = vec.limit(vec.add(unit.metaVel, vec.mul(metaAcc, simDt * mSF)), unit.maxSpeed);
       let metaPos = vec.add(unit.metaPos, vec.mul(metaVel, simDt * mSF));
