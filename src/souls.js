@@ -253,8 +253,17 @@ export class SoulSystem {
     };
   }
 
-  // ─── Añadir comida cosechada a un aldeano ────────────────────────────────
-  // Llamado desde main.js cuando un aldeano cosecha un cultivo 3D
+  // ─── Cosechar cultivo 3D → inventario social + porción personal ─────────
+  // inventory: lo que lleva para entregar (visible como baya en la cabeza)
+  // food: porción pequeña que come en el camino → energía
+  addInventory(name, amount = 1) {
+    const unit = this._units.find(u => u.name === name);
+    if (!unit) return;
+    unit.inventory = Math.min(unit.maxInventory, (unit.inventory || 0) + amount);
+    unit.food      = Math.min(10, (unit.food || 0) + 0.3); // porción personal
+  }
+
+  // Compatibilidad — solo energía personal sin delivery
   addFood(name, amount = 1) {
     const unit = this._units.find(u => u.name === name);
     if (unit) unit.food = Math.min(10, (unit.food || 0) + amount);

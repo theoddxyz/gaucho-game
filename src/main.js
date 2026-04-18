@@ -149,7 +149,7 @@ function _updateAldeanFarming(dt) {
     const ripe = _getNearbyRipeCrop(farm.x, farm.y, 14);
     if (ripe) {
       Network.sendAldeanoHarvestCrop(ripe._cropId);
-      soulSystem?.addFood(unit.name, 1);   // cosecha → comida → energía
+      soulSystem?.addInventory(unit.name, 1);  // cosecha → inventory (entrega) + porción personal
       UI.addKillMessage(unit.name, '↑ cosechó fruto');
       _farmCooldowns[i] = 5 + Math.random() * 5;
       return;

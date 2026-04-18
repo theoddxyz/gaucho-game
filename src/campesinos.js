@@ -464,14 +464,14 @@ export class CampesinoSystem {
 
       // ── Fruta sobre la cabeza (visible cuando food > 0) ───────────────────
       if (root._fruit) {
-        const food = unit?.food ?? 0;
-        if (food > 0.05) {
+        // Muestra la baya según el inventario que lleva para entregar
+        const inv = unit?.inventory ?? 0;
+        if (inv > 0) {
           root._fruit.visible = true;
-          // Bob suave hacia arriba y abajo
           const bob = Math.sin(now * 0.003 + i * 1.3) * 0.07;
           root._fruit.position.y = HEAD_R * 1.55 + bob;
-          // Tamaño proporcional a cuánta comida lleva (mín 0.6, máx 1.4)
-          const s = Math.min(1.4, 0.6 + (food / 5) * 0.8);
+          // Tamaño proporcional a cuánto lleva (1 fruto = normal, 5 = grande)
+          const s = Math.min(1.6, 0.65 + (inv / unit.maxInventory) * 0.95);
           root._fruit.scale.setScalar(s);
         } else {
           root._fruit.visible = false;
