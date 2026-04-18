@@ -26,3 +26,31 @@
 
   GAUCHO production server at http://localhost:3000
 [AI] Ollama ACTIVO → gemma3:4b en http://localhost:11434
+
+  ╔══════════════════════════════════════════════╗
+  ║  LINK PARA EL OTRO JUGADOR:                  ║
+  ║  https://facts-house-investigations-integration.trycloudflare.com║
+  ╚══════════════════════════════════════════════╝
+
+[gaucho] Gaucho joined (1 players, host=YES)
+[GM] Gemini INACTIVO (sin API key)
+
+  GAUCHO production server at http://localhost:3000
+[AI] Ollama ACTIVO → gemma3:4b en http://localhost:11434
+
+  ╔══════════════════════════════════════════════╗
+  ║  LINK PARA EL OTRO JUGADOR:                  ║
+  ║  https://older-steal-poet-bones.trycloudflare.com║
+  ╚══════════════════════════════════════════════╝
+
+[gaucho] Gaucho joined (1 players, host=YES)
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)

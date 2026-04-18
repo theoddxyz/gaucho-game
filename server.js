@@ -992,17 +992,18 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
     socket.emit('aldeanoQAReady', results);
   });
 
-  socket.on('aldeanoChat', async ({ name, message, cuadrante, trayectoria, energia, recursos, vecinos, historial }) => {
+  socket.on('aldeanoChat', async ({ name, message, playerName, cuadrante, trayectoria, energia, recursos, vecinos, historial }) => {
     if (typeof message !== 'string' || !message.trim()) return;
+    const pName = (typeof playerName === 'string' && playerName.trim()) ? playerName.trim() : 'el viajero';
     const histStr = Array.isArray(historial) && historial.length
-      ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? 'Gaucho' : name}: "${h.text}"`).join('\n') + '\n'
+      ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? pName : name}: "${h.text}"`).join('\n') + '\n'
       : '';
     // Pedimos respuesta corta + impulso metafísico como JSON
     const prompt =
-`Sos ${name}, aldeano gaucho de la pampa argentina.
+`Sos ${name}, aldeano de la pampa argentina.
 Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
 Vecinos: ${vecinos}.${histStr}
-El gaucho te dice: "${message.trim()}"
+${pName} te dice: "${message.trim()}"
 
 Respondé con JSON válido, sin markdown, sin texto extra:
 {"r":"tu respuesta en máximo 12 palabras, estilo seco gaucho rioplatense","ix":0.0,"iy":0.0}

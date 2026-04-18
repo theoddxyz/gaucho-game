@@ -17,15 +17,7 @@ tts.PATH_MAP[VOICE_ID] = ONNX_PATH;
 // → servir los archivos WASM localmente desde /ort/ (mismo origen, sin CORS)
 TtsSession.WASM_LOCATIONS.onnxWasm = '/ort/';
 
-// ── Pitch por personaje ───────────────────────────────────────────────────────
-const CHAR_RATES = {
-  'Ramón':     0.90,
-  'Ofelia':    1.15,
-  'Facundo':   0.82,
-  'Celestino': 1.00,
-  'Zulma':     1.20,
-  'GM':        0.72,
-};
+// Voz unificada — "el traductor interplanetario", misma velocidad para todos
 
 let _state = 'idle';  // 'idle' | 'loading' | 'ready' | 'failed'
 
@@ -186,7 +178,7 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0) {
     const src  = ctx.createBufferSource();
     const gain = ctx.createGain();
     src.buffer = buf;
-    src.playbackRate.value = CHAR_RATES[charName] ?? 1.0;
+    src.playbackRate.value = 1.0;
     gain.gain.value = Math.max(0, Math.min(1, volume));
     src.connect(gain);
     gain.connect(ctx.destination);

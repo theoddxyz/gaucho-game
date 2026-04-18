@@ -1,10 +1,6 @@
 // conversation-ui.js — Sistema de conversación con aldeanos
-// Los listeners de socket se registran en init() (después de connect),
-// no en el constructor, para evitar crash con socket=null.
 import * as Network from './network.js';
 import { speakNpc, stopSpeech } from './speech.js';
-
-const NAMES_BY_ID = ['Ramón', 'Ofelia', 'Facundo', 'Celestino', 'Zulma'];
 
 const MOOD_LABEL = {
   OFFERING:  'sereno, espiritual',
@@ -16,96 +12,45 @@ const MOOD_LABEL = {
 
 export class ConversationUI {
   constructor(soulSystem) {
-    this._souls          = soulSystem || null;
-    this._panel          = null;
-    this._active         = false;
-    this._current        = null;
-    this._qaCache        = {};   // name → [{q,a}]
-    this._history        = {};   // name → [{from,text}]  (sesión)
-    this._customUsed     = {};   // name → gameDay
-    this._currentGameDay = 1;
-    this._waiting        = false;
-    this._typeTimer      = null; // typewriter interval
-    this.onClose         = null;
+    this._souls      = soulSystem || null;
+    this._panel      = null;
+    this._active     = false;
+    this._current    = null;
+    this._history    = {};   // name → [{from,text}]
+    this._waiting    = false;
+    this._playerName = '?';
+    this.onClose     = null;
     this._buildPanel();
-    // ⚠️ NO registrar socket listeners aquí — llamar init() después de connect()
   }
 
   // Llamar desde onJoined (socket ya conectado)
   init() {
-    Network.onAldeanoQAReady((data) => {
-      for (const [id, qa] of Object.entries(data)) {
-        const idx  = parseInt(id.split('-')[1]);
-        const name = NAMES_BY_ID[idx];
-        if (name && Array.isArray(qa)) this._qaCache[name] = qa;
-      }
-      if (this._active) this._renderQuestions();
-    });
-
     Network.onAldeanoChatResponse(({ response, impulso }) => {
       this._waiting = false;
       if (!this._current) return;
       const name = this._current.name;
 
-      // Crear player guardian en el metaplano
+      // Impulso metafísico
       if (impulso && this._souls && (Math.abs(impulso.ix) > 0.1 || Math.abs(impulso.iy) > 0.1)) {
-        this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName || '?', 10);
+        this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
       }
 
-      // Agregar al historial con texto vacío — typewriter lo completa
+      // Mostrar respuesta completa de una vez (sin typewriter)
       const hist = (this._history[name] = this._history[name] || []);
-      hist.push({ from: 'npc', text: '' });
+      hist.push({ from: 'npc', text: response });
       this._renderHistory();
-      this._renderQuestions(); // muestra botones deshabilitados mientras escribe
+      this._renderInput();
 
-      // Voz del aldeano (Piper / Web Speech)
+      // Voz de Daniela
       speakNpc(response, { charName: name });
-
-      // Typewriter
-      let i = 0;
-      clearInterval(this._typeTimer);
-      this._typeTimer = setInterval(() => {
-        if (!this._current || this._current.name !== name) {
-          clearInterval(this._typeTimer); return;
-        }
-        const entry = hist[hist.length - 1];
-        if (!entry) { clearInterval(this._typeTimer); return; }
-        entry.text = response.slice(0, ++i);
-        this._renderHistory();
-        if (i >= response.length) {
-          clearInterval(this._typeTimer);
-          this._typeTimer = null;
-          this._renderQuestions(); // habilita botones al terminar
-        }
-      }, 28);
     });
   }
 
   setPlayerName(name) { this._playerName = name; }
 
-  setGameDay(day) {
-    if (day !== this._currentGameDay) {
-      this._currentGameDay = day;
-      this._customUsed = {};
-    }
-  }
-
-  requestQA(contextUnits, hora) {
-    const payload = contextUnits.map(u => ({
-      id:          u.id,
-      name:        u.name,
-      cuadrante:   u.cuadrante,
-      trayectoria: u.trayectoria,
-      energia:     u.energia,
-      recursos:    u.recursos,
-      hora:        hora ?? 12,
-      vecinos:     contextUnits
-                     .filter(v => v.id !== u.id)
-                     .map(v => `${v.name} (${v.cuadrante}, ${v.trayectoria})`)
-                     .join(', '),
-    }));
-    Network.sendGenerateAldeanoQA(payload);
-  }
+  // No-op stub — QA pregenerada eliminada, mantenido para compat con main.js
+  setGameDay(_day) {}
+  requestQA(_units, _hora) {}
 
   open(aldeanoData) {
     if (this._active) return;
@@ -115,7 +60,7 @@ export class ConversationUI {
     this._panel.style.display = 'flex';
     this._renderHeader();
     this._renderHistory();
-    this._renderQuestions();
+    this._renderInput();
   }
 
   close() {
@@ -162,7 +107,7 @@ export class ConversationUI {
       </div>
       <div id="conv-history" style="padding:8px 16px 4px;min-height:36px;max-height:150px;
                                      overflow-y:auto;font-size:13px;line-height:1.55;"></div>
-      <div id="conv-questions" style="padding:8px 16px 14px;display:flex;flex-direction:column;gap:6px;"></div>
+      <div id="conv-input-area" style="padding:8px 16px 14px;display:flex;flex-direction:column;gap:6px;"></div>
     `;
     document.body.appendChild(el);
     this._panel = el;
@@ -183,50 +128,26 @@ export class ConversationUI {
     }
     el.innerHTML = hist.map(h =>
       h.from === 'player'
-        ? `<div style="color:#a08040;margin:2px 0;">Vos: <em>"${_esc(h.text)}"</em></div>`
+        ? `<div style="color:#a08040;margin:2px 0;">${_esc(this._playerName)}: <em>"${_esc(h.text)}"</em></div>`
         : `<div style="color:#e8d4a0;margin:2px 0;">${_esc(this._current.name)}: "${_esc(h.text)}"</div>`
     ).join('');
     el.scrollTop = el.scrollHeight;
   }
 
-  _renderQuestions() {
-    const container = document.getElementById('conv-questions');
+  _renderInput() {
+    const container = document.getElementById('conv-input-area');
     container.innerHTML = '';
-    const qa = this._qaCache[this._current.name];
-    if (!qa) {
-      // Sin QA cacheada: mostrar "cargando" pero siempre mostrar el botón de chat libre
-      const loading = document.createElement('div');
-      loading.style.cssText = 'color:#4a3018;font-size:11px;text-align:center;padding:4px 0;';
-      loading.textContent = '— cargando temas de conversación —';
-      container.appendChild(loading);
-    } else {
-      for (const pair of qa) {
-        const btn = _mkBtn(pair.q, false);
-        btn.addEventListener('click', () => {
-          if (this._waiting) return;
-          const name = this._current.name;
-          (this._history[name] = this._history[name] || []).push({ from: 'player', text: pair.q });
-          this._history[name].push({ from: 'npc', text: pair.a });
-          this._renderHistory();
-          this._renderQuestions();
-        });
-        container.appendChild(btn);
-      }
+
+    if (this._waiting) {
+      const thinking = document.createElement('div');
+      thinking.style.cssText = 'color:#4a3018;font-size:12px;text-align:center;padding:10px 0;letter-spacing:3px;';
+      thinking.textContent = 'pensando...';
+      container.appendChild(thinking);
+      return;
     }
 
-    // "Decirle algo..." — deshabilitado mientras escribe o espera
-    const busy = this._waiting || !!this._typeTimer;
-    const customBtn = _mkBtn(busy ? '...' : 'Decirle algo...', busy);
-    if (!busy) customBtn.addEventListener('click', () => this._openCustomInput());
-    container.appendChild(customBtn);
-  }
-
-  _openCustomInput() {
-    const container = document.getElementById('conv-questions');
-    container.innerHTML = '';
-
     const input = document.createElement('input');
-    input.type = 'text'; input.maxLength = 140; input.placeholder = 'Escribí algo...';
+    input.type = 'text'; input.maxLength = 140; input.placeholder = 'Decirle algo...';
     input.style.cssText = `
       background:rgba(30,18,8,0.9); border:1px solid rgba(180,140,60,0.4);
       color:#e8d4a0; padding:7px 10px; border-radius:4px;
@@ -250,19 +171,23 @@ export class ConversationUI {
     if (this._waiting) return;
     this._waiting = true;
     const a = this._current;
-    this._customUsed[a.name] = this._currentGameDay;
     (this._history[a.name] = this._history[a.name] || []).push({ from: 'player', text: message });
     this._renderHistory();
-    document.getElementById('conv-questions').innerHTML =
-      `<div style="color:#4a3018;font-size:12px;text-align:center;padding:8px 0;">...</div>`;
+    this._renderInput(); // muestra "pensando..."
+
     Network.sendAldeanoChat({
-      name: a.name, message,
-      cuadrante: a.cuadrante, trayectoria: a.trayectoria,
-      energia: a.energia, recursos: a.recursos, vecinos: a.vecinos,
-      historial: (this._history[a.name] || []).slice(-6),
+      name:       a.name,
+      message,
+      playerName: this._playerName,
+      cuadrante:  a.cuadrante,
+      trayectoria: a.trayectoria,
+      energia:    a.energia,
+      recursos:   a.recursos,
+      vecinos:    a.vecinos,
+      historial:  (this._history[a.name] || []).slice(-6),
     });
 
-    // Timeout de seguridad: 35s (Gemma4 local puede tardar más que Gemini)
+    // Timeout de seguridad: 35s
     setTimeout(() => {
       if (!this._waiting) return;
       this._waiting = false;
@@ -270,7 +195,7 @@ export class ConversationUI {
         (this._history[this._current.name] = this._history[this._current.name] || [])
           .push({ from: 'npc', text: '...' });
         this._renderHistory();
-        this._renderQuestions();
+        this._renderInput();
       }
     }, 35000);
   }
