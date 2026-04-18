@@ -3009,6 +3009,20 @@ function gameLoop() {
     : _dp > 0.78 ? Math.min(1, (_dp - 0.78) / 0.10) : 0;
   _fxPass.uniforms.nightMix.value = _nightFrac;
   _composer.render();
+  // Alimentar datos de fauna al mapa ecológico (solo cuando está visible)
+  if (soulMap._mode === 2) {
+    soulMap.setCreatureData({
+      player:    { x: pos.x, z: pos.z },
+      vibora:    viboraSystem._entities.map(e => ({ dead: !!e.dead, x: e.x, z: e.z })),
+      armadillo: armadilloSystem._entities.map(e => ({ dead: !!e.dead, x: e.x, z: e.z })),
+      condor:    condorSystem._entities.map(e => ({ dead: !!e.dead, x: e.x, z: e.z })),
+      puma:      pumaSystem._entities.map(e => ({ dead: !!e.dead, x: e.x, z: e.z })),
+      ostrich:   ostrichSystem._entities.map(e => ({ dead: !!(e.dead || e.dying), x: e.mesh?.position.x ?? 0, z: e.mesh?.position.z ?? 0 })),
+      chicken:   (chickenSystem?._chickens ?? []).map(c => ({ dead: !!(c.removed || !c.mesh), x: c.mesh?.position.x ?? 0, z: c.mesh?.position.z ?? 0 })),
+      cow:       (cowSystem?._cows ?? []).map(c => ({ dead: !!(c.removed || !c.mesh), x: c.mesh?.position.x ?? 0, z: c.mesh?.position.z ?? 0 })),
+      bird:      (birdSystem?._syncBirds ?? []).map(b => ({ dead: false, x: b.x, z: b.z })),
+    });
+  }
   soulMap.draw();
 }
 

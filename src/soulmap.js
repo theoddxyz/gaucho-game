@@ -23,8 +23,9 @@ const QUADRANT_LABELS = [
 
 export class SoulMap {
   constructor(soulSystem) {
-    this._souls   = soulSystem;
-    this._visible = false;
+    this._souls    = soulSystem;
+    this._mode     = 0;          // 0=oculto  1=almas  2=criaturas
+    this._creatures = null;      // datos de fauna en vivo
 
     this._canvas = document.createElement('canvas');
     this._canvas.style.cssText = [
@@ -38,8 +39,8 @@ export class SoulMap {
 
     document.addEventListener('keydown', e => {
       if (e.code === 'KeyM') {
-        this._visible = !this._visible;
-        this._canvas.style.display = this._visible ? 'block' : 'none';
+        this._mode = (this._mode + 1) % 3;
+        this._canvas.style.display = this._mode > 0 ? 'block' : 'none';
       }
     });
 
@@ -47,46 +48,43 @@ export class SoulMap {
     this._resize();
   }
 
+  // Llamado cada frame desde main.js para actualizar datos de fauna
+  setCreatureData(data) { this._creatures = data; }
+
   _resize() {
     this._canvas.width  = window.innerWidth;
     this._canvas.height = window.innerHeight;
   }
 
   draw() {
-    if (!this._visible) return;
+    if (this._mode === 0) return;
 
     const ctx = this._canvas.getContext('2d');
     const W   = this._canvas.width;
     const H   = this._canvas.height;
-    const hw  = Math.floor(W / 2);
 
     ctx.clearRect(0, 0, W, H);
-
-    // ── Fondo ─────────────────────────────────────────────────────────────────
     ctx.fillStyle = 'rgba(4, 4, 10, 0.93)';
     ctx.fillRect(0, 0, W, H);
 
-    // ── Divisor central ───────────────────────────────────────────────────────
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath(); ctx.moveTo(hw, 10); ctx.lineTo(hw, H - 10); ctx.stroke();
-
-    // ── Títulos ───────────────────────────────────────────────────────────────
-    ctx.font      = 'bold 12px monospace';
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.textAlign = 'center';
-    ctx.fillText('METAPLANO  —  ALMAS', hw / 2, 18);
-    ctx.fillText('REALIDAD TERRITORIAL', hw + hw / 2, 18);
-
-    // ── Hint ──────────────────────────────────────────────────────────────────
-    ctx.font      = '10px monospace';
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.textAlign = 'right';
-    ctx.fillText('[M] cerrar', W - 8, H - 6);
-
-    const PAD = 28;
-    this._drawMeta (ctx,  0,  PAD, hw,     H - PAD * 2);
-    this._drawTerra(ctx, hw,  PAD, W - hw, H - PAD * 2);
+    if (this._mode === 1) {
+      // ── Mapa de almas ──────────────────────────────────────────────────────
+      const hw = Math.floor(W / 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath(); ctx.moveTo(hw, 10); ctx.lineTo(hw, H - 10); ctx.stroke();
+      ctx.font = 'bold 12px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.textAlign = 'center';
+      ctx.fillText('METAPLANO  —  ALMAS', hw / 2, 18);
+      ctx.fillText('REALIDAD TERRITORIAL', hw + hw / 2, 18);
+      ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.textAlign = 'right';
+      ctx.fillText('[M] ciclo', W - 8, H - 6);
+      const PAD = 28;
+      this._drawMeta (ctx,  0,  PAD, hw,     H - PAD * 2);
+      this._drawTerra(ctx, hw,  PAD, W - hw, H - PAD * 2);
+    } else {
+      // ── Mapa de criaturas ──────────────────────────────────────────────────
+      this._drawCreatureMap(ctx, W, H);
+    }
   }
 
   // ─── Metaplano ────────────────────────────────────────────────────────────
@@ -387,5 +385,187 @@ export class SoulMap {
     ctx.font      = '7px monospace';
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
     ctx.fillText(label, x, y + 16);
+  }
+
+  // ─── Mapa ecológico de criaturas ──────────────────────────────────────────
+  _drawCreatureMap(ctx, W, H) {
+    const d = this._creatures;
+
+    // Sidebar de conteos (derecha)
+    const SB = 210;
+    const mapW = W - SB;
+    const mapH = H;
+
+    // ── Fondo mapa ────────────────────────────────────────────────────────────
+    ctx.fillStyle = 'rgba(10, 22, 12, 0.98)';
+    ctx.fillRect(0, 0, mapW, mapH);
+
+    // ── Título ────────────────────────────────────────────────────────────────
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = 'rgba(120,220,100,0.7)';
+    ctx.textAlign = 'center';
+    ctx.fillText('CICLO ECOLÓGICO — EN VIVO', mapW / 2, 16);
+    ctx.font = '9px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillText('[M] ciclo · [M] cerrar', mapW / 2, H - 6);
+
+    // ── Conversión mundo → canvas ─────────────────────────────────────────────
+    const WORLD = 650;   // radio del mundo visible
+    const PAD   = 30;
+    const cw    = mapW - PAD * 2;
+    const ch    = mapH - PAD * 2;
+    const w2c   = (wx, wz) => ({
+      x: PAD + ((wx + WORLD) / (WORLD * 2)) * cw,
+      y: PAD + ((wz + WORLD) / (WORLD * 2)) * ch,
+    });
+
+    // ── Grid ──────────────────────────────────────────────────────────────────
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth   = 1;
+    for (let g = -600; g <= 600; g += 200) {
+      const a = w2c(g, -WORLD), b = w2c(g, WORLD);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      const c2 = w2c(-WORLD, g), d2 = w2c(WORLD, g);
+      ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(d2.x, d2.y); ctx.stroke();
+    }
+
+    // ── Zona aldea ────────────────────────────────────────────────────────────
+    const vTL = w2c(-80, -110), vBR = w2c(120, 110);
+    ctx.strokeStyle = 'rgba(200,160,60,0.25)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(vTL.x, vTL.y, vBR.x - vTL.x, vBR.y - vTL.y);
+    ctx.setLineDash([]);
+    ctx.font = '8px monospace';
+    ctx.fillStyle = 'rgba(200,160,60,0.4)';
+    ctx.textAlign = 'left';
+    ctx.fillText('ALDEA', vTL.x + 3, vTL.y + 10);
+
+    // ── Definición de especies ────────────────────────────────────────────────
+    const SPECIES = [
+      { key: 'chicken',   label: 'Gallinas',    col: '#fde68a', r: 3,   shape: 'circle' },
+      { key: 'cow',       label: 'Vacas',        col: '#b45309', r: 5,   shape: 'circle' },
+      { key: 'ostrich',   label: 'Avestruces',   col: '#f97316', r: 4,   shape: 'circle' },
+      { key: 'bird',      label: 'Pájaros',      col: '#93c5fd', r: 2,   shape: 'circle' },
+      { key: 'armadillo', label: 'Armadillos',   col: '#9ca3af', r: 3,   shape: 'square' },
+      { key: 'vibora',    label: 'Víboras',      col: '#dc2626', r: 3,   shape: 'diamond' },
+      { key: 'puma',      label: 'Pumas',        col: '#c8a44a', r: 4,   shape: 'diamond' },
+      { key: 'condor',    label: 'Cóndores',     col: '#a78bfa', r: 4,   shape: 'triangle' },
+    ];
+
+    // ── Dibujar criaturas ─────────────────────────────────────────────────────
+    if (d) {
+      for (const sp of SPECIES) {
+        const list = d[sp.key];
+        if (!list) continue;
+        ctx.fillStyle   = sp.col;
+        ctx.strokeStyle = sp.col;
+        ctx.globalAlpha = 0.85;
+        for (const e of list) {
+          if (e.dead) continue;
+          const p = w2c(e.x ?? 0, e.z ?? 0);
+          ctx.beginPath();
+          if (sp.shape === 'circle') {
+            ctx.arc(p.x, p.y, sp.r, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (sp.shape === 'square') {
+            ctx.fillRect(p.x - sp.r, p.y - sp.r, sp.r * 2, sp.r * 2);
+          } else if (sp.shape === 'diamond') {
+            ctx.moveTo(p.x, p.y - sp.r);
+            ctx.lineTo(p.x + sp.r, p.y);
+            ctx.lineTo(p.x, p.y + sp.r);
+            ctx.lineTo(p.x - sp.r, p.y);
+            ctx.closePath();
+            ctx.fill();
+          } else if (sp.shape === 'triangle') {
+            ctx.moveTo(p.x, p.y - sp.r * 1.2);
+            ctx.lineTo(p.x + sp.r, p.y + sp.r * 0.8);
+            ctx.lineTo(p.x - sp.r, p.y + sp.r * 0.8);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // ── Jugador ───────────────────────────────────────────────────────────────
+    if (d?.player) {
+      const pp    = w2c(d.player.x, d.player.z);
+      const pulse = Math.sin(Date.now() * 0.006) * 4 + 8;
+      ctx.beginPath(); ctx.arc(pp.x, pp.y, pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.beginPath(); ctx.arc(pp.x, pp.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+      ctx.font = '8px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.textAlign = 'left';
+      ctx.fillText('TÚ', pp.x + 7, pp.y + 3);
+    }
+
+    // ── Sidebar: conteos y cadena ─────────────────────────────────────────────
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(mapW, 0, SB, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(mapW, 0); ctx.lineTo(mapW, H); ctx.stroke();
+
+    let ly = 28;
+    const line = (txt, col, size = 9) => {
+      ctx.font = `${size}px monospace`; ctx.fillStyle = col;
+      ctx.textAlign = 'left';
+      ctx.fillText(txt, mapW + 10, ly);
+      ly += size + 5;
+    };
+    const gap = () => { ly += 6; };
+
+    line('FAUNA EN VIVO', 'rgba(120,220,100,0.8)', 10);
+    gap();
+
+    // Secciones
+    const sections = [
+      { title: '── HERBÍVOROS ──', col: 'rgba(253,230,138,0.5)', keys: ['chicken','cow','ostrich','bird','armadillo'] },
+      { title: '── DEPREDADORES ─', col: 'rgba(220,80,80,0.5)',   keys: ['vibora','puma'] },
+      { title: '── CARROÑEROS ───', col: 'rgba(167,139,250,0.5)', keys: ['condor'] },
+    ];
+
+    for (const sec of sections) {
+      line(sec.title, sec.col, 8);
+      for (const sp of SPECIES.filter(s => sec.keys.includes(s.key))) {
+        const list   = d?.[sp.key] ?? [];
+        const alive  = list.filter(e => !e.dead).length;
+        const total  = list.length;
+        const bar    = '█'.repeat(Math.round(alive / Math.max(total, 1) * 8));
+        ctx.font = '9px monospace';
+        ctx.fillStyle = sp.col;
+        ctx.textAlign = 'left';
+        ctx.fillText(`${sp.label}`, mapW + 14, ly);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillText(`${alive}/${total}`, mapW + SB - 36, ly);
+        ly += 12;
+        ctx.fillStyle = sp.col + '60';
+        ctx.fillText(bar, mapW + 14, ly);
+        ly += 14;
+      }
+      gap();
+    }
+
+    // Cadena trófica
+    ly += 4;
+    line('── CADENA ────────', 'rgba(255,255,255,0.2)', 8);
+    const chain = [
+      { txt: 'pasto → gallina', col: '#fde68a' },
+      { txt: 'gallina → víbora', col: '#dc2626' },
+      { txt: 'vaca/avestruz → puma', col: '#c8a44a' },
+      { txt: 'muerto → cóndor', col: '#a78bfa' },
+    ];
+    for (const c of chain) line(c.txt, c.col + 'cc', 8);
+
+    // Leyenda formas
+    gap();
+    line('── FORMAS ────────', 'rgba(255,255,255,0.2)', 8);
+    line('●  herbívoro', 'rgba(255,255,255,0.4)', 8);
+    line('◆  depredador', 'rgba(255,255,255,0.4)', 8);
+    line('▲  carroñero', 'rgba(255,255,255,0.4)', 8);
+    line('■  omnívoro', 'rgba(255,255,255,0.4)', 8);
   }
 }
