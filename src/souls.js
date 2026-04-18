@@ -341,28 +341,7 @@ export class SoulSystem {
       }
     }
 
-    // ─── Spawn de recursos (igual que A/B) ───────────────────────────────────
-    this._spawnTimer += dt;
-    if (this._spawnTimer > 0.4) {
-      this._spawnTimer = 0;
-      const isWinter  = month >= 5 && month <= 7;
-      const isSpring  = month >= 8 && month <= 10;
-      const spawnRate = isSpring ? 0.08 : (isWinter ? 0.02 : 0.04);
-      const maxRes    = isSpring ? 30   : (isWinter ? 10   : 20);
-
-      if (Math.random() < spawnRate && this._resources.length < maxRes) {
-        const hi   = Math.floor(Math.random() * HOUSES.length);
-        const farm = HOUSES[hi].farm;
-        const rid  = `res-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const pos  = {
-          x: farm.x + (Math.random() - 0.5) * 10,
-          y: farm.y + (Math.random() - 0.5) * 10,
-        };
-        this._resources.push({ id: rid, pos, amount: 1, ownerHouseId: hi });
-        // Los atados de trigo son invisibles — solo simulación interna
-        this._resMeshes.set(rid, null);
-      }
-    }
+    // Recursos internos desactivados — todo lo visible proviene del mundo 3D real
 
     // ─── Decay de stocks ──────────────────────────────────────────────────────
     if (Math.random() < 0.005 * dt * 60) {

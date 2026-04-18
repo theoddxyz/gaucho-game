@@ -246,7 +246,7 @@ export class SoulMap {
 
   // ─── Realidad territorial ─────────────────────────────────────────────────
   _drawTerra(ctx, ox, oy, w, h) {
-    const { units, resources, stocks, time } = this._souls;
+    const { units, stocks, time } = this._souls;
     const hr = time.hour;
 
     // Tinte noche
@@ -319,17 +319,6 @@ export class SoulMap {
       ctx.strokeStyle = 'rgba(74,222,128,0.15)'; ctx.setLineDash([2, 2]);
       ctx.strokeRect(fp.x - 8, fp.y - 8, 16, 16);
       ctx.setLineDash([]);
-    });
-
-    // ── Recursos (color estacional) ───────────────────────────────────────────
-    const mo = time.month || 0;
-    const resCol = mo >= 5 && mo <= 7 ? '#93c5fd'
-                 : mo >= 8 && mo <= 10 ? '#4ade80'
-                 : '#fbbf24';
-    resources.forEach(r => {
-      const rp = this._t2c(r.pos, ox, oy, w, h);
-      ctx.beginPath(); ctx.arc(rp.x, rp.y, 2, 0, Math.PI * 2);
-      ctx.fillStyle = resCol; ctx.fill();
     });
 
     // ── Cultivos 3D (plantado/maduro) ─────────────────────────────────────────
