@@ -26,11 +26,11 @@ const SEAT_BACK_OFFSET = 0.7;
 
 // ── Rapier physics constants ──────────────────────────────────────────────────
 const PHY_MASS         = 180;    // kg
-const PHY_THROTTLE     = 68000;  // N
-const PHY_BRAKE        = 32000;  // N
-const PHY_MAX_SPEED    = 85;     // m/s (cap speedFactor)
+const PHY_THROTTLE     = 110000; // N  — terminal ≈ 105 m/s con drag=10
+const PHY_BRAKE        = 42000;  // N
+const PHY_MAX_SPEED    = 110;    // m/s ≈ 396 km/h
 const PHY_MAX_REVERSE  = 10;     // m/s
-const PHY_DRAG         = 12;     // resistencia aire (v²)
+const PHY_DRAG         = 10;     // resistencia aire (v²)
 const PHY_ANG_DAMP     = 3.0;    // amortiguación angular Rapier
 const PHY_STEER_TORQUE = 420;    // N·m torque dirección (A/D)
 const PHY_STEER_SCALE  = 0.08;   // reducción torque a alta velocidad
@@ -38,9 +38,9 @@ const PHY_WHEELBASE    = 1.8;    // m distancia entre ejes
 // Grip lateral: decrece con velocidad → understeer real a alta vel
 const PHY_GRIP_LOW     = 12.0;   // /s a vel=0   (cancela ~19%/frame)
 const PHY_GRIP_HIGH    =  3.0;   // /s a vel=max (cancela ~5%/frame)
-// Handbrake: trasero libre, delantero con algo de grip para control
-const PHY_DRIFT_FRONT  =  2.0;   // /s durante drift (cancela ~3%/frame)
-const PHY_DRIFT_REAR   =  0.0;   // /s durante drift (trasero: sin grip)
+// Handbrake: trasero bloqueado, delantero mantiene control
+const PHY_DRIFT_FRONT  =  4.0;   // /s frente durante drift
+const PHY_DRIFT_REAR   =  0.0;   // /s trasero durante drift (bloqueado)
 
 // Fallback legacy constants (cuando Rapier no está listo aún)
 const SPEED_MULT   = 5.0;
@@ -228,8 +228,8 @@ export class MotoManager {
     const steerT = PHY_STEER_TORQUE * dt / (1 + absSpd * PHY_STEER_SCALE);
     if (keys.a) body.applyTorqueImpulse({ x: 0, y:  steerT, z: 0 }, true);
     if (keys.d) body.applyTorqueImpulse({ x: 0, y: -steerT, z: 0 }, true);
-    // Retorno angular suave cuando no hay input
-    if (!keys.a && !keys.d)
+    // Retorno angular cuando no hay input (desactivado en drift)
+    if (!keys.a && !keys.d && !isDrifting)
       body.applyTorqueImpulse({ x: 0, y: -omega * 180 * dt, z: 0 }, true);
 
     // ── Resistencia de aire ────────────────────────────────────────────────
@@ -466,7 +466,7 @@ export class MotoManager {
       const ry2  = 2 * Math.atan2(rot.y, rot.w);
       const rkX  = Math.cos(ry2), rkZ = -Math.sin(ry2);
       this._phyBody.applyImpulse(
-        { x: rkX * 600 * moto._driftSign, y: 0, z: rkZ * 600 * moto._driftSign }, true
+        { x: rkX * 2200 * moto._driftSign, y: 0, z: rkZ * 2200 * moto._driftSign }, true
       );
 
       return true;
