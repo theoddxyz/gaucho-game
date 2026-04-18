@@ -140,7 +140,6 @@ function _updateAldeanFarming(dt) {
     _farmCooldowns[i] = Math.max(0, _farmCooldowns[i] - dt);
     if (_farmCooldowns[i] > 0) return;
     if (unit.isSleeping || unit.energy < 20) return;
-    if (unit.intention !== 'CONSUMING') return;
     // Solo actuar si el aldeano ya llegó a su chacra
     const farm = unit.farmPos;
     const dx   = unit.terraPos.x - farm.x;
@@ -150,6 +149,7 @@ function _updateAldeanFarming(dt) {
     const ripe = _getNearbyRipeCrop(farm.x, farm.y, 14);
     if (ripe) {
       Network.sendHarvestCrop(ripe._cropId);
+      soulSystem?.addFood(unit.name, 1);   // cosecha → comida → energía
       _farmCooldowns[i] = 5 + Math.random() * 5;
       return;
     }
@@ -3010,6 +3010,14 @@ function gameLoop() {
     : _dp > 0.78 ? Math.min(1, (_dp - 0.78) / 0.10) : 0;
   _fxPass.uniforms.nightMix.value = _nightFrac;
   _composer.render();
+  // Alimentar cultivos 3D al mapa de almas (modo 1 = territorial)
+  if (soulMap._mode === 1 || soulMap._mode === 2) {
+    const cropArr = [];
+    for (const mesh of _cropMeshes.values()) {
+      cropArr.push({ x: mesh.position.x, z: mesh.position.z, grown: !!mesh._isGrown });
+    }
+    soulMap.setCropData(cropArr);
+  }
   // Alimentar datos de fauna al mapa ecológico (solo cuando está visible)
   if (soulMap._mode === 2) {
     soulMap.setCreatureData({

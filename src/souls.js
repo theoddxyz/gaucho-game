@@ -201,6 +201,7 @@ export class SoulSystem {
       terraVel:   { x: 0, y: 0 },
       terraAcc:   { x: 0, y: 0 },
       // Estado
+      food:            0,    // comida cosechada → se convierte en energía
       inventory:       0,
       maxInventory:    5,
       targetResource:  null,
@@ -250,6 +251,13 @@ export class SoulSystem {
       expiresAt:  performance.now() + duration * 1000,
       duration:   duration * 1000,
     };
+  }
+
+  // ─── Añadir comida cosechada a un aldeano ────────────────────────────────
+  // Llamado desde main.js cuando un aldeano cosecha un cultivo 3D
+  addFood(name, amount = 1) {
+    const unit = this._units.find(u => u.name === name);
+    if (unit) unit.food = Math.min(10, (unit.food || 0) + amount);
   }
 
   // ─── Update principal ─────────────────────────────────────────────────────
@@ -450,9 +458,17 @@ export class SoulSystem {
       metaVel = vec.add(metaVel, vec.mul(influenceForce, simDt));
 
       // ── ENERGÍA ────────────────────────────────────────────────────────────
+      let food = unit.food || 0;
       if (!isSleeping) {
         const wf = 1 + (unit.inventory / unit.maxInventory) * 0.5;
         energy  -= (0.005 + vec.mag(unit.terraVel) * 0.01 * wf) * simDt;
+        // Comer: convertir comida en energía (lento y gradual)
+        if (food > 0 && energy < 92) {
+          const eatRate  = 0.004 * simDt;
+          const consumed = Math.min(food, eatRate);
+          food   -= consumed;
+          energy  = Math.min(100, energy + consumed * 180); // 1 comida ≈ 45 energía
+        }
       }
       if (energy < 5  && !isSleeping) isSleeping = true;
       if (energy < 20 && !isSleeping) intention  = 'SLEEPING';
@@ -554,8 +570,9 @@ export class SoulSystem {
           terraAcc = vec.limit(vec.sub(desired, unit.terraVel), unit.maxForce);
         }
 
-      } else if (intention === 'CONSUMING' && energy > 20) {
+      } else if ((intention === 'CONSUMING' || energy < 45) && energy > 20) {
         // ── Labranza: ir a la chacra personal ─────────────────────────────────
+        // Se activa tanto por intención CONSUMING como por hambre (energy < 45)
         const distFarm = vec.dist(unit.terraPos, unit.farmPos);
         if (distFarm > 3) {
           const desired = vec.setMag(vec.sub(unit.farmPos, unit.terraPos), unit.maxSpeed);
@@ -649,6 +666,7 @@ export class SoulSystem {
         ...unit,
         metaPos, metaVel, metaAcc,
         terraPos, terraVel, terraAcc,
+        food,
         inventory, maxInventory: unit.maxInventory,
         targetResource, deliveryPlan, intention,
         energy, isSleeping, insideBuilding, buildingTimer,

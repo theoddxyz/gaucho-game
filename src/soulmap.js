@@ -26,6 +26,7 @@ export class SoulMap {
     this._souls    = soulSystem;
     this._mode     = 0;          // 0=oculto  1=almas  2=criaturas
     this._creatures = null;      // datos de fauna en vivo
+    this._crops     = [];        // cultivos 3D del mundo
 
     this._canvas = document.createElement('canvas');
     this._canvas.style.cssText = [
@@ -50,6 +51,10 @@ export class SoulMap {
 
   // Llamado cada frame desde main.js para actualizar datos de fauna
   setCreatureData(data) { this._creatures = data; }
+
+  // Llamado cada frame con los cultivos 3D del mundo
+  // crops: array de { x, z, grown }
+  setCropData(crops) { this._crops = crops; }
 
   _resize() {
     this._canvas.width  = window.innerWidth;
@@ -327,15 +332,36 @@ export class SoulMap {
       ctx.fillStyle = resCol; ctx.fill();
     });
 
+    // ── Cultivos 3D (plantado/maduro) ─────────────────────────────────────────
+    if (this._crops && this._crops.length > 0) {
+      this._crops.forEach(c => {
+        const cp2 = this._t2c({ x: c.x, y: c.z }, ox, oy, w, h);
+        ctx.beginPath(); ctx.arc(cp2.x, cp2.y, c.grown ? 3.5 : 2, 0, Math.PI * 2);
+        ctx.fillStyle = c.grown ? 'rgba(220,80,40,0.85)' : 'rgba(100,180,70,0.55)';
+        ctx.fill();
+        if (c.grown) {
+          ctx.beginPath(); ctx.arc(cp2.x, cp2.y, 5, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(220,80,40,0.35)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      });
+    }
+
     // ── Units ─────────────────────────────────────────────────────────────────
     units.forEach((unit, i) => {
       const col = COLORS[i % COLORS.length];
       const up  = this._t2c(unit.terraPos, ox, oy, w, h);
 
-      // Barra de inventario
+      // Barra de inventario (amarillo)
       if (unit.inventory > 0) {
         ctx.fillStyle = 'rgba(251,191,36,0.7)';
         ctx.fillRect(up.x - 5, up.y - 9, (unit.inventory / unit.maxInventory) * 10, 2);
+      }
+      // Barra de comida (verde — cultivos cosechados)
+      if (unit.food > 0) {
+        ctx.fillStyle = 'rgba(100,220,80,0.75)';
+        ctx.fillRect(up.x - 5, up.y - 12, Math.min(1, unit.food / 5) * 10, 2);
       }
 
       // Burbuja de habla
