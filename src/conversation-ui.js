@@ -158,28 +158,30 @@ export class ConversationUI {
     const container = document.getElementById('conv-questions');
     container.innerHTML = '';
     const qa = this._qaCache[this._current.name];
-
     if (!qa) {
-      container.innerHTML = `<div style="color:#4a3018;font-size:12px;text-align:center;padding:6px 0;">preparando...</div>`;
-      return;
+      // Sin QA cacheada: mostrar "cargando" pero siempre mostrar el botón de chat libre
+      const loading = document.createElement('div');
+      loading.style.cssText = 'color:#4a3018;font-size:11px;text-align:center;padding:4px 0;';
+      loading.textContent = '— cargando temas de conversación —';
+      container.appendChild(loading);
+    } else {
+      for (const pair of qa) {
+        const btn = _mkBtn(pair.q, false);
+        btn.addEventListener('click', () => {
+          if (this._waiting) return;
+          const name = this._current.name;
+          (this._history[name] = this._history[name] || []).push({ from: 'player', text: pair.q });
+          this._history[name].push({ from: 'npc', text: pair.a });
+          this._renderHistory();
+          this._renderQuestions();
+        });
+        container.appendChild(btn);
+      }
     }
 
-    for (const pair of qa) {
-      const btn = _mkBtn(pair.q, false);
-      btn.addEventListener('click', () => {
-        if (this._waiting) return;
-        const name = this._current.name;
-        (this._history[name] = this._history[name] || []).push({ from: 'player', text: pair.q });
-        this._history[name].push({ from: 'npc', text: pair.a });
-        this._renderHistory();
-        this._renderQuestions();
-      });
-      container.appendChild(btn);
-    }
-
-    const usedToday = this._customUsed[this._current.name] === this._currentGameDay;
-    const customBtn = _mkBtn(usedToday ? '(ya le dijiste algo hoy)' : 'Decirle algo...', usedToday);
-    if (!usedToday) customBtn.addEventListener('click', () => this._openCustomInput());
+    // Siempre mostrar "Decirle algo..." — sin límite por día
+    const customBtn = _mkBtn('Decirle algo...', false);
+    customBtn.addEventListener('click', () => this._openCustomInput());
     container.appendChild(customBtn);
   }
 
@@ -224,7 +226,7 @@ export class ConversationUI {
       historial: (this._history[a.name] || []).slice(-6),
     });
 
-    // Timeout de seguridad: si en 12s no llega respuesta, desbloquear
+    // Timeout de seguridad: 35s (Gemma4 local puede tardar más que Gemini)
     setTimeout(() => {
       if (!this._waiting) return;
       this._waiting = false;
@@ -234,7 +236,7 @@ export class ConversationUI {
         this._renderHistory();
         this._renderQuestions();
       }
-    }, 12000);
+    }, 35000);
   }
 }
 
