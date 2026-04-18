@@ -1,9 +1,10 @@
 // piper-tts.js — Síntesis de voz offline con Piper TTS
-// Voz: es_AR-daniela-high (Argentina, ~114 MB, cacheada en el browser)
+// Voz: es_MX-ald-medium (español mexicano, 63MB, más cercano al rioplatense disponible)
+// es_AR-daniela NO existe en este paquete
 
 import * as tts from '@mintplex-labs/piper-tts-web';
 
-const VOICE_ID = 'es_AR-daniela-high';
+const VOICE_ID = 'es_MX-ald-medium';
 
 // ── Pitch por personaje via playbackRate ──────────────────────────────────────
 const CHAR_RATES = {
@@ -15,20 +16,18 @@ const CHAR_RATES = {
   'GM':        0.72,
 };
 
-let _ready   = false;
-let _loading = false;
-let _failed  = false;
+let _state = 'idle';  // 'idle' | 'loading' | 'ready' | 'failed'
 
-// ── Indicador de descarga en pantalla ─────────────────────────────────────────
+// ── Badge de progreso en pantalla ─────────────────────────────────────────────
 let _badge = null;
-function _showBadge(text) {
+function _badge_show(text) {
   if (!_badge) {
     _badge = document.createElement('div');
     _badge.style.cssText = [
       'position:fixed', 'bottom:46px', 'left:50%', 'transform:translateX(-50%)',
       'z-index:500', 'font-size:9px', 'color:#c8a050', 'letter-spacing:2px',
       'pointer-events:none', 'font-family:monospace',
-      'background:rgba(0,0,0,0.6)', 'padding:2px 8px',
+      'background:rgba(0,0,0,0.7)', 'padding:2px 10px', 'border:1px solid #4a3010',
     ].join(';');
     document.body.appendChild(_badge);
   }
@@ -36,25 +35,24 @@ function _showBadge(text) {
   if (text) _badge.textContent = text;
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────────
+// ── Init: descarga el modelo ──────────────────────────────────────────────────
 export async function initPiper() {
-  if (_ready || _loading || _failed) return;
-  _loading = true;
-  _showBadge('daniela: 0%');
+  if (_state !== 'idle') return;
+  _state = 'loading';
+  _badge_show('voz: 0%');
   try {
     await tts.download(VOICE_ID, (p) => {
       const pct = p.total ? Math.round(p.loaded / p.total * 100) : '?';
-      _showBadge(`daniela: ${pct}%`);
+      _badge_show(`voz: ${pct}%`);
+      console.log(`[PIPER] ${pct}%`);
     });
-    _ready   = true;
-    _loading = false;
-    _showBadge(null);
-    console.log('[PIPER] daniela lista ✓');
+    _state = 'ready';
+    _badge_show(null);
+    console.log('[PIPER] listo ✓', VOICE_ID);
   } catch (e) {
-    _failed  = true;
-    _loading = false;
-    _showBadge(null);
-    console.warn('[PIPER] Error cargando daniela:', e);
+    _state = 'failed';
+    _badge_show(null);
+    console.error('[PIPER] fallo:', e);
   }
 }
 
@@ -68,50 +66,37 @@ function _ctx() {
   return _audioCtx;
 }
 
-// ── Estado de reproducción ────────────────────────────────────────────────────
-let _currentSource = null;
+// ── Reproducción ──────────────────────────────────────────────────────────────
+let _src = null;
 let _busy = false;
 
-function _stopCurrent() {
-  try { _currentSource?.stop(); } catch (_) {}
-  _currentSource = null;
-}
-
-export function cancelPiper() {
-  _stopCurrent();
+function _stop() {
+  try { _src?.stop(); } catch (_) {}
+  _src  = null;
   _busy = false;
 }
 
-/**
- * Sintetiza y reproduce texto.
- * @param {string} text
- * @param {string} charName
- * @param {number} volume
- */
+export function cancelPiper() { _stop(); }
+
 export async function speakPiper(text, charName = 'GM', volume = 1.0) {
-  if (_failed) return false;
-  if (_loading) {
-    // Esperar a que termine la descarga (máx 5 min)
-    let waited = 0;
-    await new Promise(resolve => {
-      const iv = setInterval(() => {
-        waited += 300;
-        if (!_loading || waited > 300000) { clearInterval(iv); resolve(); }
-      }, 300);
+  // Esperar si todavía está descargando
+  if (_state === 'loading') {
+    await new Promise(r => {
+      const iv = setInterval(() => { if (_state !== 'loading') { clearInterval(iv); r(); } }, 400);
     });
   }
-  if (!_ready) return false;
+  if (_state !== 'ready') return false;
 
-  _stopCurrent();  // cortar lo que suena, sin tocar versiones
+  _stop();
   _busy = true;
 
   try {
+    console.log('[PIPER] sintetizando:', text.slice(0, 40));
     const wav = await tts.predict({ text, voiceId: VOICE_ID });
-    if (!_busy) return false;  // fue cancelado mientras sintetizaba
+    if (!_busy) return false;
 
     const ctx = _ctx();
-    const ab  = await wav.arrayBuffer();
-    const buf = await ctx.decodeAudioData(ab);
+    const buf = await ctx.decodeAudioData(await wav.arrayBuffer());
     if (!_busy) return false;
 
     const src  = ctx.createBufferSource();
@@ -121,16 +106,17 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0) {
     gain.gain.value = Math.max(0, Math.min(1, volume));
     src.connect(gain);
     gain.connect(ctx.destination);
-    _currentSource = src;
-    src.onended = () => { if (_currentSource === src) { _currentSource = null; _busy = false; } };
+    _src = src;
+    src.onended = () => { if (_src === src) { _src = null; _busy = false; } };
     src.start();
+    console.log('[PIPER] reproduciendo ✓', charName, 'rate:', src.playbackRate.value);
     return true;
   } catch (e) {
     _busy = false;
-    console.warn('[PIPER] Error sintetizando:', e);
+    console.error('[PIPER] error sintetizando:', e);
     return false;
   }
 }
 
-export const isPiperReady   = () => _ready;
-export const isPiperLoading = () => _loading;
+export const isPiperReady   = () => _state === 'ready';
+export const isPiperLoading = () => _state === 'loading';
