@@ -116,6 +116,7 @@ export function onWakeUp(cb)       { socket.on('wakeUp', cb); }
 // ── Plantas ──────────────────────────────────────────────────────────────────
 export function sendPlantSeed(x, z)    { socket.emit('plantSeed', { x, z }); }
 export function sendHarvestCrop(id)    { socket.emit('harvestCrop', { id }); }
+export function sendAldeanoHarvestCrop(id) { socket.emit('harvestCrop', { id, isNPC: true }); }
 export function onCropSpawned(cb)      { socket.on('cropSpawned', cb); }
 export function onCropHarvested(cb)    { socket.on('cropHarvested', cb); }
 export function onCropReset(cb)        { socket.on('cropReset', cb); }

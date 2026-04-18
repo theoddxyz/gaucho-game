@@ -363,6 +363,15 @@ export class SoulMap {
         ctx.fillStyle = 'rgba(100,220,80,0.75)';
         ctx.fillRect(up.x - 5, up.y - 12, Math.min(1, unit.food / 5) * 10, 2);
       }
+      // Barra de energía (rojo→naranja→verde según nivel)
+      {
+        const eW   = (Math.max(0, unit.energy) / 100) * 12;
+        const eCol = unit.energy > 60 ? 'rgba(80,210,80,0.55)'
+                   : unit.energy > 30 ? 'rgba(220,160,40,0.65)'
+                   : 'rgba(220,50,40,0.75)';
+        ctx.fillStyle = eCol;
+        ctx.fillRect(up.x - 6, up.y - 15, eW, 2);
+      }
 
       // Burbuja de habla
       if (unit.speech) {
@@ -408,14 +417,16 @@ export class SoulMap {
       ctx.fillStyle = unit.isSleeping ? 'rgba(80,80,160,0.7)' : col;
       ctx.fill();
 
-      // Nombre + intención
+      // Nombre + energía + comida
       ctx.font      = '8px monospace';
       ctx.fillStyle = col;
       ctx.textAlign = 'left';
-      ctx.fillText(unit.name, up.x + 7, up.y + 3);
+      const eStr = `${unit.name} ${Math.round(unit.energy)}%`;
+      ctx.fillText(eStr, up.x + 7, up.y + 3);
       ctx.font      = '7px monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
-      ctx.fillText(unit.intention, up.x + 7, up.y + 12);
+      const foodStr = unit.food > 0 ? `${unit.intention} 🌿${unit.food.toFixed(1)}` : unit.intention;
+      ctx.fillText(foodStr, up.x + 7, up.y + 12);
     });
   }
 

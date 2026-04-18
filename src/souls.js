@@ -359,11 +359,8 @@ export class SoulSystem {
           y: farm.y + (Math.random() - 0.5) * 10,
         };
         this._resources.push({ id: rid, pos, amount: 1, ownerHouseId: hi });
-        const mesh = _buildWheatMesh();
-        mesh.position.set(pos.x, 0.25, pos.y);
-        mesh.rotation.y = Math.random() * Math.PI * 2;
-        this._scene.add(mesh);
-        this._resMeshes.set(rid, mesh);
+        // Los atados de trigo son invisibles — solo simulación interna
+        this._resMeshes.set(rid, null);
       }
     }
 
@@ -610,10 +607,9 @@ export class SoulSystem {
             const mesh = this._resMeshes.get(rid);
             if (mesh) {
               this._scene.remove(mesh);
-              mesh.geometry.dispose();
-              mesh.material.dispose();
-              this._resMeshes.delete(rid);
+              mesh.traverse(c => { if (c.isMesh) { c.geometry?.dispose(); c.material?.dispose(); } });
             }
+            this._resMeshes.delete(rid);
             targetResource = null;
           } else {
             const desired = vec.setMag(vec.sub(targetResource, unit.terraPos), unit.maxSpeed);
@@ -706,9 +702,9 @@ export class SoulSystem {
 
   dispose() {
     this._resMeshes.forEach((mesh) => {
+      if (!mesh) return;
       this._scene.remove(mesh);
-      mesh.geometry.dispose();
-      mesh.material.dispose();
+      mesh.traverse(c => { if (c.isMesh) { c.geometry?.dispose(); c.material?.dispose(); } });
     });
     this._resMeshes.clear();
     this._resources = [];

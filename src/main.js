@@ -148,8 +148,9 @@ function _updateAldeanFarming(dt) {
     // ¿Hay cultivo maduro cerca?
     const ripe = _getNearbyRipeCrop(farm.x, farm.y, 14);
     if (ripe) {
-      Network.sendHarvestCrop(ripe._cropId);
+      Network.sendAldeanoHarvestCrop(ripe._cropId);
       soulSystem?.addFood(unit.name, 1);   // cosecha → comida → energía
+      UI.addKillMessage(unit.name, '↑ cosechó fruto');
       _farmCooldowns[i] = 5 + Math.random() * 5;
       return;
     }
@@ -167,6 +168,7 @@ function _updateAldeanFarming(dt) {
       const pz = farm.y + Math.sin(angle) * r;
       if (_canPlantAt(px, pz)) {
         Network.sendPlantSeed(px, pz);
+        UI.addKillMessage(unit.name, '↓ plantó semilla');
         _farmCooldowns[i] = 10 + Math.random() * 10;
       }
     } else {

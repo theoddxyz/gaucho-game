@@ -35,7 +35,7 @@ const corralledCows = new Map();   // roomId → Set<cowId>
 const roomMeta      = new Map();   // roomId → { seed, createdAt }
 const sleepSessions = new Map();   // roomId → { sleepers: Map<socketId,hours>, firstHours, warpTimer }
 const cropStates    = new Map();   // roomId → Map<cropId, {id,x,z,plantedAt,grownAt}>
-const GROW_TIME_MS  = 5 * 60 * 1000;   // 5 minutos para que crezca un cultivo
+const GROW_TIME_MS  = 2 * 60 * 1000;   // 2 minutos para que crezca un cultivo
 const CROP_EXPIRE_MS = 24 * 60 * 60 * 1000; // cultivos sin cosechar expiran en 24h
 const MAX_CROPS_PER_ROOM = 20;
 const harvestedBushes = new Map(); // roomId → Map<"x,z", regrowAt timestamp>
@@ -921,7 +921,7 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('cropSpawned', crop);
   });
 
-  socket.on('harvestCrop', ({ id } = {}) => {
+  socket.on('harvestCrop', ({ id, isNPC } = {}) => {
     if (!currentRoom || !playerData) return;
     const crops = cropStates.get(currentRoom);
     if (!crops?.has(id)) return;
@@ -931,7 +931,8 @@ io.on('connection', (socket) => {
     const now2 = Date.now();
     crop.plantedAt = now2;
     crop.grownAt   = now2 + GROW_TIME_MS;
-    io.to(currentRoom).emit('cropHarvested', { id, harvesterId: socket.id });
+    // isNPC=true → no dar loot al jugador host
+    io.to(currentRoom).emit('cropHarvested', { id, harvesterId: isNPC ? 'npc' : socket.id });
     io.to(currentRoom).emit('cropReset', { id, plantedAt: crop.plantedAt, grownAt: crop.grownAt });
   });
 
