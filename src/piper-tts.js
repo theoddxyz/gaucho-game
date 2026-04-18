@@ -14,8 +14,8 @@ const ONNX_PATH = 'es/es_AR/daniela/high/es_AR-daniela-high.onnx';
 tts.PATH_MAP[VOICE_ID] = ONNX_PATH;
 
 // El paquete apunta a cdnjs 1.18.0 que no tiene ort-wasm-simd-threaded.jsep.mjs
-// → redirigir a unpkg que sí tiene todos los archivos
-TtsSession.WASM_LOCATIONS.onnxWasm = 'https://unpkg.com/onnxruntime-web@1.18.0/dist/';
+// → servir los archivos WASM localmente desde /ort/ (mismo origen, sin CORS)
+TtsSession.WASM_LOCATIONS.onnxWasm = '/ort/';
 
 // ── Pitch por personaje ───────────────────────────────────────────────────────
 const CHAR_RATES = {
