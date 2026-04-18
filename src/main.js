@@ -21,7 +21,7 @@ import { OstrichSystem } from './ostrich.js';
 import { CowSystem } from './cows.js';
 import { ChickenSystem } from './chickens.js';
 import { CampesinoSystem } from './campesinos.js';
-import { CreatureSystem, wormRenderer, armadilloRenderer, condorRenderer, setCreatureSeed } from './creature.js';
+import { CreatureSystem, wormRenderer, armadilloRenderer, condorRenderer, pumaRenderer, setCreatureSeed } from './creature.js';
 import { SoulSystem } from './souls.js';
 import { SoulMap } from './soulmap.js';
 import { ConversationUI } from './conversation-ui.js';
@@ -709,6 +709,28 @@ const condorSystem = new CreatureSystem(scene, {
   activeRadius: 1200,
 }, _worldSpawns(12, 600, 43));
 
+// ── Pumas ──────────────────────────────────────────────────────────────────────
+const pumaSystem = new CreatureSystem(scene, {
+  species:     'puma',
+  count:       14,
+  hp:          4,
+  hx: 0.50, hy: 0.25, hz: 0.19, mass: 30,
+  fleeRadius:   0,     // no huye del jugador por defecto — es un depredador
+  huntRadius:  45,
+  attackRadius: 2.0,
+  homeRadius:  60,
+  states: {
+    wander: { sigma: 1.5,  speed: 1.8,  wpRadius: [8,  22], timer: [4, 10] },
+    flee:   { sigma: 3.5,  speed: 6.0,  wpRadius: [20, 40], timer: [4,  7] },
+    hunt:   { sigma: 0.8,  speed: 2.2,  wpRadius: [6,  16], timer: [5, 10] },
+  },
+  tau:         { wander: 0.35, flee: 0.12, hunt: 0.22 },
+  loot:        [{ hp: 12, hunger: 28, color: 0x2a5c2a, chance: 0.85 }],
+  renderer:    pumaRenderer({ scale: 1.0, bodyColor: 0xc8a44a }),
+  respawnDelay: 150,
+  activeRadius: 1200,
+}, _worldSpawns(14, 400, 61));
+
 // Cadáveres recientes — los cóndores los detectan
 const _recentCorpses = [];
 
@@ -942,11 +964,12 @@ Network.onBushState(({ bushes }) => {
 });
 
 // Creature sync — non-host receives positions from host via server relay
-Network.onCreatureSync(({ vibora, armadillo, condor, ostrich, chicken, cow, bird, dayProgress }) => {
+Network.onCreatureSync(({ vibora, armadillo, condor, puma, ostrich, chicken, cow, bird, dayProgress }) => {
   if (isHost) return; // host is authoritative, ignore echoes
   if (vibora)    viboraSystem.applyServerSync(vibora);
   if (armadillo) armadilloSystem.applyServerSync(armadillo);
   if (condor)    condorSystem.applyServerSync(condor);
+  if (puma)      pumaSystem.applyServerSync(puma);
   if (ostrich)   ostrichSystem.applyServerSync(ostrich);
   if (chicken)   chickenSystem?.applyServerSync(chicken);
   if (cow)       cowSystem?.applyServerSync(cow);
@@ -1229,9 +1252,10 @@ Network.onJoined((data) => {
 
   // Criaturas ecosistema — hits remotos (sin loot, sin impulso)
   Network.onCreatureHit(({ species, idx }) => {
-    if (species === 'vibora')    viboraSystem.hit(idx, null, null, false);
+    if (species === 'vibora')         viboraSystem.hit(idx, null, null, false);
     else if (species === 'armadillo') armadilloSystem.hit(idx, null, null, false);
     else if (species === 'condor')    condorSystem.hit(idx, null, null, false);
+    else if (species === 'puma')      pumaSystem.hit(idx, null, null, false);
   });
 
   // Vacas — init with already-corralled state from server
@@ -1688,6 +1712,10 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     const ci = condorSystem.getIndexByHitbox(hb);
     if (ci >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: ci, type: 'condor' }); }
   }
+  for (const hb of pumaSystem.getHitboxes()) {
+    const pi = pumaSystem.getIndexByHitbox(hb);
+    if (pi >= 0) { allHitboxes.push(hb); infoMap.set(hb.uuid, { id: pi, type: 'puma' }); }
+  }
   for (const hb of campesinoSystem.getHitboxes()) {
     const ni = hb.userData.campesinoNpcIdx;
     const si = hb.userData.campesinoSegIdx;
@@ -1799,7 +1827,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
 
     setTimeout(() => {
       // Sonido de impacto + sangre + grito de dolor para entidades vivas
-      if (['player','cow','ostrich','chicken','bird','campesino','vibora'].includes(scanHit.target.type)) {
+      if (['player','cow','ostrich','chicken','bird','campesino','vibora','puma'].includes(scanHit.target.type)) {
         Audio.bulletImpactFlesh();
         // Grito de dolor por tipo
         if (scanHit.target.type === 'cow')     Audio.painCow();
@@ -1878,6 +1906,17 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         const hpAfter = condorSystem._entities[scanHit.target.id]?.hp ?? 0;
         if (hpAfter <= 0 && hpBefore > 0)
           Network.sendGameEvent('animal_killed', { detail: `Un cóndor cayó del cielo pampeano.` });
+      }
+      else if (scanHit.target.type === 'puma') {
+        const bDir = new THREE.Vector3(result.direction.x, 0, result.direction.z);
+        const hpBefore = pumaSystem._entities[scanHit.target.id]?.hp ?? 0;
+        pumaSystem.hit(scanHit.target.id, scanHit.point, bDir, true);
+        Network.sendCreatureHit('puma', scanHit.target.id);
+        const hpAfter = pumaSystem._entities[scanHit.target.id]?.hp ?? 0;
+        if (hpAfter <= 0 && hpBefore > 0) {
+          _recentCorpses.push({ x: scanHit.point.x, z: scanHit.point.z, life: 240 });
+          Network.sendGameEvent('animal_killed', { detail: `Un puma cayó en la pampa.` });
+        }
       }
       else if (scanHit.target.type === 'campesino') {
         const { npcIdx, segIdx } = scanHit.target.id;
@@ -2113,6 +2152,7 @@ function _sendHostCreatureSync(reliable = false) {
     vibora:    viboraSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
     armadillo: armadilloSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
     condor:    condorSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state, y:e.y }),
+    puma:      pumaSystem._entities.map(e => e.dead ? { idx:e.idx, dead:true } : { idx:e.idx, x:e.x, z:e.z, vx:e.vx, vz:e.vz, state:e.state }),
     ostrich:   ostrichSystem._entities.map((e,i) => (e.dead || e.dying || e.dyingPhysics) ? { idx:i, dead:true } : { idx:i, x:e.mesh?.position.x ?? 0, z:e.mesh?.position.z ?? 0, vx:e.vx, vz:e.vz }),
     chicken:   (chickenSystem?._chickens ?? []).map((c,i) => (c.removed || c.dyingPhysics || !c.mesh) ? { idx:i, dead:true } : { idx:i, x:c.mesh.position.x, z:c.mesh.position.z, vx:c.vx, vz:c.vz }),
     cow:       (cowSystem?._cows ?? []).map((c,i) => (c.removed || c.dyingPhysics || !c.mesh) ? { idx:i, dead:true } : { idx:i, x:c.mesh.position.x, z:c.mesh.position.z, vx:c.vx, vz:c.vz }),
@@ -2606,25 +2646,102 @@ function gameLoop() {
     }
     if (_c.mesh && _c.life < 12) _c.mesh.material.opacity = Math.max(0, _c.life / 12);
   }
-  // Cóndor que aterrizó come el cadáver más cercano
+  // Cóndor que aterrizó come CUALQUIER cadáver cercano
   for (const _cnd of condorSystem._entities) {
     if (_cnd.dead || (_cnd.y ?? 11) > 1.2) continue;
     for (let _ci = _recentCorpses.length - 1; _ci >= 0; _ci--) {
       const _c = _recentCorpses[_ci];
-      if (!_c.mesh) continue;
       if ((_cnd.x-_c.x)**2 + (_cnd.z-_c.z)**2 < 3.5*3.5) {
-        scene.remove(_c.mesh); _c.mesh.geometry?.dispose(); _c.mesh.material?.dispose();
+        if (_c.mesh) { scene.remove(_c.mesh); _c.mesh.geometry?.dispose(); _c.mesh.material?.dispose(); }
         _recentCorpses.splice(_ci, 1);
         break;
       }
     }
   }
-  if (isHost) condorSystem.update(dt, { playerPos: pos });
+  // Cóndores detectan TODOS los cadáveres recientes (no solo de gallinas)
+  const _corpsePositions = _recentCorpses.map(c => ({ x: c.x, z: c.z }));
+  if (isHost) condorSystem.update(dt, { playerPos: pos, preyPositions: _corpsePositions });
   else condorSystem.renderOnly(dt, pos);
   const _condorLoot = condorSystem.updateLoot(dt, pos);
   if (_condorLoot && myId && !isDead) {
     if (Inventory.add('condor', _condorLoot.hunger, _condorLoot.hp)) _updateInventoryHUD();
   }
+
+  // ── Pumas: cazan vacas y avestruces ───────────────────────────────────────
+  const _pumaPreyPositions = [];
+  if (cowSystem) {
+    for (const _cow of (cowSystem._cows ?? [])) {
+      if (!_cow.removed && !_cow.dyingPhysics && _cow.mesh) _pumaPreyPositions.push({ x: _cow.mesh.position.x, z: _cow.mesh.position.z });
+    }
+  }
+  for (const _ost of ostrichSystem._entities) {
+    if (!_ost.dead && !_ost.dying && !_ost.dyingPhysics && _ost.mesh) _pumaPreyPositions.push({ x: _ost.mesh.position.x, z: _ost.mesh.position.z });
+  }
+  if (isHost) pumaSystem.update(dt, { playerPos: pos, preyPositions: _pumaPreyPositions });
+  else pumaSystem.renderOnly(dt, pos);
+  // Pumas que alcanzan una presa: la matan y dejan cadáver
+  for (const _puma of pumaSystem._entities) {
+    if (_puma.dead || _puma.state !== 'hunt') continue;
+    let _pumaKilled = false;
+    // Chequear vacas
+    if (cowSystem) {
+      for (let _ci = 0; _ci < (cowSystem._cows ?? []).length; _ci++) {
+        const _cow = cowSystem._cows[_ci];
+        if (_cow.removed || _cow.dyingPhysics || !_cow.mesh) continue;
+        const _pdx = _cow.mesh.position.x - _puma.x, _pdz = _cow.mesh.position.z - _puma.z;
+        if (_pdx*_pdx + _pdz*_pdz < 2.2*2.2) {
+          const _oldHp = _cow.hp ?? 2;
+          cowSystem.hitCow(_ci, new THREE.Vector3(_puma.x, 0, _puma.z), 'body');
+          if ((_cow.hp ?? 0) <= 0 && _oldHp > 0) {
+            _recentCorpses.push({ x: _puma.x, z: _puma.z, life: 300 });
+          }
+          _puma.state = 'wander';
+          _puma.wpTimer = 12 + Math.random() * 8;
+          _pumaKilled = true;
+          break;
+        }
+      }
+    }
+    if (_pumaKilled) continue;
+    // Chequear avestruces
+    for (let _oi = 0; _oi < ostrichSystem._entities.length; _oi++) {
+      const _ost = ostrichSystem._entities[_oi];
+      if (_ost.dead || _ost.dying || _ost.dyingPhysics || !_ost.mesh) continue;
+      const _pdx = _ost.mesh.position.x - _puma.x, _pdz = _ost.mesh.position.z - _puma.z;
+      if (_pdx*_pdx + _pdz*_pdz < 2.2*2.2) {
+        ostrichSystem.hit(_oi, new THREE.Vector3(_puma.x, 0, _puma.z), 'body');
+        const _ostAfter = ostrichSystem._entities[_oi];
+        if (_ostAfter.dead || _ostAfter.dying || _ostAfter.dyingPhysics) {
+          _recentCorpses.push({ x: _puma.x, z: _puma.z, life: 250 });
+        }
+        _puma.state = 'wander';
+        _puma.wpTimer = 12 + Math.random() * 8;
+        break;
+      }
+    }
+  }
+  // Pumas que tocan al jugador: atacan (20 HP, cooldown 4s)
+  if (pos && myId && !isDead) {
+    for (const _puma of pumaSystem._entities) {
+      if (_puma.dead) continue;
+      if ((_puma.x-pos.x)**2 + (_puma.z-pos.z)**2 < 2.2*2.2) {
+        _puma._attackCd = (_puma._attackCd ?? 0) - dt;
+        if (_puma._attackCd <= 0) {
+          _puma._attackCd = 4.0;
+          myData.hp = Math.max(0, myData.hp - 20);
+          UI.updateHP(myData.hp);
+          UI.showDamageFlash();
+        }
+      } else {
+        _puma._attackCd = (_puma._attackCd ?? 0) - dt;
+      }
+    }
+  }
+  const _pumaLoot = pumaSystem.updateLoot(dt, pos);
+  if (_pumaLoot && myId && !isDead) {
+    if (Inventory.add('puma', _pumaLoot.hunger, _pumaLoot.hp)) _updateInventoryHUD();
+  }
+
   if (pos) {
     const _cr = campesinoSystem.pushFromPlayer(pos.x, pos.z);
     if (_cr.vx !== 0 || _cr.vz !== 0) {
@@ -2700,6 +2817,7 @@ function gameLoop() {
     chTargets.push(...viboraSystem.getHitboxes());
     chTargets.push(...armadilloSystem.getHitboxes());
     chTargets.push(...condorSystem.getHitboxes());
+    chTargets.push(...pumaSystem.getHitboxes());
     const chHit = chTargets.length > 0 ? cr.intersectObjects(chTargets, false) : [];
     UI.setCrosshairColor(chHit.length > 0 ? '#ff2020' : null);
   }

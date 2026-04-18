@@ -33,14 +33,21 @@ const DEAD_LIFE    = 60;    // segundos hasta desaparecer
 
 // ── Spawn points (x, z, cantidad) ────────────────────────────────────────────
 const FLOCK_SPAWNS = [
-  { x:   8, z: -55,  n: 14 },
-  { x: -35, z: -90,  n: 11 },
-  { x:  55, z: -40,  n: 16 },
-  { x: -15, z:-120,  n: 10 },
-  { x:  70, z: -75,  n: 13 },
-  { x:   0, z: -30,  n: 12 },
-  { x: -60, z: -50,  n:  9 },
+  // Cerca de aldea
+  { x:   8, z:  -55, n: 14 },
+  { x: -35, z:  -90, n: 11 },
+  { x:  55, z:  -40, n: 16 },
+  // Mapa disperso
+  { x: 180, z:  -80, n: 12 },
+  { x:-200, z:  100, n: 10 },
+  { x: 130, z:  220, n: 13 },
+  { x:-150, z: -180, n: 11 },
+  { x: 300, z:   40, n:  9 },
+  { x:-300, z:  -60, n: 10 },
+  { x:  60, z:  350, n: 12 },
 ];
+
+const RESPAWN_DELAY_BIRDS = 90; // segundos hasta respawn de bandada
 
 // ── Bird mesh builder ─────────────────────────────────────────────────────────
 const M_BIRD = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.9 });
@@ -92,8 +99,16 @@ export class BirdSystem {
     this._hitboxes   = [];   // THREE.Mesh per bird (invisible)
     this._hitboxMap  = new Map();  // hitbox.uuid → bird object
 
-    for (const sp of FLOCK_SPAWNS) {
+    // Respawn tracking per flock
+    this._flockSpawns      = FLOCK_SPAWNS.map(sp => ({ ...sp }));
+    this._flockOrigCounts  = [];
+    this._flockRespawnTimer = [];
+
+    for (let i = 0; i < FLOCK_SPAWNS.length; i++) {
+      const sp = FLOCK_SPAWNS[i];
       this._flocks.push(this._spawnFlock(sp.x, sp.z, sp.n));
+      this._flockOrigCounts.push(sp.n);
+      this._flockRespawnTimer.push(0);
     }
   }
 
@@ -212,6 +227,28 @@ export class BirdSystem {
     if (!this.serverMode) this._updateFlocks(dt, playerPos);
     else this._animateFlocks(dt); // still animate wings, skip boids movement
     this._updateDead(dt);
+    if (!this.serverMode) this._updateRespawn(dt);
+  }
+
+  // ── Respawn de bandadas ───────────────────────────────────────────────────
+  _updateRespawn(dt) {
+    for (let i = 0; i < this._flocks.length; i++) {
+      const flock    = this._flocks[i];
+      const origN    = this._flockOrigCounts[i];
+      const threshold = Math.floor(origN * 0.4);
+      if (flock.length < threshold) {
+        this._flockRespawnTimer[i] += dt;
+        if (this._flockRespawnTimer[i] >= RESPAWN_DELAY_BIRDS) {
+          this._flockRespawnTimer[i] = 0;
+          const sp = this._flockSpawns[i];
+          const needed = origN - flock.length;
+          const newBirds = this._spawnFlock(sp.x, sp.z, needed);
+          flock.push(...newBirds);
+        }
+      } else {
+        this._flockRespawnTimer[i] = 0;
+      }
+    }
   }
 
   // ── Animate wings only (no position update) for server-mode clients ──────

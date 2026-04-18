@@ -482,6 +482,121 @@ export function condorRenderer({ scale = 1.0 } = {}) {
   };
 }
 
+// ─── Puma Renderer ───────────────────────────────────────────────────────────
+// Felino grande. Caza vacas y avestruces.
+export function pumaRenderer({ scale = 1.0, bodyColor = 0xc8a44a } = {}) {
+  const S      = scale;
+  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+
+  return {
+    build(entityIdx, scene, spawnX, spawnZ) {
+      const group  = new THREE.Group();
+      group.position.set(spawnX, 0, spawnZ);
+      const visual = new THREE.Group();
+      group.add(visual);
+
+      const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.82 });
+      const bellyMat = new THREE.MeshStandardMaterial({ color: 0xe8d490, roughness: 0.85 });
+      const darkMat  = new THREE.MeshStandardMaterial({ color: 0x7a5a1a, roughness: 0.85 });
+
+      // Cuerpo principal
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.90*S, 0.34*S, 0.32*S), bodyMat);
+      body.position.set(0, 0.32*S, 0);
+      body.castShadow = true;
+      visual.add(body);
+
+      // Panza más clara
+      const belly = new THREE.Mesh(new THREE.BoxGeometry(0.70*S, 0.12*S, 0.28*S), bellyMat);
+      belly.position.set(0, 0.16*S, 0);
+      visual.add(belly);
+
+      // Cabeza
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.18*S, 8, 6), bodyMat);
+      head.scale.set(1.2, 0.88, 0.9);
+      head.position.set(0.52*S, 0.44*S, 0);
+      head.castShadow = true;
+      visual.add(head);
+
+      // Hocico
+      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.14*S, 0.10*S, 0.16*S), bellyMat);
+      snout.position.set(0.66*S, 0.38*S, 0);
+      visual.add(snout);
+
+      // Orejas
+      for (const sy of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.045*S, 0.10*S, 4), darkMat);
+        ear.position.set(0.48*S, 0.58*S, sy * 0.10*S);
+        visual.add(ear);
+      }
+
+      // Cola larga
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.025*S, 0.015*S, 0.60*S, 5), bodyMat);
+      tail.rotation.z = Math.PI / 2.5;
+      tail.position.set(-0.58*S, 0.40*S, 0);
+      visual.add(tail);
+
+      // 4 patas
+      const legGeo = new THREE.CylinderGeometry(0.048*S, 0.038*S, 0.28*S, 5);
+      const legOffsets = [[0.28, 0.12],[0.28,-0.12],[-0.28, 0.12],[-0.28,-0.12]];
+      const legMeshes = legOffsets.map(([lx, lz]) => {
+        const leg = new THREE.Mesh(legGeo, bodyMat);
+        leg.position.set(lx*S, 0.14*S, lz*S);
+        leg.castShadow = true;
+        visual.add(leg);
+        return leg;
+      });
+
+      // Hitbox
+      const hitbox = new THREE.Mesh(new THREE.BoxGeometry(1.0*S, 0.50*S, 0.38*S), hitMat);
+      hitbox.userData.creatureEntityIdx = entityIdx;
+      hitbox.position.set(0, 0.32*S, 0);
+      group.add(hitbox);
+
+      const rendState = { visual, legMeshes, walkT: _rng() * 10, hitboxes: [hitbox] };
+      scene.add(group);
+      return { group, hitboxes: [hitbox], rendState };
+    },
+
+    update(group, rendState, entity, dt) {
+      const { visual, legMeshes } = rendState;
+      const speedMult = entity.state === 'hunt' ? 2.0 : 1.0;
+      rendState.walkT += dt * (entity.moving ? Math.min(entity.speed, 8) * speedMult + 0.5 : 0.3);
+      const wt = rendState.walkT;
+
+      if (entity.dead) {
+        visual.rotation.z = THREE.MathUtils.lerp(visual.rotation.z, Math.PI * 0.45, dt * 2.5);
+        visual.position.y = THREE.MathUtils.lerp(visual.position.y || 0, -0.10, dt * 2);
+        return;
+      }
+
+      if (entity.moving) {
+        const targetRY = Math.atan2(-entity.vz, entity.vx);
+        let diff = targetRY - visual.rotation.y;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        visual.rotation.y += diff * Math.min(1, dt * 9);
+      }
+
+      // Bob al caminar / galopar
+      const freq = entity.state === 'hunt' ? 7.0 : 4.5;
+      visual.position.y = entity.moving ? Math.abs(Math.sin(wt * freq)) * 0.045 : 0;
+      visual.rotation.x = entity.moving ? Math.sin(wt * freq) * 0.08 : 0;
+
+      if (legMeshes.length >= 4) {
+        const swing = entity.moving ? (entity.state === 'hunt' ? 0.70 : 0.45) : 0;
+        legMeshes[0].rotation.x =  Math.sin(wt * freq) * swing;
+        legMeshes[3].rotation.x =  Math.sin(wt * freq) * swing;
+        legMeshes[1].rotation.x = -Math.sin(wt * freq) * swing;
+        legMeshes[2].rotation.x = -Math.sin(wt * freq) * swing;
+      }
+    },
+
+    removeVisuals(scene, group) {
+      scene.remove(group);
+    },
+  };
+}
+
 // ─── CreatureSystem Base ──────────────────────────────────────────────────────
 /**
  * config: {

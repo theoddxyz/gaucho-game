@@ -133,15 +133,17 @@ const LEG_FREQ       = 7.0;
 const LEG_AMP        = 0.45;
 const RESPAWN_DELAY  = 120;   // segundos hasta que reaparece
 
-// 7 posiciones de spawn repartidas por el mapa
+// 7 posiciones de spawn — 3 cerca de aldea, resto en pampa abierta
 const SPAWN_SPOTS = [
+  // Cerca de la aldea
   { x:  13, z: -74 },
   { x: -28, z: -82 },
   { x:  48, z: -52 },
-  { x: -18, z:-108 },
-  { x:  62, z: -88 },
-  { x:   8, z:-138 },
-  { x: -52, z: -62 },
+  // Pampa abierta
+  { x: 130, z:  -60 },
+  { x: 200, z:   30 },
+  { x:  90, z:  180 },
+  { x: 170, z:  120 },
 ];
 
 // ─── Materiales compartidos ───────────────────────────────────────────────────

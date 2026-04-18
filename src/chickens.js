@@ -161,14 +161,22 @@ const PALETTES = [
 
 const M_HIT = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
 
-// ─── Spots de spawn: 5 grupos — posiciones del nuevo mapa ────────────────────
+// ─── Spots de spawn: grupos en aldea + campo abierto ─────────────────────────
 // hw/hd = medio ancho/profundidad del corral (buildCorral usa cw=10, cd=10 → 4.5 de margen)
+// Grupos sin hw/hd usan 999 (campo abierto, sin confinamiento)
 const SPAWN_GROUPS = [
+  // Grupos en la aldea
   { x: -63, z:  -48, n: 5, hw: 4, hd: 4 },
   { x: -54, z:  -86, n: 5, hw: 4, hd: 4 },
   { x: -55, z:   -2, n: 5, hw: 4, hd: 4 },
   { x:  55, z:   28, n: 5, hw: 4, hd: 4 },
   { x:  71, z:  -26, n: 6, hw: 4, hd: 4 },
+  // Grupos en campo abierto
+  { x: 160, z:  -80, n: 6 },
+  { x:-180, z:  120, n: 5 },
+  { x: 220, z:   60, n: 7 },
+  { x:-140, z: -200, n: 5 },
+  { x: 100, z:  240, n: 6 },
 ];
 
 // ─── dBBMM parámetros para gallinas ──────────────────────────────────────────
