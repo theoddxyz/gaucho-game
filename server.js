@@ -210,30 +210,15 @@ const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
 const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.0-flash' }) : null;
 console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO' : 'INACTIVO (sin API key)'}`);
 
-// ─── Ollama Local AI (Gemma 4) ────────────────────────────────────────────────
-const OLLAMA_URL   = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma4';
-let _ollamaAvail   = false;
-
-async function checkOllama() {
-  try {
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (!r.ok) return false;
-    const d = await r.json();
-    _ollamaAvail = (d.models || []).some(m => m.name.startsWith(OLLAMA_MODEL.split(':')[0]));
-    console.log(`[AI] Ollama ${_ollamaAvail ? `ACTIVO (${OLLAMA_MODEL})` : 'sin modelo ' + OLLAMA_MODEL}`);
-    return _ollamaAvail;
-  } catch { return false; }
-}
-checkOllama().catch(() => {});
+// ─── Ollama Local AI (Gemma 3 4B — pequeño, rápido) ──────────────────────────
+const OLLAMA_URL   = process.env.OLLAMA_URL   || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma3:4b';
 
 /**
- * Genera texto con Gemma4 vía Ollama.
- * @param {string} prompt
- * @param {number} [timeoutMs=30000]
- * @returns {Promise<string>}
+ * Genera texto vía Ollama (sin depender de un flag de startup).
+ * Tira error si Ollama no está disponible o el modelo no existe.
  */
-async function ollamaGenerate(prompt, timeoutMs = 30000) {
+async function ollamaGenerate(prompt, timeoutMs = 40000) {
   const body = JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false });
   const r = await fetch(`${OLLAMA_URL}/api/generate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -243,6 +228,15 @@ async function ollamaGenerate(prompt, timeoutMs = 30000) {
   const d = await r.json();
   return (d.response || '').trim();
 }
+
+// Probe inicial — sólo para el log, no bloquea nada
+fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })
+  .then(r => r.json())
+  .then(d => {
+    const found = (d.models || []).find(m => m.name.startsWith(OLLAMA_MODEL.split(':')[0]));
+    console.log(`[AI] Ollama ${found ? `ACTIVO → ${found.name}` : `SIN modelo ${OLLAMA_MODEL}`} en ${OLLAMA_URL}`);
+  })
+  .catch(() => console.log(`[AI] Ollama no disponible en ${OLLAMA_URL} (modo offline)`));
 
 // ── Story Bible — persistent narrative state per room ────────────────────────
 const storyBibles = new Map();
@@ -960,7 +954,7 @@ io.on('connection', (socket) => {
 
   // ── Conversación con aldeanos ────────────────────────────────────────────────
   socket.on('generateAldeanoQA', async ({ units }) => {
-    if (!_gmModel && !_ollamaAvail || !Array.isArray(units)) return;
+    if (!Array.isArray(units)) return;
     const results = {};
     for (const u of units) {
       const prompt =
@@ -973,15 +967,16 @@ Respondé SOLO con JSON válido, sin texto extra: [{"q":"...","a":"..."}]
 Preguntas: lo que preguntaría un gaucho de paso (máx 7 palabras).
 Respuestas: 1 oración, español rioplatense, personalidad filtrada por estado espiritual.
 Al menos una pregunta debe ser sobre un vecino específico.`;
-      const _t = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000));
       try {
         let raw;
         if (_gmModel) {
-          const r = await Promise.race([_gmModel.generateContent(prompt), _t]);
+          const _t = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000));
+          const r  = await Promise.race([_gmModel.generateContent(prompt), _t]);
           raw = r.response.text().trim().replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
         } else {
-          raw = (await ollamaGenerate(prompt + '\nRespondé SOLO con JSON válido, sin texto extra ni markdown.', 25000))
-                  .replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
+          raw = (await ollamaGenerate(
+            prompt + '\nRespondé SOLO con JSON válido, sin texto extra ni markdown.', 40000))
+            .replace(/^```json?\s*/i,'').replace(/```\s*$/,'').trim();
         }
         results[u.id] = JSON.parse(raw);
       } catch(e) {
@@ -998,7 +993,6 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
 
   socket.on('aldeanoChat', async ({ name, message, cuadrante, trayectoria, energia, recursos, vecinos, historial }) => {
     if (typeof message !== 'string' || !message.trim()) return;
-    if (!_gmModel && !_ollamaAvail) { socket.emit('aldeanoChatResponse', { response: 'No tengo nada que decirte.' }); return; }
     const histStr = Array.isArray(historial) && historial.length
       ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? 'Gaucho' : name}: "${h.text}"`).join('\n') + '\n'
       : '';
@@ -1009,19 +1003,20 @@ Vecinos: ${vecinos}.${histStr}
 El gaucho te dice: "${message.trim()}"
 
 Respondé en 1-2 oraciones, español rioplatense. Tu estado espiritual filtra cómo hablás.`;
-    const _timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000));
     try {
       let response;
       if (_gmModel) {
+        const _timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000));
         const r = await Promise.race([_gmModel.generateContent(prompt), _timeout]);
         response = r.response.text().trim();
       } else {
-        response = await ollamaGenerate(prompt, 25000);
+        // Ollama local (gemma3:4b) — timeout generoso
+        response = await ollamaGenerate(prompt, 40000);
       }
       socket.emit('aldeanoChatResponse', { response });
     } catch(e) {
       console.warn('[aldeanoChat] FALLO:', e.message, e.status ?? '', e.statusText ?? '');
-      socket.emit('aldeanoChatResponse', { response: `[ERR] ${e.message?.slice(0,300) || e.toString().slice(0,300)}` });
+      socket.emit('aldeanoChatResponse', { response: `(${name} no responde)` });
     }
   });
 
@@ -1085,23 +1080,19 @@ app.post('/api/ai', async (req, res) => {
   const useModel = model || OLLAMA_MODEL;
   const fullPrompt = system ? `${system.trim()}\n\n${prompt.trim()}` : prompt.trim();
   try {
-    if (_ollamaAvail) {
-      const body = JSON.stringify({ model: useModel, prompt: fullPrompt, stream: false });
-      const r = await fetch(`${OLLAMA_URL}/api/generate`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body, signal: AbortSignal.timeout(40000),
-      });
-      if (!r.ok) throw new Error(`Ollama HTTP ${r.status}`);
-      const d = await r.json();
-      return res.json({ response: (d.response || '').trim(), model: useModel, source: 'ollama' });
-    } else if (_gmModel) {
-      const r = await Promise.race([
-        _gmModel.generateContent(fullPrompt),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 35000)),
-      ]);
-      return res.json({ response: r.response.text().trim(), model: 'gemini-2.0-flash', source: 'gemini' });
-    } else {
-      return res.status(503).json({ error: 'No AI backend available' });
+    // Intentar Ollama primero, luego Gemini como fallback
+    try {
+      const response = await ollamaGenerate(fullPrompt, 40000);
+      return res.json({ response, model: useModel, source: 'ollama' });
+    } catch (ollamaErr) {
+      if (_gmModel) {
+        const r = await Promise.race([
+          _gmModel.generateContent(fullPrompt),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 35000)),
+        ]);
+        return res.json({ response: r.response.text().trim(), model: 'gemini-2.0-flash', source: 'gemini' });
+      }
+      throw ollamaErr;
     }
   } catch (e) {
     console.warn('[/api/ai] error:', e.message);
@@ -1110,13 +1101,14 @@ app.post('/api/ai', async (req, res) => {
 });
 
 app.get('/api/ai/status', async (_req, res) => {
-  await checkOllama();
-  res.json({
-    ollama:  _ollamaAvail,
-    model:   OLLAMA_MODEL,
-    gemini:  !!_gmModel,
-    source:  _ollamaAvail ? 'ollama' : _gmModel ? 'gemini' : 'none',
-  });
+  let ollamaOk = false;
+  try {
+    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    const d = await r.json();
+    ollamaOk = (d.models || []).some(m => m.name.startsWith(OLLAMA_MODEL.split(':')[0]));
+  } catch {}
+  res.json({ ollama: ollamaOk, model: OLLAMA_MODEL, gemini: !!_gmModel,
+    source: ollamaOk ? 'ollama' : _gmModel ? 'gemini' : 'none' });
 });
 
 http.listen(PORT, async () => {
