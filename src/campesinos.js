@@ -441,8 +441,9 @@ export class CampesinoSystem {
   getNearby(px, pz, radius = 5) {
     for (const npc of this._npcs) {
       if (npc.dead) continue;
-      const dx = npc.root.position.x - px;
-      const dz = npc.root.position.z - pz;
+      const head = npc.root._segs[0];
+      const dx = head.x - px;
+      const dz = head.z - pz;
       if (dx * dx + dz * dz < radius * radius) return npc.name;
     }
     return null;
@@ -452,8 +453,10 @@ export class CampesinoSystem {
     for (let i = 0; i < this._npcs.length; i++) {
       const npc = this._npcs[i];
       if (npc.dead) continue;
-      const dx  = npc.root.position.x - px;
-      const dz  = npc.root.position.z - pz;
+      // _segs[0] es la cabeza del gusano — posición real en el mundo
+      const head = npc.root._segs[0];
+      const dx  = head.x - px;
+      const dz  = head.z - pz;
       if (dx * dx + dz * dz < radius * radius) return { name: npc.name, idx: i };
     }
     return null;
