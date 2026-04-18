@@ -94,10 +94,21 @@ function buildWorm(char, npcIdx) {
   for (let i = 0; i < SEG_COUNT; i++)
     segVels.push(new THREE.Vector3());
 
+  // Fruta sobre la cabeza — visible cuando el alma tiene comida cosechada
+  const fruitMat = new THREE.MeshStandardMaterial({
+    color: 0xff2200, roughness: 0.45, emissive: 0x330000,
+  });
+  const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), fruitMat);
+  fruit.castShadow = true;
+  fruit.position.set(0, HEAD_R * 1.55, 0);
+  fruit.visible = false;
+  head.add(fruit);
+
   root._segs         = segs;
   root._segVels      = segVels;
   root._tube         = tube;
   root._head         = head;
+  root._fruit        = fruit;
   root._hitboxMeshes = hitboxMeshes;
   root._curve        = curve;
   root._walkT        = Math.random() * 10;
@@ -449,6 +460,22 @@ export class CampesinoSystem {
         root.position.x = head.x;
         root.position.z = head.z;
         root.position.y = 0;
+      }
+
+      // ── Fruta sobre la cabeza (visible cuando food > 0) ───────────────────
+      if (root._fruit) {
+        const food = unit?.food ?? 0;
+        if (food > 0.05) {
+          root._fruit.visible = true;
+          // Bob suave hacia arriba y abajo
+          const bob = Math.sin(now * 0.003 + i * 1.3) * 0.07;
+          root._fruit.position.y = HEAD_R * 1.55 + bob;
+          // Tamaño proporcional a cuánta comida lleva (mín 0.6, máx 1.4)
+          const s = Math.min(1.4, 0.6 + (food / 5) * 0.8);
+          root._fruit.scale.setScalar(s);
+        } else {
+          root._fruit.visible = false;
+        }
       }
 
       // ── Evitación del jugador ─────────────────────────────────────────────
