@@ -1619,8 +1619,8 @@ Network.onNpcDialogue(({ id, name, text }) => {
     clearTimeout(npc._hideB);
     npc._hideB = setTimeout(() => { npc.bubbleDiv.style.display = 'none'; }, 9000);
   }
-  // Voz robótica — habla el texto del NPC
-  speakNpc(text);
+  // Voz — habla el texto del NPC con su voz característica
+  speakNpc(text, { charName: name });
 });
 
 Network.onNpcRemoved(({ id }) => {

@@ -2,6 +2,7 @@
 // Los listeners de socket se registran en init() (después de connect),
 // no en el constructor, para evitar crash con socket=null.
 import * as Network from './network.js';
+import { speakNpc, stopSpeech } from './speech.js';
 
 const NAMES_BY_ID = ['Ramón', 'Ofelia', 'Facundo', 'Celestino', 'Zulma'];
 
@@ -56,6 +57,9 @@ export class ConversationUI {
       hist.push({ from: 'npc', text: '' });
       this._renderHistory();
       this._renderQuestions(); // muestra botones deshabilitados mientras escribe
+
+      // Voz del aldeano (Piper / Web Speech)
+      speakNpc(response, { charName: name });
 
       // Typewriter
       let i = 0;
@@ -121,6 +125,7 @@ export class ConversationUI {
     this._waiting = false;
     this._panel.style.display = 'none';
     this._current = null;
+    stopSpeech();
     if (this.onClose) this.onClose(name);
   }
 

@@ -11,6 +11,7 @@
     "@dimforge/rapier3d-compat": "^0.19.3",
     "@gltf-transform/core": "^4.3.0",
     "@google/generative-ai": "^0.24.1",
+    "@mintplex-labs/piper-tts-web": "^1.0.4",
     "@tonejs/midi": "^2.0.28",
     "cannon-es": "^0.20.0",
     "express": "^4.21.0",
