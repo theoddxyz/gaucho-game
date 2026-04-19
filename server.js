@@ -29,7 +29,7 @@ if (IS_PROD) {
 } else {
   // Vite dev middleware
   const vite = await createViteServer({
-    server: { middlewareMode: true, allowedHosts: 'all' },
+    server: { middlewareMode: true, allowedHosts: true },
     appType: 'spa',
   });
   app.use(vite.middlewares);

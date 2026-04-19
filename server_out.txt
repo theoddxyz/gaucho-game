@@ -159,3 +159,7 @@ Error: ENOENT: no such file or directory, stat 'E:\GAUCHO2\GAUCHO\dist\index.htm
 Error: ENOENT: no such file or directory, stat 'E:\GAUCHO2\GAUCHO\dist\index.html'
 [gaucho] Player left (0 players)
 [gaucho] Gaucho joined (1 players, host=YES)
+Error: ENOENT: no such file or directory, stat 'E:\GAUCHO2\GAUCHO\dist\index.html'
+Error: ENOENT: no such file or directory, stat 'E:\GAUCHO2\GAUCHO\dist\index.html'
+[gaucho] Player left (0 players)
+[gaucho] Gaucho joined (1 players, host=YES)

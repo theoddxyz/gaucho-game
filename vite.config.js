@@ -5,7 +5,7 @@ export default defineConfig({
   root: '.',
   server: {
     port: 3000,
-    allowedHosts: 'all',
+    allowedHosts: true,
   },
   worker: {
     format: 'es',   // necesario para workers con dynamic imports (ONNX/piper)
