@@ -1,6 +1,51 @@
 // campesinos.js — NPCs gusano, patrullan el pueblo
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HOUSES, DEST } from './souls.js';
+
+// ─── Cola del gusano (GLB con Empty de anclaje) ───────────────────────────────
+let _tailScene    = null;                         // scene cloneable del GLB
+let _tailOffset   = new THREE.Vector3();          // posición del Empty en model space
+const _tailWaiters = [];                          // callbacks de gusanos esperando la carga
+
+new GLTFLoader().load('/models/CHORIPAN COLA ALDEANOS.glb', gltf => {
+  const root = gltf.scene;
+
+  // Encontrar el Empty (Object3D sin geometría propia, hijo directo o descendiente)
+  let emptyNode = null;
+  root.traverse(n => {
+    if (emptyNode) return;
+    if (n === root) return;
+    if (!(n instanceof THREE.Mesh) && !(n instanceof THREE.Group)) {
+      emptyNode = n;  // Object3D puro = Empty de Blender
+    }
+  });
+  // Fallback: buscar por nombre
+  if (!emptyNode) {
+    root.traverse(n => {
+      if (emptyNode) return;
+      if (n !== root && n.children.length === 0 && !(n instanceof THREE.Mesh)) emptyNode = n;
+    });
+  }
+
+  if (emptyNode) {
+    emptyNode.getWorldPosition(_tailOffset);
+    console.log('[COLA] Empty encontrado:', emptyNode.name, 'offset:', _tailOffset);
+  } else {
+    console.log('[COLA] No se encontró Empty, usando origen');
+  }
+
+  // Sombras en todos los meshes
+  root.traverse(n => {
+    if (n instanceof THREE.Mesh) { n.castShadow = true; n.receiveShadow = true; }
+  });
+
+  _tailScene = root;
+
+  // Adjuntar a los gusanos que ya estaban esperando
+  for (const fn of _tailWaiters) fn();
+  _tailWaiters.length = 0;
+}, undefined, e => console.warn('[COLA] Error cargando cola:', e));
 
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
@@ -33,6 +78,15 @@ const PATROLS = [
 ];
 
 const _hitMat = new THREE.MeshBasicMaterial({ visible: false });
+
+// ─── Adjuntar cola al grupo de anclaje ────────────────────────────────────────
+function _attachTail(tailGroup) {
+  if (!_tailScene) return;
+  const clone = _tailScene.clone(true);
+  // Mover el clone para que el Empty quede en el origen del grupo
+  clone.position.copy(_tailOffset).negate();
+  tailGroup.add(clone);
+}
 
 // ─── Constructor gusano ───────────────────────────────────────────────────────
 function buildWorm(char, npcIdx) {
@@ -104,11 +158,19 @@ function buildWorm(char, npcIdx) {
   fruit.visible = false;
   head.add(fruit);
 
+  // Cola — grupo de anclaje en el último segmento
+  const tailGroup = new THREE.Group();
+  root.add(tailGroup);
+  if (_tailScene) {
+    _attachTail(tailGroup);   // ya cargó, adjuntar ya
+  }
+
   root._segs         = segs;
   root._segVels      = segVels;
   root._tube         = tube;
   root._head         = head;
   root._fruit        = fruit;
+  root._tail         = tailGroup;
   root._hitboxMeshes = hitboxMeshes;
   root._curve        = curve;
   root._walkT        = Math.random() * 10;
@@ -179,6 +241,7 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
       segs[0].y,
       segs[0].z - root.position.z
     );
+    _updateTail(root);
     return;
   }
 
@@ -249,6 +312,29 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
 
   _rebuildTube(root);
   _updateHitboxes(root);
+  _updateTail(root);
+}
+
+// ─── Posicionar cola en el último segmento ────────────────────────────────────
+function _updateTail(root) {
+  const tail = root._tail;
+  if (!tail) return;
+  const segs = root._segs;
+  const last = segs[SEG_COUNT - 1];
+  const prev = segs[SEG_COUNT - 2];
+
+  tail.position.set(
+    last.x - root.position.x,
+    last.y,
+    last.z - root.position.z
+  );
+
+  // Orientar en la dirección del segmento anterior → último (apunta para atrás)
+  const tdx = last.x - prev.x;
+  const tdz = last.z - prev.z;
+  if (tdx * tdx + tdz * tdz > 0.0001) {
+    tail.rotation.y = Math.atan2(tdx, tdz);
+  }
 }
 
 // ─── Nombre flotante ──────────────────────────────────────────────────────────
@@ -327,6 +413,17 @@ export class CampesinoSystem {
         removeT: -1,
       });
     });
+
+    // Si el GLB de cola aún no cargó, registrar callback para cuando esté listo
+    if (!_tailScene) {
+      _tailWaiters.push(() => {
+        for (const npc of this._npcs) {
+          if (npc.root._tail.children.length === 0) {
+            _attachTail(npc.root._tail);
+          }
+        }
+      });
+    }
   }
 
   // ── Todos los hitboxes (uno por segmento de cada NPC vivo) ─────────────────
