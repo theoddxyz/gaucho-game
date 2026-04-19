@@ -181,8 +181,7 @@ function _buildNormalMap() {
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  // Repeat no entero → los tiles no se alinean en cuadrícula, elimina la "grilla" visible
-  tex.repeat.set(2.7, 3.1);
+  tex.repeat.set(1, 1);  // las UV ya vienen en espacio-mundo desde _build()
   return tex;
 }
 
@@ -202,13 +201,17 @@ export function getTerrainHeight(wx, wz) {
   return _terrainHeight(wx, wz);
 }
 
+const _normalTex = _buildNormalMap();
+
 // ─── Materiales compartidos ──────────────────────────────────────────────────
-// Sin normal map: las normales vienen de computeVertexNormals() sobre la geometría
-// desplazada → cero tiling, luz física correcta basada en la forma real del terreno.
+// UV en espacio-mundo → el normal map tilea cada NM_TILE unidades de forma
+// continua entre chunks (sin costura en el borde de chunk de 200u).
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness:    0.92,
+  roughness:    0.88,
   metalness:    0.0,
   vertexColors: true,
+  normalMap:    _normalTex,
+  normalScale:  new THREE.Vector2(3.5, 3.5),
 });
 
 const ROCK_MATS = [
@@ -334,19 +337,24 @@ export class ChunkManager {
     const objects  = [];
     const ownColl  = [];
 
-    // ── Terreno con vertex colors + micro-desplazamiento ─────────────────────
+    // ── Terreno con vertex colors + desplazamiento + UV espacio-mundo ───────────
+    const NM_TILE = 80;  // el normal map tilea cada 80 unidades de mundo (continuo entre chunks)
     const geo  = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, SUB, SUB);
     const pos  = geo.attributes.position;
+    const uv   = geo.attributes.uv;
     const cols = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i) + ox;
       const wz = -pos.getY(i) + oz;   // PlaneGeometry: Y local → -Z mundo tras rotación
       const [r, g, b] = _terrainColor(wx, wz);
       cols[i*3] = r; cols[i*3+1] = g; cols[i*3+2] = b;
+      // UV en espacio-mundo → mismo pixel del normal map en el borde de cualquier chunk
+      uv.setXY(i, wx / NM_TILE, wz / NM_TILE);
       // Desplazamiento suave en Z local (= Y mundo tras rotación -PI/2)
       pos.setZ(i, _terrainHeight(wx, wz));
     }
     pos.needsUpdate = true;
+    uv.needsUpdate  = true;
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     geo.computeVertexNormals();   // recalcular normales tras desplazamiento
     const ground = new THREE.Mesh(geo, TERRAIN_MAT);
