@@ -201,17 +201,26 @@ export function getTerrainHeight(wx, wz) {
   return _terrainHeight(wx, wz);
 }
 
-const _normalTex = _buildNormalMap();
+// ─── Altura de detalle para normales procedurales ────────────────────────────
+// Combina el desplazamiento real + micro-ruido fino → normales ricas sin textura
+function _heightForNormal(wx, wz) {
+  const base = _terrainHeight(wx, wz);
+  // Micro-detalle multi-escala: ondas de viento + rugosidad de grano
+  const d1 = _noise(wx / 20 + 3.1,  wz / 17 + 9.7) * 0.18;
+  const d2 = _noise(wx / 8  + 55.2, wz / 7  + 22.1) * 0.10;
+  const d3 = _noise(wx / 3  + 100,  wz / 2.5 + 80 ) * 0.05;
+  const wind = Math.sin((wx * 0.9 - wz * 0.35) / 14 +
+               _noise(wx / 35, wz / 30) * 2.5) * 0.06;
+  return base + d1 + d2 + d3 + wind;
+}
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
-// UV en espacio-mundo → el normal map tilea cada NM_TILE unidades de forma
-// continua entre chunks (sin costura en el borde de chunk de 200u).
+// Sin textura de normal map: las normales se calculan por vértice desde el ruido
+// procedural → 100% sin tiling, continuas entre cualquier par de chunks.
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
   roughness:    0.88,
   metalness:    0.0,
   vertexColors: true,
-  normalMap:    _normalTex,
-  normalScale:  new THREE.Vector2(3.5, 3.5),
 });
 
 const ROCK_MATS = [
@@ -337,26 +346,37 @@ export class ChunkManager {
     const objects  = [];
     const ownColl  = [];
 
-    // ── Terreno con vertex colors + desplazamiento + UV espacio-mundo ───────────
-    const NM_TILE = 80;  // el normal map tilea cada 80 unidades de mundo (continuo entre chunks)
+    // ── Terreno: vertex colors + desplazamiento + normales procedurales ─────────
     const geo  = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, SUB, SUB);
     const pos  = geo.attributes.position;
-    const uv   = geo.attributes.uv;
+    const nrm  = geo.attributes.normal;
     const cols = new Float32Array(pos.count * 3);
+    const EPS  = 0.4;  // epsilon en unidades de mundo para el gradiente
+
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i) + ox;
-      const wz = -pos.getY(i) + oz;   // PlaneGeometry: Y local → -Z mundo tras rotación
+      const wz = -pos.getY(i) + oz;  // PlaneGeometry Y local → -Z mundo tras rotación
+
+      // Color del vértice
       const [r, g, b] = _terrainColor(wx, wz);
       cols[i*3] = r; cols[i*3+1] = g; cols[i*3+2] = b;
-      // UV en espacio-mundo → mismo pixel del normal map en el borde de cualquier chunk
-      uv.setXY(i, wx / NM_TILE, wz / NM_TILE);
-      // Desplazamiento suave en Z local (= Y mundo tras rotación -PI/2)
+
+      // Desplazamiento (eje Z local = eje Y mundo tras rotación)
       pos.setZ(i, _terrainHeight(wx, wz));
+
+      // ── Normal procedural desde gradiente de _heightForNormal ────────────────
+      // En espacio local (antes de rotation.x = -PI/2):
+      //   tangente X → (1, 0, dh/dwx)
+      //   tangente Y → (0, 1, -dh/dwz)   (local Y = -mundo Z)
+      //   normal     = cruz = (-dh/dwx,  dh/dwz, 1)  normalizada
+      const dhx = (_heightForNormal(wx + EPS, wz) - _heightForNormal(wx - EPS, wz)) / (2 * EPS);
+      const dhz = (_heightForNormal(wx, wz + EPS) - _heightForNormal(wx, wz - EPS)) / (2 * EPS);
+      const len = Math.sqrt(dhx * dhx + dhz * dhz + 1.0);
+      nrm.setXYZ(i, -dhx / len, dhz / len, 1.0 / len);
     }
     pos.needsUpdate = true;
-    uv.needsUpdate  = true;
+    nrm.needsUpdate = true;
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-    geo.computeVertexNormals();   // recalcular normales tras desplazamiento
     const ground = new THREE.Mesh(geo, TERRAIN_MAT);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(ox, 0, oz);
@@ -395,7 +415,7 @@ export class ChunkManager {
         tree.add(arm2);
         tree.scale.setScalar(s * 2.2);
       }
-      tree.position.set(tx, 0, tz);
+      tree.position.set(tx, _terrainHeight(tx, tz), tz);
       tree.rotation.y = ry;
       this.scene.add(tree);
       objects.push(tree);
@@ -425,7 +445,7 @@ export class ChunkManager {
         rock.castShadow = rock.receiveShadow = true;
         rock._ownGeo = true;
       }
-      rock.position.set(rx, 0, rz);
+      rock.position.set(rx, _terrainHeight(rx, rz), rz);
       rock.rotation.y = rng() * Math.PI * 2;
       this.scene.add(rock);
       objects.push(rock);
@@ -453,7 +473,7 @@ export class ChunkManager {
         bush.castShadow = bush.receiveShadow = true;
         bush._ownGeo = true;
       }
-      bush.position.set(bx, bs * 0.35, bz);
+      bush.position.set(bx, _terrainHeight(bx, bz) + bs * 0.35, bz);
       bush.rotation.y = rng() * Math.PI * 2;
       this.scene.add(bush);
       objects.push(bush);
@@ -462,7 +482,7 @@ export class ChunkManager {
       if (rng() < FRUIT_CHANCE) {
         bush.hasFruit = true;
         const berry = new THREE.Mesh(_BERRY_GEO, _BERRY_MAT);
-        berry.position.set(bx, bush.position.y + bs * 0.55 + 0.30, bz);
+        berry.position.set(bx, _terrainHeight(bx, bz) + bs * 0.55 + 0.30, bz);
         this.scene.add(berry);
         objects.push(berry);
         bush._berry = berry;
@@ -479,7 +499,7 @@ export class ChunkManager {
       const mat = PEBBLE_MATS[Math.floor(rng() * PEBBLE_MATS.length)];
       const peb = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, pw), mat);
       peb._ownGeo = true;
-      peb.position.set(px, ph / 2, pz);
+      peb.position.set(px, _terrainHeight(px, pz) + ph / 2, pz);
       peb.scale.set(0.6 + rng() * 1.1, 0.28 + rng() * 0.22, 0.6 + rng() * 0.8);
       peb.rotation.y = rng() * Math.PI * 2;
       peb.receiveShadow = true;
