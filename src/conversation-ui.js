@@ -3,83 +3,61 @@ import * as Network from './network.js';
 import { speakNpc, stopSpeech } from './speech.js';
 import { startPhase1, startPhase2, startPhase3, stopTheater, speakAldeanoReal } from './aldeano-voice.js';
 
+// ── Género por nombre (termina en 'a' → femenino) ─────────────────────────────
+function _isFem(name) { return /a$/i.test((name || '').trim()); }
+
 const MOOD_LABEL = {
-  OFFERING:  'sereno, espiritual',
-  HOARDING:  'reservado, introvertido',
-  SHARING:   'abierto, generoso',
-  CONSUMING: 'cansado, indiferente',
-  BAR:       'suelto, desconfiado',
+  OFFERING:  ['sereno, espiritual',      'serena, espiritual'],
+  HOARDING:  ['reservado, introvertido', 'reservada, introvertida'],
+  SHARING:   ['abierto, generoso',       'abierta, generosa'],
+  CONSUMING: ['cansado, indiferente',    'cansada, indiferente'],
+  BAR:       ['suelto, desconfiado',     'suelta, desconfiada'],
 };
 
 export class ConversationUI {
   constructor(soulSystem) {
-    this._souls      = soulSystem || null;
-    this._panel      = null;
-    this._active     = false;
-    this._current    = null;
-    this._history      = {};   // name → [{from,text}]
+    this._souls        = soulSystem || null;
+    this._panel        = null;
+    this._active       = false;
+    this._current      = null;
+    this._history      = {};    // name → [{from,text}]
     this._waiting      = false;
-    this._translating  = false; // Piper sintetizando post-respuesta
+    this._translating  = false;
+    this._theaterDone  = false; // true cuando Phase 1+2 terminaron
+    this._pendingResp  = null;  // respuesta del server guardada si el teatro aún no terminó
     this._playerName   = '?';
-    this.onClose     = null;
+    this.onClose       = null;
     this._buildPanel();
   }
 
-  // Llamar desde onJoined (socket ya conectado)
+  // ── Llamar desde onJoined ─────────────────────────────────────────────────────
   init() {
     Network.onAldeanoChatResponse(({ response, impulso }) => {
       this._waiting = false;
-      stopTheater();  // cortar fase 1/2/3 sea cual sea
       if (!this._current) return;
-      const name    = this._current.name;
-      const ix      = this._current.ix    ?? 0;
-      const iy      = this._current.iy    ?? 0;
-      const energia = this._current.energia ?? 100;
 
-      // Impulso metafísico
-      if (impulso && this._souls && (Math.abs(impulso.ix) > 0.1 || Math.abs(impulso.iy) > 0.1)) {
-        this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
+      if (this._theaterDone) {
+        // Teatro ya terminó — entregar respuesta ahora
+        this._deliverResponse({ response, impulso });
+      } else {
+        // Teatro todavía corriendo — guardar y entregar cuando termine
+        this._pendingResp = { response, impulso };
       }
-
-      // Guardar texto en historial — NO renderizar todavía
-      const hist = (this._history[name] = this._history[name] || []);
-      hist.push({ from: 'npc', text: response });
-
-      // Mostrar "traduciendo..." mientras Piper sintetiza
-      this._translating = true;
-      this._renderInput();
-
-      // Fallback de último recurso: si Piper falla o tarda >20s, mostrar texto igual
-      let _shown = false;
-      const showText = () => {
-        if (_shown) return;
-        _shown = true;
-        this._translating = false;
-        if (this._current?.name === name) {
-          this._renderHistory();
-          this._renderInput();
-        }
-        // Fase 4: voz real del aldeano arranca casi simultánea con Daniela
-        speakAldeanoReal(response, ix, iy, energia);
-      };
-      setTimeout(showText, 20000);
-
-      // Texto + voz real aparecen exactamente cuando Daniela arranca (onStart)
-      speakNpc(response, { charName: name, onStart: showText });
     });
   }
 
   setPlayerName(name) { this._playerName = name; }
-
-  // No-op stub — QA pregenerada eliminada, mantenido para compat con main.js
   setGameDay(_day) {}
   requestQA(_units, _hora) {}
 
   open(aldeanoData) {
     if (this._active) return;
-    this._current = aldeanoData;
-    this._active  = true;
-    this._waiting = false;
+    this._current     = aldeanoData;
+    this._active      = true;
+    this._waiting     = false;
+    this._translating = false;
+    this._theaterDone = false;
+    this._pendingResp = null;
     this._panel.style.display = 'flex';
     this._renderHeader();
     this._renderHistory();
@@ -92,6 +70,8 @@ export class ConversationUI {
     this._active      = false;
     this._waiting     = false;
     this._translating = false;
+    this._theaterDone = false;
+    this._pendingResp = null;
     this._panel.style.display = 'none';
     this._current = null;
     stopTheater();
@@ -101,6 +81,7 @@ export class ConversationUI {
 
   isOpen() { return this._active; }
 
+  // ── UI ────────────────────────────────────────────────────────────────────────
   _buildPanel() {
     const el = document.createElement('div');
     el.id = 'conv-panel';
@@ -141,7 +122,9 @@ export class ConversationUI {
 
   _renderHeader() {
     document.getElementById('conv-name').textContent = this._current.name;
-    document.getElementById('conv-mood').textContent = MOOD_LABEL[this._current.intention] || '';
+    const fem = _isFem(this._current.name) ? 1 : 0;
+    document.getElementById('conv-mood').textContent =
+      MOOD_LABEL[this._current.intention]?.[fem] || '';
   }
 
   _renderHistory() {
@@ -200,18 +183,24 @@ export class ConversationUI {
     setTimeout(() => input.focus(), 30);
   }
 
+  // ── Enviar mensaje del jugador ────────────────────────────────────────────────
   _sendCustom(message) {
     if (this._waiting) return;
-    this._waiting = true;
+    this._waiting     = true;
+    this._theaterDone = false;
+    this._pendingResp = null;
+
     const a  = this._current;
     const ix = a.ix ?? 0;
     const iy = a.iy ?? 0;
 
+    // Guardar mensaje del usuario en historial — NO renderizar todavía
+    // (aparecerá cuando llegue la respuesta del aldeano)
     (this._history[a.name] = this._history[a.name] || []).push({ from: 'player', text: message });
-    this._renderHistory();
+
     this._renderInput(); // muestra "pensando..."
 
-    // Disparar el request al servidor INMEDIATAMENTE (mientras corre el teatro)
+    // Enviar al servidor inmediatamente
     Network.sendAldeanoChat({
       name:        a.name,
       message,
@@ -224,19 +213,28 @@ export class ConversationUI {
       historial:   (this._history[a.name] || []).slice(-6),
     });
 
-    // Teatro: fase 1 → fase 2 → fase 3 (en paralelo al tiempo de servidor)
+    // Teatro: Fase 1 → Fase 2 siempre corren (independiente de cuándo llegue la respuesta)
+    // Fase 3 solo arranca si todavía esperamos al terminar Fase 2
     startPhase1(() => {
-      if (!this._waiting) return; // servidor respondió durante fase 1, no continuar
       startPhase2(message, ix, iy, () => {
-        if (!this._waiting) return; // servidor respondió durante fase 2
-        startPhase3(ix, iy); // loop hasta que llegue la respuesta
+        this._theaterDone = true;
+        if (this._pendingResp) {
+          // La respuesta ya llegó mientras corría el teatro — entregarla ahora
+          const data = this._pendingResp;
+          this._pendingResp = null;
+          this._deliverResponse(data);
+        } else if (this._waiting) {
+          // Todavía esperando — arrancar loop de pensamiento
+          startPhase3(ix, iy);
+        }
       });
     });
 
     // Timeout de seguridad: 35s
     setTimeout(() => {
       if (!this._waiting) return;
-      this._waiting = false;
+      this._waiting     = false;
+      this._theaterDone = true;
       stopTheater();
       if (this._current) {
         (this._history[this._current.name] = this._history[this._current.name] || [])
@@ -246,8 +244,53 @@ export class ConversationUI {
       }
     }, 35000);
   }
+
+  // ── Entregar respuesta del aldeano ────────────────────────────────────────────
+  // Se llama cuando el teatro terminó Y la respuesta ya llegó del servidor
+  _deliverResponse({ response, impulso }) {
+    if (!this._current) return;
+    const name    = this._current.name;
+    const ix      = this._current.ix    ?? 0;
+    const iy      = this._current.iy    ?? 0;
+    const energia = this._current.energia ?? 100;
+
+    // Cortar Fase 3 si estaba corriendo
+    stopTheater();
+
+    // Impulso metafísico
+    if (impulso && this._souls && (Math.abs(impulso.ix) > 0.1 || Math.abs(impulso.iy) > 0.1)) {
+      this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
+    }
+
+    // Ahora sí renderizar el mensaje del usuario (lleva el "tiempo de procesamiento")
+    this._translating = true;
+    this._renderHistory(); // muestra el mensaje del jugador por primera vez
+    this._renderInput();   // muestra "traduciendo..."
+
+    // La respuesta del NPC aparece exactamente cuando Daniela arranca (onStart)
+    let _shown = false;
+    const showText = () => {
+      if (_shown) return;
+      _shown = true;
+      this._translating = false;
+      if (this._current?.name === name) {
+        (this._history[name] = this._history[name] || []).push({ from: 'npc', text: response });
+        this._renderHistory();
+        this._renderInput();
+      }
+      // Voz real del aldeano arranca casi simultánea con Daniela
+      speakAldeanoReal(response, ix, iy, energia);
+    };
+
+    // Fallback: si Piper tarda más de 20s, mostrar texto igual
+    setTimeout(showText, 20000);
+
+    // Texto + voz real aparecen cuando Daniela arranca
+    speakNpc(response, { charName: name, onStart: showText });
+  }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function _esc(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

@@ -124,11 +124,17 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = 
   _pending.clear();
 
   try {
+    // Truncar en frontera de palabra para evitar síntesis muy larga (trabada)
+    const MAX_CHARS = 380;
+    const ttsText = text.length > MAX_CHARS
+      ? text.slice(0, MAX_CHARS).replace(/\s\S*$/, '').trim()
+      : text;
+
     const reqId = ++_seq;
-    console.log('[PIPER] enviando al worker:', text.slice(0, 50));
+    console.log('[PIPER] enviando al worker:', ttsText.slice(0, 60));
     const buf = await new Promise(resolve => {
       _pending.set(reqId, resolve);
-      _ensureWorker().postMessage({ type: 'speak', text, id: reqId });
+      _ensureWorker().postMessage({ type: 'speak', text: ttsText, id: reqId });
     });
 
     if (myId !== _current || !buf) return false;

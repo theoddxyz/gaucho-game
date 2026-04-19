@@ -74,7 +74,7 @@ function _makeBursts(ctx, text, ix, iy, energia) {
   const syllables = _sylCount(text);
   const basePitch = (115 + iy * 68) * ef;   // MATERIA≈50Hz, TRASCENDENCIA≈180Hz × ef
   const wave      = _wave(ix, iy);
-  const volBase   = 0.22 + iy * 0.06 + ix * 0.04;
+  const volBase   = 0.32 + iy * 0.08 + ix * 0.05;
 
   // 60ms burst + 82ms silencio = 142ms/sílaba ≈ 7 bursts/seg (habla natural de juego)
   const BURST  = 0.060;
@@ -108,7 +108,7 @@ function _makeBursts(ctx, text, ix, iy, energia) {
     const f1 = ctx.createBiquadFilter();
     f1.type = 'bandpass';
     f1.frequency.value = 480 + ix * 170;   // INDIVIDUO=310Hz, COMUNIDAD=650Hz
-    f1.Q.value = 5;
+    f1.Q.value = 1.2;  // Q bajo = banda ancha = más armónicos pasan
 
     osc.connect(f1); f1.connect(env); env.connect(master);
     osc.start(t); osc.stop(t + BURST + 0.008);

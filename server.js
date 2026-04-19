@@ -1006,7 +1006,7 @@ Vecinos: ${vecinos}.${histStr}
 ${pName} te dice: "${message.trim()}"
 
 Respondé con JSON válido, sin markdown, sin texto extra:
-{"r":"tu respuesta en máximo 12 palabras, estilo seco gaucho rioplatense","ix":0.0,"iy":0.0}
+{"r":"tu respuesta en máximo 20 palabras, estilo gaucho rioplatense, con voz y carácter","ix":0.0,"iy":0.0}
 
 ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0) que provoca lo que dijo el gaucho
 iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0) que provoca lo que dijo el gaucho
@@ -1026,7 +1026,7 @@ Valores entre -1.0 y 1.0. Sé preciso según el contenido del mensaje.`;
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('no JSON en respuesta');
       const parsed = JSON.parse(jsonMatch[0]);
-      const response = String(parsed.r || '...').slice(0, 120);
+      const response = String(parsed.r || '...').slice(0, 200);
       const ix = Math.max(-1, Math.min(1, Number(parsed.ix) || 0));
       const iy = Math.max(-1, Math.min(1, Number(parsed.iy) || 0));
       socket.emit('aldeanoChatResponse', { response, impulso: { ix, iy } });
