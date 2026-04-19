@@ -47,6 +47,9 @@ new GLTFLoader().load('/models/CHORIPAN COLA ALDEANOS.glb', gltf => {
   _tailWaiters.length = 0;
 }, undefined, e => console.warn('[COLA] Error cargando cola:', e));
 
+// ─── Escala de la cola (ajustable) ───────────────────────────────────────────
+const TAIL_SCALE = 5.5;
+
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
 const SPACING    = 1.20;
@@ -79,12 +82,76 @@ const PATROLS = [
 
 const _hitMat = new THREE.MeshBasicMaterial({ visible: false });
 
+// ─── Material procedural chorizo ──────────────────────────────────────────────
+function _mkChorizo() {
+  const S  = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const c  = cv.getContext('2d');
+
+  // Base: carne cocida rojiza oscura
+  c.fillStyle = '#6e1c0c';
+  c.fillRect(0, 0, S, S);
+
+  // Variación de carne — tonos y oscuros irregulares
+  for (let i = 0; i < 1400; i++) {
+    const x = Math.random() * S, y = Math.random() * S;
+    const r = 1 + Math.random() * 5;
+    const v = Math.floor(Math.random() * 50) - 18;
+    c.fillStyle = `rgb(${Math.max(0, 130 + v)},${Math.max(0, 30 + v >> 2)},${Math.max(0, 12 + v >> 3)})`;
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  }
+
+  // Puntitos grandes de grasa — crema/blanco
+  for (let i = 0; i < 55; i++) {
+    const x  = Math.random() * S, y  = Math.random() * S;
+    const rx = 4 + Math.random() * 12, ry = 2 + Math.random() * 7;
+    c.fillStyle = `rgba(238,215,175,${0.55 + Math.random() * 0.38})`;
+    c.beginPath();
+    c.ellipse(x, y, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Micro-puntitos de grasa fina
+  for (let i = 0; i < 180; i++) {
+    const x = Math.random() * S, y = Math.random() * S;
+    c.fillStyle = `rgba(225,200,160,${0.35 + Math.random() * 0.55})`;
+    c.beginPath(); c.arc(x, y, 0.8 + Math.random() * 2.5, 0, Math.PI * 2); c.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 1);
+
+  return new THREE.MeshStandardMaterial({
+    map: tex,
+    color: 0xcc3318,  // tinte rojizo multiplicado sobre la textura
+    roughness: 0.70,
+    metalness: 0.02,
+  });
+}
+
 // ─── Adjuntar cola al grupo de anclaje ────────────────────────────────────────
 function _attachTail(tailGroup) {
   if (!_tailScene) return;
   const clone = _tailScene.clone(true);
-  // Mover el clone para que el Empty quede en el origen del grupo
-  clone.position.copy(_tailOffset).negate();
+
+  // Escalar y reposicionar para que el Empty quede en el origen del grupo.
+  // Con clone escalado: Empty_en_tailGroup = clone.position + _tailOffset * TAIL_SCALE = 0
+  // → clone.position = -_tailOffset * TAIL_SCALE
+  clone.scale.setScalar(TAIL_SCALE);
+  clone.position.copy(_tailOffset).multiplyScalar(-TAIL_SCALE);
+
+  // Reemplazar materiales con chorizo procedural
+  const chorizoMat = _mkChorizo();
+  clone.traverse(n => {
+    if (n instanceof THREE.Mesh) {
+      n.material    = chorizoMat;
+      n.castShadow  = true;
+      n.receiveShadow = true;
+    }
+  });
+
   tailGroup.add(clone);
 }
 
