@@ -784,10 +784,10 @@ export function createVillage(scene, colliders) {
         _trySwap(scene, buildChurch(scene, colliders, obj.x, obj.z), '/models/church.glb');
         break;
       case 'townhall':
-        _trySwap(scene, buildTownHall(scene, colliders, obj.x, obj.z), '/models/nuevocityhall.glb', 0.4);
+        _trySwap(scene, buildTownHall(scene, colliders, obj.x, obj.z), '/models/nuevocityhall.glb', 0.27);
         break;
       case 'house':
-        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/nuevacasa.glb', 0.4);
+        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/nuevacasa.glb', 0.27);
         break;
       case 'farm':
         _trySwap(scene, buildFarm(scene, colliders, obj.x, obj.z), '/models/farm.glb');
