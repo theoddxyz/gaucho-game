@@ -1,31 +1,17 @@
 /**
- * src/audio.js  —  GAUCHO Sound Engine
- * ─────────────────────────────────────────────────────────────────────────────
- * Carga archivos reales de /public/sounds/ (MP3/OGG).
- * Si el archivo no existe todavía, cae a síntesis procedural como fallback.
- * Todos los sonidos son lazy-loaded y cacheados.
+ * src/audio.js  —  GAUCHO Sound Engine v2  (100% Procedural — sin archivos MP3)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *  Estética: WESTERN  ·  GAUCHESCO  ·  GEOPOLÍTICO  ·  ESPACIAL
  *
- * ESTRUCTURA public/sounds/
- *   weapons/  shotgun.mp3  bullet_whiz.mp3  impact_dirt.mp3
- *             impact_flesh.mp3  impact_wood.mp3  shell.mp3
- *   player/   step_dirt_1..4.mp3  step_grass_1..2.mp3
- *             hurt_1..2.mp3  death.mp3  land.mp3  eat.mp3  exhale.mp3
- *   animals/  cow_1..3.mp3  cow_panic.mp3  horse_neigh.mp3  horse_snort.mp3
- *             horse_gallop.mp3  chicken_1..2.mp3  chicken_panic.mp3
- *             ostrich.mp3  coyote.mp3
- *   ambient/  wind.mp3  crickets.mp3  birds.mp3
- *             thunder_1..3.mp3  rain.mp3  fire.mp3
- *
- * DONDE DESCARGAR (gratis, CC0, sin atribución):
- *   https://pixabay.com/sound-effects/
- *   https://freesound.org  (filtrar por CC0)
- *   https://mixkit.co/free-sound-effects/
+ *  Todo sintetizado vía Web Audio API.
+ *  No hay fetch() ni AudioBuffer de archivos.
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-// ── AudioContext ──────────────────────────────────────────────────────────────
-let _ctx  = null;
-let _out  = null;   // master gain → compresor → destino
-let _rev  = null;   // reverb de campo abierto
+// ── AudioContext + Cadena master ──────────────────────────────────────────────
+let _ctx = null;
+let _out = null;   // master gain
+let _rev = null;   // convolution reverb (pampa abierta)
 
 export function initAudio() {
   if (_ctx) return;
@@ -33,883 +19,942 @@ export function initAudio() {
     _ctx = new (window.AudioContext || window.webkitAudioContext)();
 
     const comp = _ctx.createDynamicsCompressor();
-    comp.threshold.value = -20; comp.knee.value = 14;
-    comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.28;
+    comp.threshold.value = -18; comp.knee.value = 14;
+    comp.ratio.value = 3.5; comp.attack.value = 0.004; comp.release.value = 0.30;
     comp.connect(_ctx.destination);
 
     _out = _ctx.createGain();
-    _out.gain.value = 0.78;
+    _out.gain.value = 0.80;
     _out.connect(comp);
 
-    // Reverb sintético largo (pampa abierta)
-    const sr = _ctx.sampleRate, len = Math.floor(sr * 3.2);
-    const buf = _ctx.createBuffer(2, len, sr);
-    for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < len; i++)
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.5);
+    // Reverb sintético — pampa abierta, cola larga con early reflections
+    const sr = _ctx.sampleRate;
+    const rLen = Math.floor(sr * 3.8);
+    const rBuf = _ctx.createBuffer(2, rLen, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = rBuf.getChannelData(ch);
+      // Early reflections (primeros 80ms) + tail difuso
+      for (let i = 0; i < rLen; i++) {
+        const t = i / sr;
+        const env = t < 0.08
+          ? Math.pow(t / 0.08, 0.5)
+          : Math.pow(1 - (t - 0.08) / (rLen / sr - 0.08), 1.8);
+        d[i] = (Math.random() * 2 - 1) * env;
+      }
     }
     _rev = _ctx.createConvolver();
-    _rev.buffer = buf;
-    const rg = _ctx.createGain(); rg.gain.value = 0.22;
+    _rev.buffer = rBuf;
+    const rg = _ctx.createGain(); rg.gain.value = 0.18;
     _rev.connect(rg); rg.connect(_out);
 
-    // Preload en background
-    _preloadAll();
-  } catch(e) { /* audio init failed — continue silently */ }
+  } catch (e) { /* sin audio — silencio */ }
 }
 
-function _ctx_() {
+// ── Internals ─────────────────────────────────────────────────────────────────
+function _c() {
   if (!_ctx) initAudio();
   if (_ctx?.state === 'suspended') _ctx.resume().catch(() => {});
   return _ctx;
 }
-function _now() { return _ctx_()?.currentTime ?? 0; }
+function _t() { return _c()?.currentTime ?? 0; }
 
-// ── Buffer cache y carga lazy ─────────────────────────────────────────────────
-const _cache = new Map();   // path → AudioBuffer | null (null = carga fallida)
-
-async function _load(path) {
-  if (_cache.has(path)) return _cache.get(path);
-  const c = _ctx_(); if (!c) return null;
-  try {
-    const res = await fetch(`/sounds/${path}`);
-    if (!res.ok) throw new Error(res.status);
-    const ab  = await res.arrayBuffer();
-    const buf = await c.decodeAudioData(ab);
-    _cache.set(path, buf);
-    return buf;
-  } catch {
-    _cache.set(path, null);   // marcar como no disponible — no reintentar
-    return null;
-  }
-}
-
-// Preload silencioso de todos los archivos al arrancar
-const MANIFEST = [
-  // weapons (Kenney + CC0 SFX)
-  'weapons/shotgun.mp3','weapons/bullet_whiz.mp3',
-  'weapons/impact_dirt.mp3','weapons/impact_flesh.mp3','weapons/impact_flesh_2.mp3',
-  'weapons/impact_glass.mp3','weapons/impact_glass_2.mp3','weapons/impact_metal.mp3',
-  'weapons/shell.mp3','weapons/shell_2.mp3','weapons/shell_3.mp3','weapons/insertal bala.wav',
-  // player
-  'player/step_sand_1.mp3','player/step_sand_2.mp3','player/step_sand_3.mp3','player/step_sand_4.mp3',
-  'player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3',
-  'player/hurt_1.mp3','player/hurt_2.mp3','player/hurt_3.mp3',
-  'player/death.mp3','player/land.mp3','player/eat.mp3','player/body_fall.mp3',
-  'player/mount_leather.mp3','player/cloth.mp3',
-  // animals (colocar manualmente desde Pixabay)
-  'animals/cow_1.mp3','animals/cow_2.mp3','animals/cow_3.mp3','animals/cow_panic.mp3',
-  'animals/horse_neigh.mp3','animals/horse_snort.mp3','animals/horse_gallop.mp3',
-  'animals/chicken_1.mp3','animals/chicken_2.mp3','animals/chicken_panic.mp3',
-  'animals/ostrich.mp3','animals/coyote.mp3',
-  // ambient (Kenney + CC0 + colocar loops desde Pixabay)
-  'ambient/wind.mp3','ambient/crickets.mp3','ambient/birds.mp3',
-  'ambient/thunder_1.mp3','ambient/thunder_2.mp3','ambient/thunder_3.mp3',
-  'ambient/rain.mp3','ambient/fire.mp3',
-  'ambient/bell_gm.mp3','ambient/corral_bell.mp3',
-  'ambient/wood_creak_1.mp3','ambient/wood_creak_2.mp3',
-  'ambient/creak_1.mp3','ambient/creak_2.mp3','ambient/creak_3.mp3',
-];
-function _preloadAll() {
-  // Carga secuencial con delay para no spikear el hilo de audio al inicio
-  let i = 0;
-  const next = () => {
-    if (i >= MANIFEST.length) return;
-    _load(MANIFEST[i++]).catch(() => {}).finally(() => setTimeout(next, 40));
-  };
-  setTimeout(next, 500); // empieza 500ms después de initAudio
-}
-
-// ── Reproducir buffer cacheado ────────────────────────────────────────────────
-/**
- * @param {AudioBuffer} buf
- * @param {{ volume, reverb, loop, pitch, when }} opts
- * @returns {AudioBufferSourceNode|null}
- */
-function _play(buf, opts = {}) {
-  const c = _ctx_(); if (!c || !buf) return null;
-  const src = c.createBufferSource();
-  src.buffer      = buf;
-  src.loop        = opts.loop  ?? false;
-  src.playbackRate.value = opts.pitch ?? 1.0;
-
-  const g = c.createGain();
-  g.gain.value = opts.volume ?? 1.0;
-  src.connect(g);
-
-  if (_out) g.connect(_out);
-  if (_rev && (opts.reverb ?? 0.18) > 0) {
-    const rg = c.createGain(); rg.gain.value = opts.reverb ?? 0.18;
-    g.connect(rg); rg.connect(_rev);
-  }
-  src.start(opts.when ?? _now());
-  return src;
-}
-
-// ── Reproducir por nombre — con fallback procedural ──────────────────────────
-async function _playFile(path, opts = {}, fallback = null) {
-  const buf = _cache.get(path) ?? await _load(path);
-  if (buf) { _play(buf, opts); return true; }
-  fallback?.();
-  return false;
-}
-
-// Variante: pick random de un array de paths
-async function _playRandom(paths, opts = {}, fallback = null) {
-  const path = paths[Math.floor(Math.random() * paths.length)];
-  return _playFile(path, opts, fallback);
-}
-
-// ── Helpers síntesis (fallback) ───────────────────────────────────────────────
-function _noise(dur, freq, Q) {
-  const c = _ctx_(); if (!c) return null;
-  const len = Math.floor(c.sampleRate * dur);
-  const buf = c.createBuffer(1, len, c.sampleRate);
-  const d   = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  const src = c.createBufferSource(); src.buffer = buf;
-  const flt = c.createBiquadFilter(); flt.type = 'bandpass';
-  flt.frequency.value = freq; flt.Q.value = Q;
-  const g = c.createGain(); g.gain.value = 0;
-  src.connect(flt); flt.connect(g);
-  return { src, gain: g };
-}
-function _env(gn, a, d, s, r, peak = 1) {
-  const t = _now(), g = gn.gain;
-  g.cancelScheduledValues(t);
-  g.setValueAtTime(0.0001, t);
-  g.linearRampToValueAtTime(peak,     t + a);
-  g.linearRampToValueAtTime(peak * s, t + a + d);
-  g.linearRampToValueAtTime(0.0001,   t + a + d + r);
-}
-function _toOut(node, rev = 0.18) {
+function _toOut(node, revMix = 0.18) {
   if (!_out) return;
   node.connect(_out);
-  if (_rev && rev > 0) {
-    const rg = _ctx_().createGain(); rg.gain.value = rev;
+  if (_rev && revMix > 0) {
+    const rg = _c().createGain(); rg.gain.value = revMix;
     node.connect(rg); rg.connect(_rev);
   }
 }
-function _lp(freq) {
-  const f = _ctx_().createBiquadFilter();
-  f.type = 'lowpass'; f.frequency.value = freq; return f;
+
+function _lp(freq, Q = 0.7) {
+  const f = _c().createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = freq; f.Q.value = Q; return f;
+}
+function _hp(freq, Q = 0.7) {
+  const f = _c().createBiquadFilter();
+  f.type = 'highpass'; f.frequency.value = freq; f.Q.value = Q; return f;
+}
+function _bp(freq, Q = 1.0) {
+  const f = _c().createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = Q; return f;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  API PÚBLICA
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ── PASOS ─────────────────────────────────────────────────────────────────────
-const _stepSand  = ['player/step_sand_1.mp3','player/step_sand_2.mp3',
-                    'player/step_sand_3.mp3','player/step_sand_4.mp3'];
-const _stepGrass = ['player/step_grass_1.mp3','player/step_grass_2.mp3','player/step_grass_3.mp3'];
-
-export function footstep(surface = 'sand', pitch = null, volume = 0.05) {
-  const p     = pitch ?? (0.88 + Math.random() * 0.24);
-  const paths = surface === 'grass' ? _stepGrass : _stepSand;
-  _playRandom(paths, { volume, reverb: 0.02, pitch: p }, () => {
-    // fallback procedural — thud suave de tierra
-    const c = _ctx_(); if (!c) return; const t = _now();
-    // Golpe bajo (suelo)
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(65, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.08);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.10, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
-    const lp = _lp(180); o.connect(lp); lp.connect(g); _toOut(g, 0.03); o.start(t); o.stop(t + 0.12);
-    // Crujido de tierra (ruido filtrado medio-bajo)
-    const n = _noise(0.09, 480, 0.8);
-    if (n) { _env(n.gain, 0.001, 0.010, 0.05, 0.06, 0.08); _toOut(n.gain, 0.02); n.src.start(t); }
-  });
-}
-
-// ── ESCOPETA — síntesis procedural pura ───────────────────────────────────────
-function _makeNoiseBuf(dur) {
-  const c = _ctx_(); if (!c) return null;
-  const len = Math.floor(c.sampleRate * dur);
+function _mkNoise(durSec) {
+  const c = _c(); if (!c) return null;
+  const len = Math.floor(c.sampleRate * durSec);
   const buf = c.createBuffer(1, len, c.sampleRate);
-  const d   = buf.getChannelData(0);
+  const d = buf.getChannelData(0);
   for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  return buf;
+  const src = c.createBufferSource(); src.buffer = buf;
+  return src;
 }
 
-// Curva de saturación hard-clip para WaveShaper
-function _satCurve(amount = 120) {
-  const n = 512, curve = new Float32Array(n);
+function _gain(val = 1) {
+  const g = _c().createGain(); g.gain.value = val; return g;
+}
+
+function _env(gNode, t0, atk, dec, sus, rel, peak = 1) {
+  const g = gNode.gain;
+  g.cancelScheduledValues(t0);
+  g.setValueAtTime(0.0001, t0);
+  g.linearRampToValueAtTime(peak,       t0 + atk);
+  g.linearRampToValueAtTime(peak * sus, t0 + atk + dec);
+  g.linearRampToValueAtTime(0.0001,     t0 + atk + dec + rel);
+}
+
+function _satCurve(k = 120) {
+  const n = 512, c = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = (i * 2) / n - 1;
-    curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+    c[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
   }
-  return curve;
+  return c;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MOVIMIENTO
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Paso de gaucho en tierra seca de pampa — polvo + gravilla
+export function footstep(surface = 'sand', pitchArg = null, volume = 0.06) {
+  const c = _c(); if (!c) return;
+  const t = _t();
+  const p = pitchArg ?? (0.88 + Math.random() * 0.24);
+
+  // Thud grave (suelo)
+  const o = c.createOscillator(); o.type = 'sine';
+  const f0 = surface === 'grass' ? 52 : 62;
+  o.frequency.setValueAtTime(f0 * p, t);
+  o.frequency.exponentialRampToValueAtTime(22 * p, t + 0.10);
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(volume * 1.4, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+  const lp = _lp(200); o.connect(lp); lp.connect(g); _toOut(g, 0.03);
+  o.start(t); o.stop(t + 0.14);
+
+  // Crujido de tierra / pasto
+  const ns = _mkNoise(0.10); if (!ns) return;
+  const fq = surface === 'grass' ? 800 : 420;
+  const bp = _bp(fq, surface === 'grass' ? 1.2 : 0.8);
+  const gn = _gain(); gn.gain.setValueAtTime(0.0001, t);
+  gn.gain.linearRampToValueAtTime(volume * 0.7, t + 0.006);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
+  ns.connect(bp); bp.connect(gn); _toOut(gn, 0.02); ns.start(t);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ARMAS
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function shotgun() {
-  const c = _ctx_(); if (!c) return; const t = _now();
+  const c = _c(); if (!c) return; const t = _t();
 
-  // ── Capa 1: Sub-bass thump — golpe físico, pitch-drop rápido ─────────────
+  // Sub thump
   const o1 = c.createOscillator(); o1.type = 'sine';
-  o1.frequency.setValueAtTime(65, t);
-  o1.frequency.exponentialRampToValueAtTime(18, t + 0.22);
-  const lp1 = c.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.value = 200;
-  const g1  = c.createGain();
-  g1.gain.setValueAtTime(0.0001, t);
-  g1.gain.linearRampToValueAtTime(0.85, t + 0.002);
-  g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
-  o1.connect(lp1); lp1.connect(g1); _toOut(g1, 0.40);
-  o1.start(t); o1.stop(t + 0.30);
+  o1.frequency.setValueAtTime(60, t);
+  o1.frequency.exponentialRampToValueAtTime(16, t + 0.24);
+  const g1 = _gain(); g1.gain.setValueAtTime(0.0001, t);
+  g1.gain.linearRampToValueAtTime(0.90, t + 0.003);
+  g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+  const lp1 = _lp(220); o1.connect(lp1); lp1.connect(g1); _toOut(g1, 0.45);
+  o1.start(t); o1.stop(t + 0.32);
 
-  // ── Capa 2: Cuerpo saturado — ruido a través de WaveShaper ───────────────
-  const buf2 = _makeNoiseBuf(0.50); if (!buf2) return;
-  const src2 = c.createBufferSource(); src2.buffer = buf2;
-  const lp2  = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 2200;
-  const sat  = c.createWaveShaper(); sat.curve = _satCurve(140);
-  const lp2b = c.createBiquadFilter(); lp2b.type = 'lowpass'; lp2b.frequency.value = 5000;
-  const g2   = c.createGain();
-  g2.gain.setValueAtTime(0.0001, t);
-  g2.gain.linearRampToValueAtTime(0.75, t + 0.004);
-  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.44);
-  src2.connect(lp2); lp2.connect(sat); sat.connect(lp2b); lp2b.connect(g2);
-  _toOut(g2, 0.58); src2.start(t);
-
-  // ── Capa 3: Crack inicial muy corto — snap del disparo ───────────────────
-  const buf3 = _makeNoiseBuf(0.055); if (buf3) {
-    const src3 = c.createBufferSource(); src3.buffer = buf3;
-    const hp3  = c.createBiquadFilter(); hp3.type = 'highpass'; hp3.frequency.value = 6000;
-    const sat3 = c.createWaveShaper(); sat3.curve = _satCurve(200);
-    const g3   = c.createGain();
-    g3.gain.setValueAtTime(0.0001, t);
-    g3.gain.linearRampToValueAtTime(0.55, t + 0.001);
-    g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-    src3.connect(hp3); hp3.connect(sat3); sat3.connect(g3); _toOut(g3, 0.12);
-    src3.start(t);
+  // Cuerpo saturado
+  const ns2 = _mkNoise(0.52); if (ns2) {
+    const lp2 = _lp(2400); const sat = c.createWaveShaper(); sat.curve = _satCurve(160);
+    const lp2b = _lp(5200); const g2 = _gain();
+    g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.linearRampToValueAtTime(0.82, t + 0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.48);
+    ns2.connect(lp2); lp2.connect(sat); sat.connect(lp2b); lp2b.connect(g2);
+    _toOut(g2, 0.60); ns2.start(t);
   }
 
-  // ── Capa 4: Resonancia de cañón — bandpass con Q alta ────────────────────
-  const buf4 = _makeNoiseBuf(0.32); if (buf4) {
-    const src4 = c.createBufferSource(); src4.buffer = buf4;
-    const bp4  = c.createBiquadFilter(); bp4.type = 'bandpass';
-    bp4.frequency.value = 580; bp4.Q.value = 1.8;
-    const g4   = c.createGain();
+  // Crack inicial
+  const ns3 = _mkNoise(0.055); if (ns3) {
+    const hp3 = _hp(5800); const sat3 = c.createWaveShaper(); sat3.curve = _satCurve(220);
+    const g3 = _gain(); g3.gain.setValueAtTime(0.0001, t);
+    g3.gain.linearRampToValueAtTime(0.60, t + 0.002);
+    g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+    ns3.connect(hp3); hp3.connect(sat3); sat3.connect(g3); _toOut(g3, 0.10); ns3.start(t);
+  }
+
+  // Resonancia de cañón
+  const ns4 = _mkNoise(0.34); if (ns4) {
+    const bp4 = _bp(560, 1.8); const g4 = _gain();
     g4.gain.setValueAtTime(0.0001, t);
-    g4.gain.linearRampToValueAtTime(0.35, t + 0.006);
-    g4.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
-    src4.connect(bp4); bp4.connect(g4); _toOut(g4, 0.35);
-    src4.start(t);
+    g4.gain.linearRampToValueAtTime(0.38, t + 0.008);
+    g4.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    ns4.connect(bp4); bp4.connect(g4); _toOut(g4, 0.38); ns4.start(t);
   }
 
-  // ── Casquillo — síntesis pura, sin mp3 ────────────────────────────────────
+  // Chasquido de espacio abierto (eco espacial único — la pampa responde)
   setTimeout(() => {
-    const c2 = _ctx_(); if (!c2) return; const t2 = _now();
-    // Tono metálico decayente
+    const c2 = _c(); if (!c2) return; const t2 = _t();
+    const ns5 = _mkNoise(0.18); if (!ns5) return;
+    const lp5 = _lp(900); const g5 = _gain();
+    g5.gain.setValueAtTime(0.0001, t2);
+    g5.gain.linearRampToValueAtTime(0.12, t2 + 0.01);
+    g5.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.22);
+    ns5.connect(lp5); lp5.connect(g5); _toOut(g5, 0.85); ns5.start(t2);
+  }, 180 + Math.random() * 60);
+
+  // Casquillo
+  setTimeout(() => {
+    const c2 = _c(); if (!c2) return; const t2 = _t();
     const o = c2.createOscillator(); o.type = 'triangle';
-    o.frequency.setValueAtTime(2200, t2);
-    o.frequency.exponentialRampToValueAtTime(900, t2 + 0.12);
-    const g = c2.createGain();
-    g.gain.setValueAtTime(0.0001, t2); g.gain.linearRampToValueAtTime(0.08, t2 + 0.002);
-    g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.18);
-    o.connect(g); _toOut(g, 0.03); o.start(t2); o.stop(t2 + 0.20);
-    // Pequeño ruido de impacto
-    const nb = _makeNoiseBuf(0.05);
-    if (nb) {
-      const ns = c2.createBufferSource(); ns.buffer = nb;
-      const hp = c2.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3500;
-      const ng = c2.createGain();
-      ng.gain.setValueAtTime(0.0001, t2); ng.gain.linearRampToValueAtTime(0.06, t2 + 0.001);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.04);
-      ns.connect(hp); hp.connect(ng); _toOut(ng, 0.02); ns.start(t2);
-    }
-  }, 88 + Math.random() * 40);
+    o.frequency.setValueAtTime(2400, t2);
+    o.frequency.exponentialRampToValueAtTime(880, t2 + 0.14);
+    const g = _gain(); g.gain.setValueAtTime(0.0001, t2);
+    g.gain.linearRampToValueAtTime(0.09, t2 + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.20);
+    o.connect(g); _toOut(g, 0.04); o.start(t2); o.stop(t2 + 0.22);
+  }, 92 + Math.random() * 40);
 }
 
-// ── BALA CERCA ────────────────────────────────────────────────────────────────
 export function bulletWhiz() {
-  _playFile('weapons/bullet_whiz.mp3', { volume: 0.55, reverb: 0.08 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const f0 = 1600 + Math.random()*500;
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0*0.24, t+0.20);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.11,t+0.012);
-    g.gain.linearRampToValueAtTime(0.0001,t+0.21);
-    o.connect(g); _toOut(g, 0.06); o.start(t); o.stop(t+0.22);
-  });
-}
-
-// ── IMPACTOS ──────────────────────────────────────────────────────────────────
-export function bulletImpactDirt() {
-  _playFile('weapons/impact_dirt.mp3', { volume: 0.55, reverb: 0.10, pitch: 1.0+Math.random()*0.3 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.10, 600, 1.0);
-    if (n) { _env(n.gain,0.001,0.012,0.05,0.08,0.18); _toOut(n.gain,0.06); n.src.start(t); }
-  });
-}
-export function bulletImpactFlesh() {
-  // Procedural — impacto agudo multicapa
-  const c = _ctx_(); if (!c) return; const t = _now();
-  // 1) Crack agudo principal (3500 Hz)
-  const n1 = _noise(0.05, 3500, 3.0);
-  if (n1) { _env(n1.gain,0.001,0.003,0.0,0.04,1.0); _toOut(n1.gain,0.05); n1.src.start(t); }
-  // 2) Snap medio (1800 Hz)
-  const n2 = _noise(0.07, 1800, 2.0);
-  if (n2) { _env(n2.gain,0.001,0.005,0.0,0.06,0.80); _toOut(n2.gain,0.06); n2.src.start(t); }
-  // 3) Thud cuerpo (350 Hz)
-  const n3 = _noise(0.10, 350, 1.2);
-  if (n3) { _env(n3.gain,0.001,0.010,0.0,0.08,0.35); _toOut(n3.gain,0.04); n3.src.start(t); }
-  // 4) Click transiente (5500 Hz, ultra corto)
-  const n4 = _noise(0.02, 5500, 4.5);
-  if (n4) { _env(n4.gain,0.001,0.002,0.0,0.015,0.70); _toOut(n4.gain,0.04); n4.src.start(t); }
-  // 5) Wet squelch (800 Hz, resonante)
-  const n5 = _noise(0.08, 800, 5.0);
-  if (n5) { _env(n5.gain,0.002,0.008,0.0,0.06,0.40); _toOut(n5.gain,0.05); n5.src.start(t); }
-}
-
-// Gritos de dolor por tipo de animal — procedural
-export function painCow() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  // Mugido de dolor: tono bajo que sube y baja
-  const o = c.createOscillator(); o.type = 'sawtooth';
-  o.frequency.setValueAtTime(120, t);
-  o.frequency.linearRampToValueAtTime(220, t + 0.15);
-  o.frequency.linearRampToValueAtTime(90, t + 0.5);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.45, t + 0.02);
-  g.gain.linearRampToValueAtTime(0.30, t + 0.2);
-  g.gain.linearRampToValueAtTime(0.0001, t + 0.55);
-  const lp = _lp(600); o.connect(lp); lp.connect(g); _toOut(g, 0.12); o.start(t); o.stop(t + 0.6);
-}
-export function painOstrich() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  // Graznido agudo
-  const o = c.createOscillator(); o.type = 'square';
-  o.frequency.setValueAtTime(800, t);
-  o.frequency.linearRampToValueAtTime(1200, t + 0.05);
-  o.frequency.linearRampToValueAtTime(600, t + 0.2);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.30, t + 0.01);
-  g.gain.linearRampToValueAtTime(0.0001, t + 0.25);
-  const lp = _lp(2000); o.connect(lp); lp.connect(g); _toOut(g, 0.08); o.start(t); o.stop(t + 0.3);
-}
-export function painChicken() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  // Cacareo de dolor — corto y agudo
-  const o = c.createOscillator(); o.type = 'square';
-  o.frequency.setValueAtTime(1400, t);
-  o.frequency.linearRampToValueAtTime(1800, t + 0.02);
-  o.frequency.linearRampToValueAtTime(900, t + 0.12);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.005);
-  g.gain.linearRampToValueAtTime(0.0001, t + 0.15);
-  const lp = _lp(3000); o.connect(lp); lp.connect(g); _toOut(g, 0.06); o.start(t); o.stop(t + 0.18);
-}
-export function painBird() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  // Pío de dolor
+  const c = _c(); if (!c) return; const t = _t();
+  // Silbido Doppler de bala rasante sobre pampa
+  const f0 = 1800 + Math.random() * 600;
   const o = c.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(2200, t);
-  o.frequency.linearRampToValueAtTime(1600, t + 0.08);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.20, t + 0.005);
-  g.gain.linearRampToValueAtTime(0.0001, t + 0.10);
-  o.connect(g); _toOut(g, 0.05); o.start(t); o.stop(t + 0.12);
-}
-export function bulletImpactWood() {
-  _playFile('weapons/impact_wood.mp3', { volume: 0.60, reverb: 0.12, pitch: 1.1+Math.random()*0.2 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.06, 1600, 2.0);
-    if (n) { _env(n.gain,0.001,0.006,0.0,0.05,0.22); _toOut(n.gain,0.10); n.src.start(t); }
-  });
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.22, t + 0.22);
+  const ns = _mkNoise(0.22); if (!ns) return;
+  const bp = _bp(f0 * 0.6, 3);
+  const gnMix = _gain(0.04);
+  ns.connect(bp); bp.connect(gnMix);
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.12, t + 0.015);
+  g.gain.linearRampToValueAtTime(0.0001, t + 0.23);
+  o.connect(g); gnMix.connect(g); _toOut(g, 0.08);
+  o.start(t); ns.start(t); o.stop(t + 0.24);
 }
 
-// ── DAÑO / MUERTE ─────────────────────────────────────────────────────────────
-export function hitMarker() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 1760;
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.16,t+0.003);
-  g.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
-  o.connect(g); _toOut(g, 0.03); o.start(t); o.stop(t+0.10);
+export function bulletImpactDirt() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Polvo de pampa: thud sordo + nube de tierra
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(85, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.12);
+  const g1 = _gain(); g1.gain.setValueAtTime(0.0001, t);
+  g1.gain.linearRampToValueAtTime(0.30, t + 0.004);
+  g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  const lp1 = _lp(160); o.connect(lp1); lp1.connect(g1); _toOut(g1, 0.08); o.start(t); o.stop(t + 0.16);
+
+  const ns = _mkNoise(0.15); if (ns) {
+    const bp = _bp(520 + Math.random() * 200, 0.9);
+    const g2 = _gain(); g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.linearRampToValueAtTime(0.18, t + 0.008);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    ns.connect(bp); bp.connect(g2); _toOut(g2, 0.06); ns.start(t);
+  }
 }
 
-export function playerHurt() {
-  _playRandom(['player/hurt_1.mp3','player/hurt_2.mp3','player/hurt_3.mp3'],
-    { volume: 0.80, reverb: 0.05, pitch: 0.88 + Math.random()*0.22 }, () => {
-      // Fallback: grunt/groan procedural
-      const c = _ctx_(); if (!c) return; const t = _now();
-      // Componente vocal (oscilador FM grave)
-      const car = c.createOscillator(); car.type = 'sawtooth';
-      car.frequency.setValueAtTime(160, t); car.frequency.exponentialRampToValueAtTime(85, t+0.22);
-      const mod = c.createOscillator(); mod.type = 'sine'; mod.frequency.value = 5;
-      const modG = c.createGain(); modG.gain.value = 18;
-      mod.connect(modG); modG.connect(car.frequency);
-      const lp = _lp(900);
-      const g  = c.createGain();
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.55, t + 0.018);
-      g.gain.exponentialRampToValueAtTime(0.18, t + 0.14);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
-      car.connect(lp); lp.connect(g); _toOut(g, 0.12);
-      car.start(t); mod.start(t); car.stop(t+0.32); mod.stop(t+0.32);
-      // Capa de ruido (impacto físico)
-      const n = _noise(0.10, 320, 0.5);
-      if (n) { _env(n.gain, 0.003, 0.015, 0.0, 0.08, 0.28); _toOut(n.gain, 0.04); n.src.start(t); }
+export function bulletImpactFlesh() {
+  const c = _c(); if (!c) return; const t = _t();
+  [[3500,3.0,0.04,1.00],[1800,2.0,0.06,0.80],[350,1.2,0.04,0.38],[5500,4.5,0.04,0.70],[800,5.0,0.05,0.40]]
+    .forEach(([freq, Q, rev, pk], i) => {
+      const ns = _mkNoise(0.10); if (!ns) return;
+      const bp = _bp(freq, Q); const g = _gain();
+      const d = [0.001,0.003+i*0.002,0,0.04+i*0.01][0];
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk * 0.5, t + 0.002 + i*0.001);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06 + i * 0.015);
+      ns.connect(bp); bp.connect(g); _toOut(g, rev); ns.start(t);
     });
 }
 
-// ── CARGA DE BALA (R key) ─────────────────────────────────────────────────────
-export function shellLoad() {
-  _playFile('weapons/insertal bala.wav', { volume: 0.60, reverb: 0.03, pitch: 0.97+Math.random()*0.06 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    // Click metálico de cerrojo
-    const n1 = _noise(0.025, 4200, 3.5);
-    if (n1) { _env(n1.gain,0.001,0.004,0.0,0.018,0.35); _toOut(n1.gain,0.12); n1.src.start(t); }
-    // Thud grave de la bala asentándose
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(220,t); o.frequency.exponentialRampToValueAtTime(80,t+0.06);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.28,t+0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
-    _toOut(g,0.04); o.connect(g); o.start(t); o.stop(t+0.08);
-    // Segundo click de cierre
-    const n2 = _noise(0.018, 3800, 3.0);
-    if (n2) { _env(n2.gain,0.001,0.003,0.0,0.014,0.30); _toOut(n2.gain,0.09); n2.src.start(t+0.08); }
-  });
-}
-
-export function playerDeath() {
-  _playFile('player/death.mp3', { volume: 0.80, reverb: 0.30 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(210,t); o.frequency.exponentialRampToValueAtTime(48,t+2.2);
-    const g = c.createGain(); g.gain.setValueAtTime(0.28,t); g.gain.linearRampToValueAtTime(0.0001,t+2.4);
-    const lp = _lp(700); o.connect(lp); lp.connect(g); _toOut(g,0.35); o.start(t); o.stop(t+2.5);
-  });
-}
-
-export function bodyFall() {
-  _playFile('player/body_fall.mp3', { volume: 0.75, reverb: 0.12 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(58,t); o.frequency.exponentialRampToValueAtTime(22,t+0.22);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.38,t+0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.28);
-    const lp = _lp(180); o.connect(lp); lp.connect(g); _toOut(g,0.14); o.start(t); o.stop(t+0.30);
-    const n = _noise(0.25, 580, 0.7);
-    if (n) { _env(n.gain,0.005,0.03,0.15,0.18,0.20); _toOut(n.gain,0.06); n.src.start(t+0.02); }
-  });
-}
-
-export function jumpLand() {
-  _playFile('player/land.mp3', { volume: 0.55, reverb: 0.06, pitch: 0.9+Math.random()*0.2 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(75,t); o.frequency.exponentialRampToValueAtTime(28,t+0.14);
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.26,t+0.003);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.14);
-    o.connect(g); _toOut(g,0.08); o.start(t); o.stop(t+0.16);
-  });
-}
-
-export function eatSound() {
-  _playFile('player/eat.mp3', { volume: 0.55, reverb: 0.03 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.14, 1700, 1.8);
-    if (n) { _env(n.gain,0.006,0.022,0.28,0.09,0.13); _toOut(n.gain,0.03); n.src.start(t); }
-  });
-}
-
-// ── CUCHILLO: silbido de hoja + golpe húmedo de carne ────────────────────────
-export function knifeButcher() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-
-  // 1. Silbido de hoja (ruido filtrado HP descendente — corte de aire)
-  const sr  = c.sampleRate;
-  const len = Math.floor(sr * 0.18);
-  const buf = c.createBuffer(1, len, sr);
-  const d   = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  const ns   = c.createBufferSource(); ns.buffer = buf;
-  const hp   = c.createBiquadFilter(); hp.type = 'highpass';
-  hp.frequency.setValueAtTime(3800, t);
-  hp.frequency.linearRampToValueAtTime(800, t + 0.16);
-  const gw   = c.createGain();
-  gw.gain.setValueAtTime(0.0001, t);
-  gw.gain.linearRampToValueAtTime(0.18, t + 0.01);
-  gw.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-  ns.connect(hp); hp.connect(gw); _toOut(gw, 0.0);
-  ns.start(t); ns.stop(t + 0.20);
-
-  // 2. Impacto húmedo de carne (thud grave + splash de ruido medio)
-  const t2 = t + 0.12;
-  const o  = c.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(90, t2);
-  o.frequency.exponentialRampToValueAtTime(35, t2 + 0.12);
-  const gth = c.createGain();
-  gth.gain.setValueAtTime(0.0001, t2);
-  gth.gain.linearRampToValueAtTime(0.22, t2 + 0.006);
-  gth.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.14);
-  _toOut(gth, 0.04); o.connect(gth); o.start(t2); o.stop(t2 + 0.16);
-
-  const n2 = _noise(0.10, 520, 0.6);
-  if (n2) {
-    _env(n2.gain, 0.004, 0.012, 0.0, 0.08, 0.14);
-    n2.gain.gain.setValueAtTime(0.0001, t2);
-    n2.src.start(t2);
-    _toOut(n2.gain, 0.02);
+export function bulletImpactWood() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Impacto en madera de rancho gaucho — resonancia de placa
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  const f0 = 180 + Math.random() * 80;
+  o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * 0.55, t + 0.22);
+  const lp = _lp(1200, 2.5); const g = _gain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.28, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  o.connect(lp); lp.connect(g); _toOut(g, 0.14); o.start(t); o.stop(t + 0.30);
+  const ns = _mkNoise(0.08); if (ns) {
+    const bp = _bp(1600, 2); const gn = _gain();
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.linearRampToValueAtTime(0.20, t + 0.002);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    ns.connect(bp); bp.connect(gn); _toOut(gn, 0.10); ns.start(t);
   }
 }
 
-export function sprintExhale() {
-  _playFile('player/exhale.mp3', { volume: 0.28, reverb: 0.02 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.22, 900, 0.5);
-    if (n) { _env(n.gain,0.02,0.06,0.3,0.12,0.09); _toOut(n.gain,0.02); n.src.start(t); }
-  });
+export function hitMarker() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 1760;
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.18, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  o.connect(g); _toOut(g, 0.03); o.start(t); o.stop(t + 0.10);
 }
 
-// ── LATIDO CARDÍACO ───────────────────────────────────────────────────────────
+export function shellLoad() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Insertar cartucho — cerrojo metálico con alma de gaucho
+  const ns1 = _mkNoise(0.025); if (ns1) {
+    const bp = _bp(4200, 3.5); const g = _gain();
+    _env(g, t, 0.001, 0.004, 0, 0.018, 0.38); ns1.connect(bp); bp.connect(g); _toOut(g, 0.12); ns1.start(t);
+  }
+  // Thud de la vaina
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(240, t + 0.06); o.frequency.exponentialRampToValueAtTime(72, t + 0.13);
+  const g2 = _gain(); _env(g2, t + 0.06, 0.004, 0.04, 0, 0.06, 0.30);
+  o.connect(g2); _toOut(g2, 0.05); o.start(t + 0.06); o.stop(t + 0.20);
+  // Cierre del cerrojo
+  const ns3 = _mkNoise(0.018); if (ns3) {
+    const bp = _bp(3800, 3); const g = _gain();
+    _env(g, t + 0.13, 0.001, 0.003, 0, 0.014, 0.32); ns3.connect(bp); bp.connect(g); _toOut(g, 0.09); ns3.start(t + 0.13);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  JUGADOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function playerHurt() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Grito gaucho — vocal FM con quiebre
+  const car = c.createOscillator(); car.type = 'sawtooth';
+  car.frequency.setValueAtTime(170 + Math.random() * 30, t);
+  car.frequency.exponentialRampToValueAtTime(75, t + 0.28);
+  const mod = c.createOscillator(); mod.type = 'sine'; mod.frequency.value = 6.5;
+  const modG = _gain(22); mod.connect(modG); modG.connect(car.frequency);
+  const lp = _lp(1100, 1.2); const g = _gain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.55, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.18, t + 0.16);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+  car.connect(lp); lp.connect(g); _toOut(g, 0.10);
+  car.start(t); mod.start(t); car.stop(t + 0.36); mod.stop(t + 0.36);
+  const ns = _mkNoise(0.12); if (ns) {
+    const bp = _bp(340, 0.5); const gn = _gain();
+    _env(gn, t, 0.003, 0.018, 0, 0.09, 0.26); ns.connect(bp); bp.connect(gn); _toOut(gn, 0.04); ns.start(t);
+  }
+}
+
+export function playerDeath() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Último aliento del gaucho + drone de pampa que llora
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(195, t); o.frequency.exponentialRampToValueAtTime(42, t + 2.6);
+  const mod = c.createOscillator(); mod.type = 'sine'; mod.frequency.value = 4.2;
+  const modG = _gain(14); mod.connect(modG); modG.connect(o.frequency);
+  const lp = _lp(800); const g = _gain();
+  g.gain.setValueAtTime(0.28, t); g.gain.linearRampToValueAtTime(0.0001, t + 2.8);
+  o.connect(lp); lp.connect(g); _toOut(g, 0.40);
+  o.start(t); mod.start(t); o.stop(t + 2.9); mod.stop(t + 2.9);
+  // Drone espacial de fondo (alma partiendo)
+  setTimeout(() => {
+    const c2 = _c(); if (!c2) return; const t2 = _t();
+    [36.7, 55.0, 73.4].forEach((f, i) => {
+      const oo = c2.createOscillator(); oo.type = 'sine'; oo.frequency.value = f;
+      const gg = _gain(); gg.gain.setValueAtTime(0.0001, t2);
+      gg.gain.linearRampToValueAtTime(0.06 - i * 0.015, t2 + 0.8);
+      gg.gain.linearRampToValueAtTime(0.0001, t2 + 2.5);
+      oo.connect(gg); _toOut(gg, 0.55); oo.start(t2); oo.stop(t2 + 2.7);
+    });
+  }, 400);
+}
+
+export function bodyFall() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(62, t); o.frequency.exponentialRampToValueAtTime(20, t + 0.24);
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.42, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+  const lp = _lp(185); o.connect(lp); lp.connect(g); _toOut(g, 0.16); o.start(t); o.stop(t + 0.32);
+  const ns = _mkNoise(0.28); if (ns) {
+    const bp = _bp(600, 0.7); const gn = _gain();
+    gn.gain.setValueAtTime(0.0001, t + 0.02); gn.gain.linearRampToValueAtTime(0.22, t + 0.03);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    ns.connect(bp); bp.connect(gn); _toOut(gn, 0.07); ns.start(t + 0.02);
+  }
+}
+
+export function jumpLand() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(78, t); o.frequency.exponentialRampToValueAtTime(26, t + 0.16);
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.30, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  o.connect(g); _toOut(g, 0.09); o.start(t); o.stop(t + 0.20);
+  const ns = _mkNoise(0.10); if (ns) {
+    const bp = _bp(480, 0.8); const gn = _gain();
+    _env(gn, t, 0.002, 0.012, 0, 0.08, 0.18); ns.connect(bp); bp.connect(gn); _toOut(gn, 0.04); ns.start(t);
+  }
+}
+
+// Sonido de mate siendo servido — pequeño ritual gaucho
+export function eatSound() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Líquido caliente vertido + sorbida de caña (mate)
+  const ns = _mkNoise(0.20); if (ns) {
+    const lp = _lp(3200); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.09, t + 0.02);
+    g.gain.linearRampToValueAtTime(0.06, t + 0.12); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    ns.connect(lp); lp.connect(g); _toOut(g, 0.04); ns.start(t);
+  }
+  // Tono suave de recipiente (jarrita metálica del mate)
+  const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 820 + Math.random() * 80;
+  const gm = _gain(); gm.gain.setValueAtTime(0.0001, t + 0.08);
+  gm.gain.linearRampToValueAtTime(0.04, t + 0.10);
+  gm.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  o.connect(gm); _toOut(gm, 0.06); o.start(t + 0.08); o.stop(t + 0.30);
+}
+
+export function sprintExhale() {
+  const c = _c(); if (!c) return; const t = _t();
+  const ns = _mkNoise(0.26); if (!ns) return;
+  const bp = _bp(950, 0.55); const g = _gain();
+  _env(g, t, 0.025, 0.08, 0.28, 0.12, 0.09); ns.connect(bp); bp.connect(g); _toOut(g, 0.02); ns.start(t);
+}
+
+export function mountSound() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Cuero del recado chirriando al montar
+  const ns = _mkNoise(0.22); if (ns) {
+    const bp = _bp(580, 1.1); const g = _gain();
+    _env(g, t, 0.012, 0.05, 0.28, 0.14, 0.22); ns.connect(bp); bp.connect(g); _toOut(g, 0.06); ns.start(t);
+  }
+  // Thud del cuerpo asentándose
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(68, t + 0.06); o.frequency.exponentialRampToValueAtTime(28, t + 0.20);
+  const g2 = _gain(); _env(g2, t + 0.06, 0.004, 0.05, 0, 0.14, 0.22);
+  o.connect(g2); _toOut(g2, 0.08); o.start(t + 0.06); o.stop(t + 0.26);
+  // Tilín de espuela
+  setTimeout(() => spurJingle(), 180);
+}
+
+export function knifeButcher() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Silbido de facón al cortar
+  const ns = _mkNoise(0.20); if (!ns) return;
+  const hp = c.createBiquadFilter(); hp.type = 'highpass';
+  hp.frequency.setValueAtTime(4200, t); hp.frequency.linearRampToValueAtTime(800, t + 0.18);
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.20, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.20);
+  ns.connect(hp); hp.connect(g); _toOut(g, 0.02); ns.start(t);
+  // Golpe húmedo
+  const t2 = t + 0.14;
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(95, t2); o.frequency.exponentialRampToValueAtTime(34, t2 + 0.14);
+  const g2 = _gain(); _env(g2, t2, 0.006, 0.04, 0, 0.14, 0.24);
+  o.connect(g2); _toOut(g2, 0.05); o.start(t2); o.stop(t2 + 0.18);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CORAZÓN
+// ═══════════════════════════════════════════════════════════════════════════════
+
 let _hbInterval = null;
 export function startHeartbeat() {
   if (_hbInterval) return;
   const beat = () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const thud = (off, f, amp) => {
+    const c = _c(); if (!c) return; const t = _t();
+    [[0, 55, 0.26], [0.20, 44, 0.16]].forEach(([off, f, amp]) => {
       const o = c.createOscillator(); o.type = 'sine';
-      o.frequency.setValueAtTime(f, t+off); o.frequency.exponentialRampToValueAtTime(f*0.4, t+off+0.13);
-      const g = c.createGain();
-      g.gain.setValueAtTime(0.0001,t+off); g.gain.linearRampToValueAtTime(amp,t+off+0.010);
-      g.gain.exponentialRampToValueAtTime(0.0001,t+off+0.15);
-      o.connect(g); _toOut(g,0.04); o.start(t+off); o.stop(t+off+0.17);
-    };
-    thud(0, 55, 0.24); thud(0.19, 44, 0.15);
+      o.frequency.setValueAtTime(f, t + off);
+      o.frequency.exponentialRampToValueAtTime(f * 0.38, t + off + 0.14);
+      const g = _gain(); g.gain.setValueAtTime(0.0001, t + off);
+      g.gain.linearRampToValueAtTime(amp, t + off + 0.010);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + off + 0.16);
+      o.connect(g); _toOut(g, 0.04); o.start(t + off); o.stop(t + off + 0.18);
+    });
   };
-  beat();
-  _hbInterval = setInterval(beat, 860);
+  beat(); _hbInterval = setInterval(beat, 860);
 }
 export function stopHeartbeat() { clearInterval(_hbInterval); _hbInterval = null; }
 
-// ── VACAS ─────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ANIMALES
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export function cowMoo(panicked = false) {
-  if (panicked) {
-    _playFile('animals/cow_panic.mp3', { volume: 0.70, reverb: 0.30, pitch: 0.9+Math.random()*0.2 }, _cowMooSynth.bind(null, true));
-  } else {
-    _playRandom(['animals/cow_1.mp3','animals/cow_2.mp3','animals/cow_3.mp3'],
-      { volume: 0.55, reverb: 0.35, pitch: 0.88+Math.random()*0.24 }, _cowMooSynth.bind(null, false));
-  }
-}
-function _cowMooSynth(panicked) {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const f = panicked ? 290 : 155 + Math.random()*25;
-  const dur = panicked ? 0.38 : 1.1 + Math.random()*0.35;
-  const mod = c.createOscillator(); mod.type = 'sine'; mod.frequency.value = f*0.52;
-  const modG = c.createGain(); modG.gain.value = panicked ? 55 : 25;
-  mod.connect(modG);
+  const c = _c(); if (!c) return; const t = _t();
+  // Mugido FM con formantes — vaca de pampa
+  const f = panicked ? 280 + Math.random() * 40 : 148 + Math.random() * 28;
+  const dur = panicked ? 0.42 : 1.2 + Math.random() * 0.4;
+
+  const mod = c.createOscillator(); mod.type = 'sine'; mod.frequency.value = f * 0.5;
+  const modG = _gain(panicked ? 60 : 28); mod.connect(modG);
+
   const car = c.createOscillator(); car.type = 'sawtooth'; car.frequency.value = f;
   if (!panicked) {
-    car.frequency.setValueAtTime(f*0.88,t);
-    car.frequency.linearRampToValueAtTime(f*1.06,t+dur*0.38);
-    car.frequency.linearRampToValueAtTime(f*0.90,t+dur);
+    car.frequency.setValueAtTime(f * 0.86, t);
+    car.frequency.linearRampToValueAtTime(f * 1.08, t + dur * 0.40);
+    car.frequency.linearRampToValueAtTime(f * 0.88, t + dur);
+  } else {
+    car.frequency.setValueAtTime(f, t);
+    car.frequency.linearRampToValueAtTime(f * 1.18, t + 0.05);
+    car.frequency.linearRampToValueAtTime(f * 0.82, t + dur);
   }
   modG.connect(car.frequency);
-  const lp = _lp(panicked ? 950 : 720); lp.Q = { value: 1.2 };
-  const g = c.createGain(); _env(g, 0.06, 0.10, 0.70, panicked ? 0.18 : 0.55, panicked ? 0.35 : 0.26);
-  car.connect(lp); lp.connect(g); _toOut(g, 0.30);
-  mod.start(t); car.start(t); mod.stop(t+dur+0.7); car.stop(t+dur+0.7);
+
+  // Formante nasal
+  const f1 = c.createBiquadFilter(); f1.type = 'peaking'; f1.frequency.value = 520; f1.Q.value = 2; f1.gain.value = 8;
+  const lp = _lp(panicked ? 1100 : 750, 1.2);
+  const g = _gain();
+  _env(g, t, 0.06, 0.12, 0.70, panicked ? 0.20 : 0.60, panicked ? 0.38 : 0.28);
+  car.connect(f1); f1.connect(lp); lp.connect(g); _toOut(g, 0.32);
+  mod.start(t); car.start(t); mod.stop(t + dur + 0.7); car.stop(t + dur + 0.7);
 }
 
-// ── CABALLO ───────────────────────────────────────────────────────────────────
+export function painCow() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(128, t); o.frequency.linearRampToValueAtTime(240, t + 0.16);
+  o.frequency.linearRampToValueAtTime(88, t + 0.55);
+  const lp = _lp(680, 1.2); const g = _gain();
+  _env(g, t, 0.02, 0.10, 0.65, 0.50, 0.42); o.connect(lp); lp.connect(g); _toOut(g, 0.14); o.start(t); o.stop(t + 0.70);
+}
+
 export function horseNeigh() {
-  _playFile('animals/horse_neigh.mp3', { volume: 0.65, reverb: 0.30, pitch: 0.92+Math.random()*0.16 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(310,t); o.frequency.linearRampToValueAtTime(570,t+0.22);
-    o.frequency.linearRampToValueAtTime(430,t+0.50); o.frequency.exponentialRampToValueAtTime(175,t+0.88);
-    const lp = _lp(1100); const g = c.createGain(); _env(g,0.022,0.08,0.65,0.38,0.30);
-    o.connect(lp); lp.connect(g); _toOut(g,0.30); o.start(t); o.stop(t+1.0);
-  });
+  const c = _c(); if (!c) return; const t = _t();
+  // Relincho — pitch-sweep orgánico con vibrato
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(295, t);
+  o.frequency.linearRampToValueAtTime(560, t + 0.20);
+  o.frequency.linearRampToValueAtTime(490, t + 0.45);
+  o.frequency.exponentialRampToValueAtTime(180, t + 0.92);
+  const vib = c.createOscillator(); vib.type = 'sine'; vib.frequency.value = 7.2;
+  const vibG = _gain(18); vib.connect(vibG); vibG.connect(o.frequency);
+  const lp = _lp(1400, 1.0); const g = _gain();
+  _env(g, t, 0.022, 0.08, 0.60, 0.40, 0.32);
+  o.connect(lp); lp.connect(g); _toOut(g, 0.30);
+  vib.start(t + 0.18); vib.stop(t + 1.05); o.start(t); o.stop(t + 1.05);
+  // Respiración equina final
+  const ns = _mkNoise(0.35); if (ns) {
+    const bp = _bp(320, 1.1); const gn = _gain();
+    gn.gain.setValueAtTime(0.0001, t + 0.70); gn.gain.linearRampToValueAtTime(0.14, t + 0.80);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t + 1.08);
+    ns.connect(bp); bp.connect(gn); _toOut(gn, 0.15); ns.start(t + 0.70);
+  }
 }
+
 export function horseSnort() {
-  _playFile('animals/horse_snort.mp3', { volume: 0.45, reverb: 0.12, pitch: 0.9+Math.random()*0.2 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.28, 320, 1.2);
-    if (n) { _env(n.gain,0.008,0.05,0.4,0.20,0.22); _toOut(n.gain,0.12); n.src.start(t); }
+  const c = _c(); if (!c) return; const t = _t();
+  const ns = _mkNoise(0.32); if (!ns) return;
+  const bp = _bp(340, 1.2); const g = _gain();
+  _env(g, t, 0.008, 0.06, 0.38, 0.22, 0.24); ns.connect(bp); bp.connect(g); _toOut(g, 0.14); ns.start(t);
+}
+
+export function painOstrich() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'square';
+  o.frequency.setValueAtTime(820, t); o.frequency.linearRampToValueAtTime(1240, t + 0.06);
+  o.frequency.linearRampToValueAtTime(580, t + 0.22);
+  const lp = _lp(2200); const g = _gain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.30, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28); o.connect(lp); lp.connect(g); _toOut(g, 0.08); o.start(t); o.stop(t + 0.30);
+}
+
+export function painChicken() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'square';
+  o.frequency.setValueAtTime(1450, t); o.frequency.linearRampToValueAtTime(1850, t + 0.022);
+  o.frequency.linearRampToValueAtTime(900, t + 0.14);
+  const lp = _lp(3200); const g = _gain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.26, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17); o.connect(lp); lp.connect(g); _toOut(g, 0.06); o.start(t); o.stop(t + 0.19);
+}
+
+export function painBird() {
+  const c = _c(); if (!c) return; const t = _t();
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(2250, t); o.frequency.linearRampToValueAtTime(1580, t + 0.09);
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.20, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12); o.connect(g); _toOut(g, 0.05); o.start(t); o.stop(t + 0.14);
+}
+
+export function ostrichCall() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Boom grave de ñandú
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(46, t); o.frequency.linearRampToValueAtTime(60, t + 0.20);
+  o.frequency.exponentialRampToValueAtTime(32, t + 0.70);
+  const lp = _lp(220); const g = _gain();
+  _env(g, t, 0.018, 0.09, 0.52, 0.58, 0.32); o.connect(lp); lp.connect(g); _toOut(g, 0.22); o.start(t); o.stop(t + 0.88);
+}
+
+export function coyoteHowl() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Aullido del zorro pampeano en la noche
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(268, t); o.frequency.linearRampToValueAtTime(540, t + 0.52);
+  o.frequency.linearRampToValueAtTime(518, t + 0.90); o.frequency.linearRampToValueAtTime(360, t + 2.0);
+  const vib = c.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.8;
+  const vibG = _gain(12); vib.connect(vibG); vibG.connect(o.frequency);
+  const lp = _lp(1900); const g = _gain();
+  _env(g, t, 0.10, 0.06, 0.80, 0.78, 0.20);
+  o.connect(lp); lp.connect(g); _toOut(g, 0.60);
+  vib.start(t + 0.48); vib.stop(t + 2.8); o.start(t); o.stop(t + 2.8);
+}
+
+export function chickenCluck() {
+  const c = _c(); if (!c) return; const t = _t();
+  [[0, 680, 0.13], [0.12, 830, 0.09]].forEach(([delay, freq, dur]) => {
+    const o = c.createOscillator(); o.type = 'square';
+    o.frequency.setValueAtTime(freq, t + delay);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.62, t + delay + dur);
+    const lp = _lp(1500); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t + delay); g.gain.linearRampToValueAtTime(0.09, t + delay + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + dur + 0.04);
+    o.connect(lp); lp.connect(g); _toOut(g, 0.09); o.start(t + delay); o.stop(t + delay + dur + 0.06);
   });
 }
 
-// ── Cascos procedurales — reactivos a la velocidad ───────────────────────────
-// updateHoofbeats(speed) se llama cada frame desde main.js.
-// speed: m/s del caballo (0=parado, ~5=paso, ~15=trote, ~25+=galope)
-let _hoofTimer = null;
-let _hoofSpeed = 0;
-let _hoofBeat  = 0;   // 0..3 — qué casco toca ahora
+export function chickenPanic() {
+  const c = _c(); if (!c) return; const t = _t();
+  for (let i = 0; i < 5; i++) {
+    const d = i * 0.09, f = 720 + Math.random() * 420;
+    const o = c.createOscillator(); o.type = 'square'; o.frequency.setValueAtTime(f, t + d);
+    o.frequency.exponentialRampToValueAtTime(f * 0.48, t + d + 0.09);
+    const lp = _lp(1700); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t + d); g.gain.linearRampToValueAtTime(0.12, t + d + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.11);
+    o.connect(lp); lp.connect(g); _toOut(g, 0.06); o.start(t + d); o.stop(t + d + 0.13);
+  }
+  const ns = _mkNoise(0.45); if (ns) {
+    const hp = _hp(3600, 0.6); const g = _gain();
+    _env(g, t, 0.012, 0.06, 0.20, 0.30, 0.12); ns.connect(hp); hp.connect(g); _toOut(g, 0.04); ns.start(t + 0.05);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CABALLO — CASCOS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _hoofTimer = null, _hoofSpeed = 0, _hoofBeat = 0;
 
 function _playHoof(vol, hard) {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  // Thud bajo
+  const c = _c(); if (!c) return; const t = _t();
+  const base = hard ? 82 + Math.random() * 22 : 56 + Math.random() * 16;
   const o = c.createOscillator(); o.type = 'sine';
-  const base = hard ? 80 + Math.random() * 20 : 55 + Math.random() * 15;
   o.frequency.setValueAtTime(base, t);
-  o.frequency.exponentialRampToValueAtTime(22, t + (hard ? 0.075 : 0.115));
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t);
+  o.frequency.exponentialRampToValueAtTime(20, t + (hard ? 0.075 : 0.12));
+  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol, t + 0.006);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + (hard ? 0.085 : 0.13));
-  o.connect(g); _toOut(g, hard ? 0.08 : 0.05); o.start(t); o.stop(t + (hard ? 0.1 : 0.15));
-  // Click de casco (ruido filtrado agudo)
-  const n = _noise(0.05, hard ? 900 : 650, 0.4);
-  if (n) {
-    _env(n.gain, 0.001, 0.008, 0.02, 0.03, hard ? 0.18 : 0.12);
-    _toOut(n.gain, 0.04); n.src.start(t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (hard ? 0.090 : 0.14));
+  o.connect(g); _toOut(g, hard ? 0.09 : 0.06); o.start(t); o.stop(t + (hard ? 0.11 : 0.16));
+  const ns = _mkNoise(0.06); if (ns) {
+    const bp = _bp(hard ? 920 : 660, 0.4); const gn = _gain();
+    _env(gn, t, 0.001, 0.009, 0.02, 0.035, hard ? 0.19 : 0.13); ns.connect(bp); bp.connect(gn); _toOut(gn, 0.04); ns.start(t);
   }
 }
 
 function _scheduleHoof() {
   const speed = _hoofSpeed;
   if (speed < 0.8) { _hoofTimer = null; _hoofBeat = 0; return; }
-  const galloping = speed > 16;
-  const trotting  = speed > 7;
-  const beatMs    = galloping ? 210 : (trotting ? 370 : 610);
-  const vol       = galloping ? 0.28 : (trotting ? 0.20 : 0.14);
-  const jitter    = (Math.random() - 0.5) * beatMs * 0.06;
+  const galloping = speed > 16, trotting = speed > 7;
+  const beatMs = galloping ? 205 : (trotting ? 365 : 605);
+  const vol = galloping ? 0.30 : (trotting ? 0.22 : 0.14);
+  const jitter = (Math.random() - 0.5) * beatMs * 0.06;
   _hoofBeat = (_hoofBeat + 1) % 4;
   _hoofTimer = setTimeout(() => { _playHoof(vol, galloping); _scheduleHoof(); }, beatMs + jitter);
 }
 
 export function updateHoofbeats(speed) {
   _hoofSpeed = speed;
-  if (speed < 0.8) {
-    if (_hoofTimer) { clearTimeout(_hoofTimer); _hoofTimer = null; _hoofBeat = 0; }
-    return;
-  }
+  if (speed < 0.8) { if (_hoofTimer) { clearTimeout(_hoofTimer); _hoofTimer = null; _hoofBeat = 0; } return; }
   if (!_hoofTimer) _scheduleHoof();
 }
-
-/**
- * Disparo directo sincronizado con la animación — llamar cuando una pata toca el suelo.
- * speed: velocidad actual del caballo (m/s), sprint: boolean
- */
 export function playHoofTouch(speed, sprint) {
-  const hard = speed > 16 || sprint;
-  const vol  = speed > 16 ? 0.28 : (speed > 7 ? 0.20 : 0.14);
-  _playHoof(vol, hard);
+  _playHoof(speed > 16 ? 0.30 : (speed > 7 ? 0.22 : 0.14), speed > 16 || sprint);
 }
-
-// Stubs de compatibilidad
 export function startGallop() {}
 export function stopGallop()  {}
 
-export function mountSound() {
-  _playFile('player/mount_leather.mp3', { volume: 0.55, reverb: 0.08 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.20, 580, 1.1);
-    if (n) { _env(n.gain,0.012,0.04,0.28,0.12,0.20); _toOut(n.gain,0.05); n.src.start(t); }
-    const o = c.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(65,t+0.05); o.frequency.exponentialRampToValueAtTime(28,t+0.18);
-    const g = c.createGain(); _env(g,0.004,0.04,0.0,0.12,0.18);
-    o.connect(g); _toOut(g,0.07); o.start(t+0.05); o.stop(t+0.24);
-  });
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LAZO
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// ── GALLINAS ──────────────────────────────────────────────────────────────────
-export function chickenCluck() {
-  _playRandom(['animals/chicken_1.mp3','animals/chicken_2.mp3'],
-    { volume: 0.45, reverb: 0.10, pitch: 0.85+Math.random()*0.3 }, () => {
-      const c = _ctx_(); if (!c) return; const t = _now();
-      [[0,680,0.13],[0.11,820,0.09]].forEach(([delay,freq,dur]) => {
-        const o = c.createOscillator(); o.type = 'square';
-        o.frequency.setValueAtTime(freq,t+delay); o.frequency.exponentialRampToValueAtTime(freq*0.65,t+delay+dur);
-        const lp = _lp(1400); const g = c.createGain();
-        g.gain.setValueAtTime(0.0001,t+delay); g.gain.linearRampToValueAtTime(0.09,t+delay+0.012);
-        g.gain.exponentialRampToValueAtTime(0.0001,t+delay+dur+0.04);
-        o.connect(lp); lp.connect(g); _toOut(g,0.08); o.start(t+delay); o.stop(t+delay+dur+0.06);
-      });
-    });
-}
-export function chickenPanic() {
-  _playFile('animals/chicken_panic.mp3', { volume: 0.60, reverb: 0.12, pitch: 0.9+Math.random()*0.2 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    for (let i=0; i<5; i++) {
-      const d=i*0.09, f=700+Math.random()*400;
-      const o = c.createOscillator(); o.type='square'; o.frequency.setValueAtTime(f,t+d);
-      o.frequency.exponentialRampToValueAtTime(f*0.5,t+d+0.08);
-      const lp = _lp(1600); const g = c.createGain();
-      g.gain.setValueAtTime(0.0001,t+d); g.gain.linearRampToValueAtTime(0.11,t+d+0.008);
-      g.gain.exponentialRampToValueAtTime(0.0001,t+d+0.10);
-      o.connect(lp); lp.connect(g); _toOut(g,0.06); o.start(t+d); o.stop(t+d+0.12);
-    }
-    const n = _noise(0.4,3800,0.6);
-    if (n) { _env(n.gain,0.01,0.05,0.2,0.28,0.12); _toOut(n.gain,0.04); n.src.start(t+0.05); }
-  });
-}
-
-// ── AVESTRUZ ──────────────────────────────────────────────────────────────────
-export function ostrichCall() {
-  _playFile('animals/ostrich.mp3', { volume: 0.55, reverb: 0.22, pitch: 0.85+Math.random()*0.3 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type='sine';
-    o.frequency.setValueAtTime(48,t); o.frequency.linearRampToValueAtTime(62,t+0.18);
-    o.frequency.exponentialRampToValueAtTime(35,t+0.65);
-    const g = c.createGain(); _env(g,0.015,0.08,0.5,0.55,0.30);
-    const lp = _lp(200); o.connect(lp); lp.connect(g); _toOut(g,0.20); o.start(t); o.stop(t+0.80);
-  });
-}
-
-// ── COYOTE ────────────────────────────────────────────────────────────────────
-export function coyoteHowl() {
-  _playFile('animals/coyote.mp3', { volume: 0.45, reverb: 0.60, pitch: 0.88+Math.random()*0.24 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type='sine';
-    o.frequency.setValueAtTime(275,t); o.frequency.linearRampToValueAtTime(530,t+0.48);
-    o.frequency.linearRampToValueAtTime(510,t+0.85); o.frequency.linearRampToValueAtTime(370,t+1.90);
-    const vib=c.createOscillator(); vib.type='sine'; vib.frequency.value=5.8;
-    const vibG=c.createGain(); vibG.gain.value=11; vib.connect(vibG); vibG.connect(o.frequency);
-    const lp=_lp(1800); const g=c.createGain(); _env(g,0.09,0.05,0.82,0.75,0.18);
-    o.connect(lp); lp.connect(g); _toOut(g,0.55);
-    vib.start(t+0.45); vib.stop(t+2.7); o.start(t); o.stop(t+2.7);
-  });
-}
-
-// ── LAZO ──────────────────────────────────────────────────────────────────────
 export function lassoThrow() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const n = _noise(0.30, 1700, 2.2);
-  if (n) { _env(n.gain,0.01,0.04,0.20,0.20,0.16); _toOut(n.gain,0.08); n.src.start(t); }
+  const c = _c(); if (!c) return; const t = _t();
+  const ns = _mkNoise(0.32); if (!ns) return;
+  const bp = _bp(1750, 2.2); const g = _gain();
+  _env(g, t, 0.01, 0.04, 0.22, 0.22, 0.16); ns.connect(bp); bp.connect(g); _toOut(g, 0.09); ns.start(t);
 }
 export function lassoSnap() {
-  const c = _ctx_(); if (!c) return; const t = _now();
-  const n = _noise(0.07, 3400, 2.8);
-  if (n) { _env(n.gain,0.001,0.006,0.0,0.05,0.26); _toOut(n.gain,0.06); n.src.start(t); }
+  const c = _c(); if (!c) return; const t = _t();
+  const ns = _mkNoise(0.08); if (!ns) return;
+  const bp = _bp(3500, 2.8); const g = _gain();
+  _env(g, t, 0.001, 0.006, 0, 0.055, 0.28); ns.connect(bp); bp.connect(g); _toOut(g, 0.07); ns.start(t);
 }
 let _lassoSpinTimer = null;
 export function startLassoSpin() {
   if (_lassoSpinTimer) return;
   const spin = () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const n = _noise(0.25, 820, 1.4);
-    if (n) { _env(n.gain,0.02,0.08,0.38,0.10,0.09); _toOut(n.gain,0.05); n.src.start(t); }
-    _lassoSpinTimer = setTimeout(spin, 260);
+    const c = _c(); if (!c) return; const t = _t();
+    const ns = _mkNoise(0.26); if (!ns) return;
+    const bp = _bp(830, 1.4); const g = _gain();
+    _env(g, t, 0.02, 0.08, 0.38, 0.10, 0.09); ns.connect(bp); bp.connect(g); _toOut(g, 0.05); ns.start(t);
+    _lassoSpinTimer = setTimeout(spin, 265);
   }; spin();
 }
 export function stopLassoSpin() { clearTimeout(_lassoSpinTimer); _lassoSpinTimer = null; }
 
-// ── AMBIENTE — LOOPS ──────────────────────────────────────────────────────────
-// Helper genérico para loops de ambiente
-function _makeAmbientLoop(path, volume, revMix, fallbackFn) {
-  let src = null, gainNode = null;
-  return {
-    start() {
-      if (src) return;
-      const c = _ctx_(); if (!c) return;
-      gainNode = c.createGain(); gainNode.gain.value = 0.0001;
-      gainNode.gain.linearRampToValueAtTime(volume, c.currentTime + 2.0);
-      _toOut(gainNode, revMix);
+// ═══════════════════════════════════════════════════════════════════════════════
+//  AMBIENTE — LOOPS PROCEDURALES
+// ═══════════════════════════════════════════════════════════════════════════════
 
-      _load(path).then(buf => {
-        if (!buf) { fallbackFn?.(); return; }
-        src = c.createBufferSource();
-        src.buffer = buf; src.loop = true;
-        src.connect(gainNode);
-        src.start();
-      });
-    },
-    stop() {
-      if (!gainNode) return;
-      const c = _ctx_();
-      gainNode.gain.linearRampToValueAtTime(0.0001, (c?.currentTime ?? 0) + 1.5);
-      setTimeout(() => { try { src?.stop(); } catch(e) {} src = null; gainNode = null; }, 1700);
-    },
-    get active() { return !!src; }
-  };
-}
-
-// ── VIENTO PROCEDURAL ─────────────────────────────────────────────────────────
-function _makeProceduralWind() {
+// ── VIENTO — pampa árida ──────────────────────────────────────────────────────
+function _makeWindSystem() {
   let _nodes = null;
   return {
     start() {
       if (_nodes) return;
-      const c = _ctx_(); if (!c) return;
-      const t = c.currentTime;
-      _nodes = [];
-
-      // Master gain con fade-in — volumen suave de desierto
-      const master = c.createGain(); master.gain.setValueAtTime(0.0001, t);
+      const c = _c(); if (!c) return; const t = c.currentTime;
+      _nodes = []; const master = _gain(0.0001);
       master.gain.linearRampToValueAtTime(0.22, t + 3.5);
       master.connect(_out);
 
-      // 3 capas de ruido filtradas — predomina el grave (desierto árido)
-      const layers = [
-        { fc: 180,  bw: 1.2, vol: 0.42, lfoF: 0.04, lfoD: 30 },
-        { fc: 420,  bw: 1.6, vol: 0.26, lfoF: 0.07, lfoD: 50 },
-        { fc: 900,  bw: 2.0, vol: 0.12, lfoF: 0.11, lfoD: 70 },
-      ];
-
-      for (const l of layers) {
-        // White noise source (buffer loop)
-        const sr  = c.sampleRate;
-        const buf = c.createBuffer(1, sr * 2, sr);
-        const d   = buf.getChannelData(0);
+      [{ fc: 175, bw: 1.2, vol: 0.44, lf: 0.038, ld: 28 },
+       { fc: 410, bw: 1.6, vol: 0.26, lf: 0.068, ld: 52 },
+       { fc: 880, bw: 2.0, vol: 0.12, lf: 0.11,  ld: 72 }].forEach(l => {
+        const buf = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+        const d = buf.getChannelData(0);
         for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-        const ns  = c.createBufferSource(); ns.buffer = buf; ns.loop = true;
-
-        // BPF
-        const bp  = c.createBiquadFilter(); bp.type = 'bandpass';
-        bp.frequency.value = l.fc; bp.Q.value = l.bw;
-
-        // LFO de amplitud (modulación suave de intensidad)
-        const lfo  = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = l.lfoF;
-        const lfoG = c.createGain(); lfoG.gain.value = l.vol * 0.45;
-        const base = c.createGain(); base.gain.value  = l.vol * 0.55;
-
-        // LFO de frecuencia (el viento "sube y baja")
-        const lfof  = c.createOscillator(); lfof.type = 'sine'; lfof.frequency.value = l.lfoF * 0.6;
-        const lfofG = c.createGain(); lfofG.gain.value = l.lfoD;
-        lfof.connect(lfofG); lfofG.connect(bp.frequency);
-
+        const ns = c.createBufferSource(); ns.buffer = buf; ns.loop = true;
+        const bpf = _bp(l.fc, l.bw);
+        const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = l.lf;
+        const lfoG = _gain(l.vol * 0.45);
+        const base = _gain(l.vol * 0.55);
+        const lfof = c.createOscillator(); lfof.type = 'sine'; lfof.frequency.value = l.lf * 0.58;
+        const lfofG = _gain(l.ld); lfof.connect(lfofG); lfofG.connect(bpf.frequency);
         lfo.connect(lfoG); lfoG.connect(base.gain);
-        ns.connect(bp); bp.connect(base); base.connect(master);
+        ns.connect(bpf); bpf.connect(base); base.connect(master);
         ns.start(); lfo.start(); lfof.start();
-
         _nodes.push({ ns, lfo, lfof });
-      }
+      });
 
-      // Gusto: suave whoosh grave adicional cada ~6-14 s
       const _gust = () => {
         if (!_nodes) return;
-        const gc = _ctx_(); if (!gc) return; const gt = gc.currentTime;
+        const gc = _c(); if (!gc) return; const gt = gc.currentTime;
         const nb = gc.createBuffer(1, gc.sampleRate, gc.sampleRate);
         const nd = nb.getChannelData(0);
         for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
         const ns2 = gc.createBufferSource(); ns2.buffer = nb;
-        const lp  = gc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
-        const gg  = gc.createGain(); gg.gain.setValueAtTime(0.0001, gt);
-        gg.gain.linearRampToValueAtTime(0.14, gt + 1.2);
-        gg.gain.linearRampToValueAtTime(0.0001, gt + 4.0);
+        const lp = _lp(185); const gg = _gain(0.0001);
+        gg.gain.linearRampToValueAtTime(0.16, gt + 1.3);
+        gg.gain.linearRampToValueAtTime(0.0001, gt + 4.2);
         ns2.connect(lp); lp.connect(gg); gg.connect(master);
-        ns2.start(gt); ns2.stop(gt + 2.9);
-        _nodes._gustTimer = setTimeout(_gust, 6000 + Math.random() * 8000);
+        ns2.start(gt); ns2.stop(gt + 3.0);
+        _nodes._gustTimer = setTimeout(_gust, 6000 + Math.random() * 9000);
       };
       _nodes._gustTimer = setTimeout(_gust, 3000 + Math.random() * 5000);
     },
     stop() {
       if (!_nodes) return;
       clearTimeout(_nodes._gustTimer);
-      const c = _ctx_(); const t = c?.currentTime ?? 0;
+      const t2 = _c()?.currentTime ?? 0;
       for (const n of _nodes) {
-        try { n.lfo.stop(t + 1.5); n.lfof.stop(t + 1.5); n.ns.stop(t + 1.5); } catch(e) {}
+        try { n.lfo.stop(t2 + 1.5); n.lfof.stop(t2 + 1.5); n.ns.stop(t2 + 1.5); } catch (e) {}
       }
       _nodes = null;
     },
     get active() { return !!_nodes; }
   };
 }
-const _wind = _makeProceduralWind();
-const _crickets = _makeAmbientLoop('ambient/crickets.mp3', 0.48, 0.0,  _cricketsFallback);
-const _birds    = _makeAmbientLoop('ambient/birds.mp3',    0.38, 0.15, null);
-const _rain     = _makeAmbientLoop('ambient/rain.mp3',     0.62, 0.0,  null);
-const _fire     = _makeAmbientLoop('ambient/fire.mp3',     0.42, 0.08, null);
+
+// ── GRILLOS — modulación de pulso, múltiples insectos a la noche pampeana ────
+function _makeCricketsSystem() {
+  let _timer = null, _master = null;
+  return {
+    start() {
+      if (_timer) return;
+      const c = _c(); if (!c) return;
+      _master = c.createGain(); _master.gain.setValueAtTime(0.0001, c.currentTime);
+      _master.gain.linearRampToValueAtTime(0.30, c.currentTime + 4);
+      _toOut(_master, 0.0);
+
+      // Cada "grillo" = oscilador con AM rápida (chirp)
+      const insects = [4420, 4580, 4350, 4650, 4480].map((f, idx) => {
+        const osc = c.createOscillator(); osc.type = 'sine'; osc.frequency.value = f;
+        const lfo = c.createOscillator(); lfo.type = 'square';
+        lfo.frequency.value = 22 + idx * 1.8 + Math.random() * 3;
+        const lfoG = c.createGain(); lfoG.gain.value = 0.5;
+        const baseG = c.createGain(); baseG.gain.value = 0.5;
+        lfo.connect(lfoG); lfoG.connect(baseG.gain);
+        const g = c.createGain(); g.gain.value = 0.015 - idx * 0.002;
+        osc.connect(baseG); baseG.connect(g); g.connect(_master);
+        osc.start(); lfo.start();
+        return { osc, lfo };
+      });
+      _timer = { insects };
+    },
+    stop() {
+      if (!_timer) return;
+      const t2 = _c()?.currentTime ?? 0;
+      if (_master) { _master.gain.linearRampToValueAtTime(0.0001, t2 + 2.5); }
+      setTimeout(() => {
+        _timer?.insects?.forEach(({ osc, lfo }) => { try { osc.stop(); lfo.stop(); } catch (e) {} });
+        _timer = null; _master = null;
+      }, 2700);
+    },
+    get active() { return !!_timer; }
+  };
+}
+
+// ── PÁJAROS — trinos del chimango y perdiz pampeana ──────────────────────────
+function _makeBirdsSystem() {
+  let _running = false, _timeout = null;
+  const _calls = [
+    // Chimango: dos notas agudas ascendentes
+    (t, c) => {
+      [0, 0.18].forEach((d, i) => {
+        const o = c.createOscillator(); o.type = 'sine';
+        const f = 2200 + i * 380; o.frequency.setValueAtTime(f, t + d);
+        o.frequency.linearRampToValueAtTime(f * 1.18, t + d + 0.14);
+        const g = _gain(); g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.linearRampToValueAtTime(0.06, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.18);
+        o.connect(g); _toOut(g, 0.20); o.start(t + d); o.stop(t + d + 0.20);
+      });
+    },
+    // Perdiz: trill rápido sobre nota fija
+    (t, c) => {
+      const f = 1600 + Math.random() * 300;
+      for (let i = 0; i < 6; i++) {
+        const d = i * 0.055;
+        const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = f + i * 40;
+        const g = _gain(); g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.linearRampToValueAtTime(0.07 - i * 0.005, t + d + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
+        o.connect(g); _toOut(g, 0.18); o.start(t + d); o.stop(t + d + 0.06);
+      }
+    },
+    // Jilguero: melodía pentatónica corta
+    (t, c) => {
+      const notes = [880, 1046, 1175, 1046, 880, 784];
+      notes.forEach((f, i) => {
+        const d = i * 0.10;
+        const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+        const g = _gain(); g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.linearRampToValueAtTime(0.05, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.10);
+        o.connect(g); _toOut(g, 0.22); o.start(t + d); o.stop(t + d + 0.12);
+      });
+    }
+  ];
+  const _play = () => {
+    if (!_running) return;
+    const c = _c(); if (!c) return;
+    const call = _calls[Math.floor(Math.random() * _calls.length)];
+    call(_t(), c);
+    _timeout = setTimeout(_play, 1800 + Math.random() * 4200);
+  };
+  return {
+    start() { if (_running) return; _running = true; _timeout = setTimeout(_play, 800 + Math.random() * 1200); },
+    stop()  { _running = false; clearTimeout(_timeout); },
+    get active() { return _running; }
+  };
+}
+
+// ── LLUVIA — múltiples capas de ruido, convección gauchesca ──────────────────
+function _makeRainSystem() {
+  let _nodes = null;
+  return {
+    start() {
+      if (_nodes) return;
+      const c = _c(); if (!c) return; const t = c.currentTime;
+      _nodes = []; const master = _gain(0.0001);
+      master.gain.linearRampToValueAtTime(0.62, t + 3.0);
+      master.connect(_out);
+
+      // Base: ruido blanco amplio
+      const b1 = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+      const d1 = b1.getChannelData(0); for (let i = 0; i < d1.length; i++) d1[i] = Math.random() * 2 - 1;
+      const ns1 = c.createBufferSource(); ns1.buffer = b1; ns1.loop = true;
+      const lp1 = _lp(6000); ns1.connect(lp1); lp1.connect(master); ns1.start();
+      _nodes.push({ stop: () => { try { ns1.stop(); } catch(e) {} } });
+
+      // Pops de gotas (buffer de ruido corto en loop con ganancia aleatoria)
+      [2800, 4200, 6500].forEach(fc => {
+        const nb = c.createBuffer(1, c.sampleRate * 3, c.sampleRate);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < nd.length; i++) {
+          nd[i] = (Math.random() * 2 - 1) * Math.pow(Math.random(), 0.2);
+        }
+        const ns = c.createBufferSource(); ns.buffer = nb; ns.loop = true;
+        const bp = _bp(fc, 0.6); const g = _gain(0.06);
+        ns.connect(bp); bp.connect(g); g.connect(master); ns.start();
+        _nodes.push({ stop: () => { try { ns.stop(); } catch(e) {} } });
+      });
+
+      // LFO de intensidad (lluvia variable)
+      const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.025;
+      const lfoG = _gain(0.12); lfo.connect(lfoG); lfoG.connect(master.gain);
+      lfo.start(); _nodes.push({ stop: () => { try { lfo.stop(); } catch(e) {} } });
+    },
+    stop() {
+      if (!_nodes) return;
+      const t2 = _c()?.currentTime ?? 0;
+      // No hay master ref guardada — simplemente matar nodos
+      _nodes.forEach(n => { try { n.stop(); } catch(e) {} });
+      _nodes = null;
+    },
+    get active() { return !!_nodes; }
+  };
+}
+
+// ── FUEGO — crepitar de fogón pampeano ───────────────────────────────────────
+function _makeFireSystem() {
+  let _nodes = null;
+  return {
+    start() {
+      if (_nodes) return;
+      const c = _c(); if (!c) return; const t = c.currentTime;
+      _nodes = []; const master = _gain(0.0001);
+      master.gain.linearRampToValueAtTime(0.38, t + 2.0);
+      master.connect(_out);
+      if (_rev) { const rg = _gain(0.09); master.connect(rg); rg.connect(_rev); }
+
+      // Base crepitante (ruido de baja frecuencia con modulación)
+      const b = c.createBuffer(1, c.sampleRate * 4, c.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const env = 0.5 + 0.5 * Math.sin(i / c.sampleRate * 0.7);
+        d[i] = (Math.random() * 2 - 1) * env;
+      }
+      const nsF = c.createBufferSource(); nsF.buffer = b; nsF.loop = true;
+      const lp2 = _lp(1800); nsF.connect(lp2); lp2.connect(master); nsF.start();
+      _nodes.push({ stop: () => { try { nsF.stop(); } catch(e) {} } });
+
+      // Crackles agudos aleatorios
+      const crackle = () => {
+        if (!_nodes) return;
+        const gc = _c(); if (!gc) return; const gt = gc.currentTime;
+        const nb = gc.createBuffer(1, Math.floor(gc.sampleRate * 0.04), gc.sampleRate);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+        const ns = gc.createBufferSource(); ns.buffer = nb;
+        const bp = _bp(4500 + Math.random() * 2000, 0.8); const g = _gain(0.10 + Math.random() * 0.15);
+        ns.connect(bp); bp.connect(g); g.connect(master); ns.start(gt);
+        const delayMs = 60 + Math.random() * 220;
+        _nodes._crackTimer = setTimeout(crackle, delayMs);
+      };
+      _nodes._crackTimer = setTimeout(crackle, 200);
+    },
+    stop() {
+      if (!_nodes) return;
+      clearTimeout(_nodes._crackTimer);
+      _nodes.forEach(n => { try { n.stop?.(); } catch(e) {} });
+      _nodes = null;
+    },
+    get active() { return !!_nodes; }
+  };
+}
+
+const _wind     = _makeWindSystem();
+const _crickets = _makeCricketsSystem();
+const _birds    = _makeBirdsSystem();
+const _rain     = _makeRainSystem();
+const _fire     = _makeFireSystem();
 
 export const startWind     = () => _wind.start();
 export const stopWind      = () => _wind.stop();
@@ -922,351 +967,445 @@ export const stopRain      = () => _rain.stop();
 export const startFire     = () => _fire.start();
 export const stopFire      = () => _fire.stop();
 
-// Fallback procedural para grillos
-function _cricketsFallback() {}
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DRONE PAMPA ESPACIAL
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// ── DRONE PAMPA (sub-graves, siempre) ─────────────────────────────────────────
 let _droneNodes = [];
 export function startAmbientDrone() {
   if (_droneNodes.length) return;
-  const c = _ctx_(); if (!c) return;
-  [36.7, 37.4, 55.0].forEach((freq, i) => {
+  const c = _c(); if (!c) return;
+  // Sub-graves del cosmos gaucho — como si el horizonte de la pampa vibrara
+  [[36.7, 0.050], [37.4, 0.040], [55.0, 0.030], [73.4, 0.018]].forEach(([freq, vol], i) => {
     const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
-    const lfo = c.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.04+i*0.02;
-    const lfoG = c.createGain(); lfoG.gain.value=0.018; lfo.connect(lfoG); lfoG.connect(o.frequency);
-    const g = c.createGain(); g.gain.value=0.050-i*0.010;
-    const lp = _lp(120); o.connect(lp); lp.connect(g); g.connect(_out);
+    const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.035 + i * 0.018;
+    const lfoG = _gain(0.020); lfo.connect(lfoG); lfoG.connect(o.frequency);
+    const lp = _lp(130); const g = _gain(vol);
+    o.connect(lp); lp.connect(g); g.connect(_out);
     o.start(); lfo.start();
     _droneNodes.push({ stop: () => { try { o.stop(); lfo.stop(); } catch(e){} } });
   });
 }
-export function stopAmbientDrone() { _droneNodes.forEach(n=>n.stop?.()); _droneNodes=[]; }
+export function stopAmbientDrone() { _droneNodes.forEach(n => n.stop?.()); _droneNodes = []; }
 
-// ── TRUENO ────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  TRUENO + ESTAMPIDA + MADERA
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export function distantThunder() {
-  _playRandom(['ambient/thunder_1.mp3','ambient/thunder_2.mp3','ambient/thunder_3.mp3'],
-    { volume: 0.58, reverb: 0.65, pitch: 0.7+Math.random()*0.3 }, () => {
-      const c = _ctx_(); if (!c) return; const t = _now(); const dur = 2.8+Math.random()*1.5;
-      const n = _noise(dur, 55+Math.random()*30, 0.4); if (!n) return;
-      const g = n.gain.gain;
-      g.cancelScheduledValues(t); g.setValueAtTime(0.0001,t);
-      g.linearRampToValueAtTime(0.28,t+0.18); g.linearRampToValueAtTime(0.22,t+0.6);
-      g.linearRampToValueAtTime(0.0001,t+dur); _toOut(n.gain,0.55); n.src.start(t);
-    });
+  const c = _c(); if (!c) return; const t = _t();
+  const dur = 3.0 + Math.random() * 1.8;
+  // Capa de sub-graves (impacto inicial)
+  const ns1 = _mkNoise(0.5); if (ns1) {
+    const lp = _lp(80); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.32, t + 0.12);
+    g.gain.linearRampToValueAtTime(0.0001, t + 0.55);
+    ns1.connect(lp); lp.connect(g); _toOut(g, 0.50); ns1.start(t);
+  }
+  // Cola larga (rumble de pampa)
+  const ns2 = _mkNoise(dur); if (ns2) {
+    const lp = _lp(120); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t + 0.08); g.gain.linearRampToValueAtTime(0.24, t + 0.30);
+    g.gain.linearRampToValueAtTime(0.16, t + 1.0); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    ns2.connect(lp); lp.connect(g); _toOut(g, 0.60); ns2.start(t + 0.05);
+  }
+  // Crack eléctrico inicial
+  const ns3 = _mkNoise(0.08); if (ns3) {
+    const hp = _hp(8000); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    ns3.connect(hp); hp.connect(g); _toOut(g, 0.20); ns3.start(t);
+  }
 }
 
-// ── ESTAMPIDA ────────────────────────────────────────────────────────────────
 export function stampedeRumble() {
-  const c = _ctx_(); if (!c) return; const t = _now(); const dur = 4.5;
-  // Usa buffers cortos con loop para evitar bloquear el hilo principal
-  [60,90,130,200].forEach((freq, i) => {
-    const n = _noise(0.8, freq, 0.5+i*0.1); if (!n) return; // 0.8s max, loop
-    n.src.loop = true; n.src.loopEnd = 0.8;
-    const g = n.gain.gain;
-    g.cancelScheduledValues(t+i*0.05); g.setValueAtTime(0.0001,t+i*0.05);
-    g.linearRampToValueAtTime(0.22-i*0.04,t+i*0.05+0.6);
-    g.linearRampToValueAtTime(0.0001,t+i*0.05+dur-i*0.3);
-    _toOut(n.gain,0.25); n.src.start(t+i*0.05); n.src.stop(t+i*0.05+dur-i*0.3+0.1);
+  const c = _c(); if (!c) return; const t = _t(); const dur = 4.8;
+  [58, 88, 128, 195].forEach((freq, i) => {
+    const ns = _mkNoise(0.9); if (!ns) return;
+    ns.loop = true; ns.loopEnd = 0.9;
+    const bp = _bp(freq, 0.5 + i * 0.1); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t + i * 0.055);
+    g.gain.linearRampToValueAtTime(0.24 - i * 0.04, t + i * 0.055 + 0.65);
+    g.gain.linearRampToValueAtTime(0.0001, t + i * 0.055 + dur - i * 0.3);
+    ns.connect(bp); bp.connect(g); _toOut(g, 0.28); ns.start(t + i * 0.055); ns.stop(t + i * 0.055 + dur);
   });
-  setTimeout(()=>cowMoo(true),200);
-  setTimeout(()=>cowMoo(true),700);
-  setTimeout(()=>cowMoo(true),1300);
+  setTimeout(() => cowMoo(true), 220);
+  setTimeout(() => cowMoo(true), 720);
+  setTimeout(() => cowMoo(true), 1380);
 }
 
-// ── CRUJIDO MADERA ────────────────────────────────────────────────────────────
 export function woodCreak() {
-  _playRandom(['ambient/wood_creak_1.mp3','ambient/wood_creak_2.mp3',
-               'ambient/creak_1.mp3','ambient/creak_2.mp3','ambient/creak_3.mp3'],
-    { volume: 0.35, reverb: 0.12, pitch: 0.85+Math.random()*0.3 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type='sawtooth';
-    const f0 = 180+Math.random()*80;
-    o.frequency.setValueAtTime(f0,t); o.frequency.linearRampToValueAtTime(f0*0.6,t+0.18);
-    o.frequency.linearRampToValueAtTime(f0*0.8,t+0.32);
-    const lp = _lp(900); lp.Q.value = 2;
-    const g = c.createGain(); _env(g,0.005,0.04,0.3,0.22,0.10);
-    o.connect(lp); lp.connect(g); _toOut(g,0.10); o.start(t); o.stop(t+0.38);
-  });
+  const c = _c(); if (!c) return; const t = _t();
+  // Crujido de rancho gaucho — madera vieja con historia
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  const f0 = 175 + Math.random() * 90;
+  o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * 0.55, t + 0.20);
+  o.frequency.linearRampToValueAtTime(f0 * 0.80, t + 0.36);
+  const lp = _lp(1000, 2.2); const g = _gain();
+  _env(g, t, 0.005, 0.04, 0.30, 0.24, 0.12); o.connect(lp); lp.connect(g); _toOut(g, 0.12); o.start(t); o.stop(t + 0.42);
 }
 
-// ── GM BELL ───────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CAMPANAS + VICTORIA
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export function gmBell() {
-  _playFile('ambient/bell_gm.mp3', { volume: 0.55, reverb: 0.45 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    [[0,880],[0.16,1108],[0.30,660]].forEach(([delay,freq]) => {
-      const o = c.createOscillator(); o.type='sine'; o.frequency.value=freq;
-      const g = c.createGain();
-      g.gain.setValueAtTime(0.0001,t+delay); g.gain.linearRampToValueAtTime(0.11,t+delay+0.006);
-      g.gain.exponentialRampToValueAtTime(0.0001,t+delay+1.0);
-      o.connect(g); _toOut(g,0.40); o.start(t+delay); o.stop(t+delay+1.1);
-    });
+  const c = _c(); if (!c) return; const t = _t();
+  // Campana de la capilla gauchesca — tono con parciales inarmónicos (bell synthesis)
+  [[880, 1.0], [1108, 0.62], [1540, 0.38], [2090, 0.22], [660, 0.55]].forEach(([f, amp], i) => {
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const delay = i * 0.04;
+    const g = _gain(); g.gain.setValueAtTime(0.0001, t + delay);
+    g.gain.linearRampToValueAtTime(0.12 * amp, t + delay + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 1.2 + i * 0.15);
+    o.connect(g); _toOut(g, 0.42 + i * 0.04); o.start(t + delay); o.stop(t + delay + 1.5);
   });
 }
 
-// ── CORRAL ────────────────────────────────────────────────────────────────────
 export function corralBell() {
-  _playFile('ambient/corral_bell.mp3', { volume: 0.65, reverb: 0.50 }, () => {
-    const c = _ctx_(); if (!c) return; const t = _now();
-    const o = c.createOscillator(); o.type='sine'; o.frequency.value=648;
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.22,t+0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+1.5);
-    o.connect(g); _toOut(g,0.42); o.start(t); o.stop(t+1.6);
+  const c = _c(); if (!c) return; const t = _t();
+  // Cencerro de vaca — tono más rústico con detuning
+  [[648, 0], [652, 0.08], [972, 0.04], [1296, 0.02]].forEach(([f, delay]) => {
+    const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+    const g = _gain(); g.gain.setValueAtTime(0.0001, t + delay);
+    g.gain.linearRampToValueAtTime(0.18, t + delay + 0.010);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 1.6);
+    o.connect(g); _toOut(g, 0.44); o.start(t + delay); o.stop(t + delay + 1.8);
   });
 }
+
 export function victory() {
-  // Tres acordes de guitarra — C maj → G maj → C maj
-  const c = _ctx_(); if (!c) return; const t = _now();
-  [[261,329,392,0],[392,494,587,0.55],[523,659,784,1.1]].forEach(([f1,f2,f3,delay])=>{
-    [f1,f2,f3].forEach(freq => {
-      const o = c.createOscillator(); o.type='triangle'; o.frequency.value=freq;
-      const g = c.createGain();
-      g.gain.setValueAtTime(0.0001,t+delay); g.gain.linearRampToValueAtTime(0.12,t+delay+0.025);
-      g.gain.exponentialRampToValueAtTime(0.0001,t+delay+0.9);
-      o.connect(g); _toOut(g,0.28); o.start(t+delay); o.stop(t+delay+1.0);
+  // Acorde gaucho de celebración — guitarra criolla sintetizada
+  const c = _c(); if (!c) return; const t = _t();
+  // Tres acordes: La mayor → Re mayor → Mi mayor (cadencia criolla)
+  [[220,277,330,0],[294,370,440,0.55],[330,415,494,1.10]].forEach(([f1, f2, f3, delay]) => {
+    [f1, f2, f3].forEach((freq, j) => {
+      const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq;
+      const lp = _lp(2200); const sat = c.createWaveShaper(); sat.curve = _satCurve(40);
+      const g = _gain();
+      g.gain.setValueAtTime(0.0001, t + delay + j * 0.02);
+      g.gain.linearRampToValueAtTime(0.14, t + delay + j * 0.02 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.9);
+      o.connect(lp); lp.connect(sat); sat.connect(g); _toOut(g, 0.30);
+      o.start(t + delay + j * 0.02); o.stop(t + delay + 1.0);
     });
   });
+  setTimeout(() => spurJingle(), 1200);
+  setTimeout(() => bomboHit(), 600);
+  setTimeout(() => bomboHit(), 1150);
 }
 
-// ── MÚSICA LOBBY ─────────────────────────────────────────────────────────────
-let _lobbyNodes = [];
-export function startLobbyMusic() {
-  if (_lobbyNodes.length) return;
-  initAudio();
-  const c = _ctx_(); if (!c) return;
-  [82.4,110.0,146.8].forEach((freq,i) => {
-    const o = c.createOscillator(); o.type='triangle'; o.frequency.value=freq+(Math.random()-0.5)*0.9;
-    const lfo=c.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.55+i*0.18;
-    const lfoG=c.createGain(); lfoG.gain.value=0.038; lfo.connect(lfoG);
-    const lp=_lp(650); const g=c.createGain(); g.gain.value=0.058-i*0.012; lfoG.connect(g.gain);
-    o.connect(lp); lp.connect(g); _toOut(g,0.55); o.start(); lfo.start();
-    _lobbyNodes.push({stop:()=>{try{o.stop();lfo.stop();}catch(e){}}});
+// ═══════════════════════════════════════════════════════════════════════════════
+//  NUEVOS SONIDOS: GAUCHO · GEOPOLÍTICO · ESPACIAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── CHARANGO — cuerdas de la pampa andina ────────────────────────────────────
+export function charangoPluck(note = 440) {
+  const c = _c(); if (!c) return; const t = _t();
+  // Karplus-Strong simplificado: impulso de ruido → filtro de retroalimentación
+  // Aquí usamos suma de parciales con decay rápido (más CPU-amigable)
+  [1, 2, 3, 4, 5].forEach((harm, i) => {
+    const o = c.createOscillator(); o.type = 'triangle';
+    o.frequency.value = note * harm + (Math.random() - 0.5) * 2;
+    const g = _gain();
+    const vol = 0.12 / (harm * 0.8);
+    g.gain.setValueAtTime(0.0001, t + i * 0.001);
+    g.gain.linearRampToValueAtTime(vol, t + i * 0.001 + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30 - i * 0.03);
+    o.connect(g); _toOut(g, 0.25); o.start(t + i * 0.001); o.stop(t + 0.35);
   });
-  const scale=[329,392,440,494,392,349,294]; let idx=0;
-  const playNote=()=>{
-    if (!_lobbyNodes.length) return;
-    const c2=_ctx_(); if (!c2) return; const tt=_now();
-    const o=c2.createOscillator(); o.type='triangle'; o.frequency.value=scale[idx%scale.length]*0.5; idx++;
-    const lp2=_lp(1100); const g2=c2.createGain();
-    g2.gain.setValueAtTime(0.0001,tt); g2.gain.linearRampToValueAtTime(0.075,tt+0.05);
-    g2.gain.exponentialRampToValueAtTime(0.0001,tt+2.5);
-    o.connect(lp2); lp2.connect(g2); _toOut(g2,0.55); o.start(tt); o.stop(tt+2.8);
-    const tid=setTimeout(playNote,2800+Math.random()*3200);
-    _lobbyNodes.push({stop:()=>clearTimeout(tid)});
-  };
-  const itid=setTimeout(playNote,1200); _lobbyNodes.push({stop:()=>clearTimeout(itid)});
-}
-export function stopLobbyMusic() { _lobbyNodes.forEach(n=>n.stop?.()); _lobbyNodes=[]; }
-
-// ── VOLUMEN MASTER ────────────────────────────────────────────────────────────
-export function setMasterVolume(v) {
-  if (_out) _out.gain.value = Math.max(0, Math.min(1, v));
 }
 
-// ── Moto engine — diseño de síntesis completo ────────────────────────────────
-//
-//  ARQUITECTURA:
-//   Osc1 (sawtooth, F)  ─┐
-//   Osc2 (sawtooth, 2F) ─┤→ WaveShaper → LPF(sweeps) → BPF(resonance) → MasterGain
-//   Osc3 (sine, F/2) ───┘  (sub bypasses shaper)
-//   LFO (sine, F*2) ──────→ modula amplitude de Osc1 → efecto "cilindros disparando"
-//   Wind (noise) → BPF(1400Hz) → WindGain(speed²) → MasterGain
-//   GearShift: click sintético al cambiar marcha
-//   DecelPop:  crackle de gases al soltar el acelerador
-//
-let _E = {};   // todos los nodos del motor viven acá; null = engine off
+// ── BOMBO LEGUERO — el corazón del malambo ───────────────────────────────────
+export function bomboHit() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Parche principal: sub-bajo con ataque percusivo
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(72, t); o.frequency.exponentialRampToValueAtTime(36, t + 0.18);
+  const g = _gain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.75, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  const lp = _lp(240); o.connect(lp); lp.connect(g); _toOut(g, 0.12); o.start(t); o.stop(t + 0.24);
+  // Mazo (ruido de cuero golpeado)
+  const ns = _mkNoise(0.06); if (ns) {
+    const bp = _bp(380, 0.6); const gn = _gain();
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.linearRampToValueAtTime(0.40, t + 0.004);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    ns.connect(bp); bp.connect(gn); _toOut(gn, 0.06); ns.start(t);
+  }
+}
 
-function _distCurve(amount) {
-  const n = 512, curve = new Float32Array(n);
+// ── ESPUELAS — tilín metálico del gaucho ─────────────────────────────────────
+export function spurJingle() {
+  const c = _c(); if (!c) return; const t = _t();
+  const count = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < count; i++) {
+    const delay = i * (0.04 + Math.random() * 0.05);
+    const f = 3200 + Math.random() * 1800;
+    const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+    const g = _gain();
+    g.gain.setValueAtTime(0.0001, t + delay); g.gain.linearRampToValueAtTime(0.06, t + delay + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.18);
+    o.connect(g); _toOut(g, 0.06); o.start(t + delay); o.stop(t + delay + 0.20);
+  }
+}
+
+// ── RADIO ESTÁTICA — interferencia geopolítica ───────────────────────────────
+export function radioStatic(durSec = 0.6) {
+  const c = _c(); if (!c) return; const t = _t();
+  const ns = _mkNoise(durSec); if (!ns) return;
+  // Filtro de radio AM (500Hz–4kHz)
+  const hp = _hp(500); const lp = _lp(4200); const bp = _bp(1400, 0.8);
+  const sat = c.createWaveShaper(); sat.curve = _satCurve(80);
+  const g = _gain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+  g.gain.linearRampToValueAtTime(0.18, t + durSec - 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + durSec);
+  ns.connect(hp); hp.connect(lp); lp.connect(sat); sat.connect(bp); bp.connect(g); _toOut(g, 0.04); ns.start(t);
+  // Barrido de frecuencia (como sintonizando)
+  const osc = c.createOscillator(); osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(800, t); osc.frequency.linearRampToValueAtTime(1600, t + durSec);
+  const go = _gain(0.0001);
+  go.gain.linearRampToValueAtTime(0.04, t + durSec * 0.4); go.gain.linearRampToValueAtTime(0.0001, t + durSec);
+  osc.connect(go); _toOut(go, 0.03); osc.start(t); osc.stop(t + durSec);
+}
+
+// ── TRANSMISIÓN ESPACIAL — señal del cosmos gaucho ───────────────────────────
+export function transmissionBlip() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Morse cósmico — 3 pulsos cortos
+  [0, 0.18, 0.36].forEach((delay, i) => {
+    const dur = 0.08 + i * 0.02;
+    const f = 1200 + i * 280;
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const g = _gain(); g.gain.setValueAtTime(0.0001, t + delay);
+    g.gain.linearRampToValueAtTime(0.12, t + delay + 0.008);
+    g.gain.linearRampToValueAtTime(0.12, t + delay + dur - 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + delay + dur);
+    o.connect(g); _toOut(g, 0.08); o.start(t + delay); o.stop(t + delay + dur + 0.02);
+  });
+}
+
+// ── CAÑÓN DISTANTE — geopolítica de la pampa ─────────────────────────────────
+export function distantCannon() {
+  const c = _c(); if (!c) return; const t = _t();
+  // Sub-boom lejano
+  const ns1 = _mkNoise(0.45); if (ns1) {
+    const lp = _lp(90); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.28, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.50);
+    ns1.connect(lp); lp.connect(g); _toOut(g, 0.60); ns1.start(t);
+  }
+  // Cola distante (tierra que resonó)
+  const ns2 = _mkNoise(1.8); if (ns2) {
+    const lp = _lp(160); const g = _gain();
+    g.gain.setValueAtTime(0.0001, t + 0.10); g.gain.linearRampToValueAtTime(0.15, t + 0.35);
+    g.gain.linearRampToValueAtTime(0.0001, t + 1.8);
+    ns2.connect(lp); lp.connect(g); _toOut(g, 0.70); ns2.start(t + 0.08);
+  }
+}
+
+// ── DRONE CÓSMICO — el universo sobre la pampa ───────────────────────────────
+let _cosmicDroneNodes = [];
+export function startCosmicDrone() {
+  if (_cosmicDroneNodes.length) return;
+  const c = _c(); if (!c) return;
+  // Drones de frecuencias cósmicas (Schumann + armónicos extraterrestres)
+  [[27.5, 'sine', 0.055], [41.2, 'sine', 0.040], [55.0, 'triangle', 0.030],
+   [110.0, 'sine', 0.015], [164.8, 'sine', 0.010]].forEach(([f, type, vol]) => {
+    const o = c.createOscillator(); o.type = type; o.frequency.value = f + (Math.random() - 0.5) * 0.5;
+    const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.022 + Math.random() * 0.015;
+    const lfoG = _gain(0.025); lfo.connect(lfoG); lfoG.connect(o.frequency);
+    const lp = _lp(200); const g = _gain(vol);
+    o.connect(lp); lp.connect(g); g.connect(_out);
+    if (_rev) { const rg = _gain(0.30); g.connect(rg); rg.connect(_rev); }
+    o.start(); lfo.start();
+    _cosmicDroneNodes.push({ stop: () => { try { o.stop(); lfo.stop(); } catch(e){} } });
+  });
+  // Interferencia de fondo (señal de satélite perdido)
+  const ns = _mkNoise(4.0);
+  if (ns) {
+    ns.loop = true;
+    const hp = _hp(8000); const g = _gain(0.008);
+    ns.connect(hp); hp.connect(g); g.connect(_out); ns.start();
+    _cosmicDroneNodes.push({ stop: () => { try { ns.stop(); } catch(e){} } });
+  }
+}
+export function stopCosmicDrone() { _cosmicDroneNodes.forEach(n => n.stop?.()); _cosmicDroneNodes = []; }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MOTOR DE MOTO
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _distCurve(k) {
+  const n = 512, c = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = (i * 2) / n - 1;
-    curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+    c[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
   }
-  return curve;
+  return c;
 }
-
-// speedFactor 0..1  →  engine fundamental Hz
-// Tres marchas: [0,0.33) → 32-70 Hz / [0.33,0.66) → 52-110 Hz / [0.66,1] → 85-180 Hz
 function _sfToFreq(sf) {
-  if (sf < 0.33) return 32 + (sf / 0.33) * 38;          // 32 → 70 Hz
-  if (sf < 0.66) return 52 + ((sf - 0.33) / 0.33) * 58; // 52 → 110 Hz
-  return 85 + ((sf - 0.66) / 0.34) * 95;                 // 85 → 180 Hz
+  if (sf < 0.33) return 32 + (sf / 0.33) * 38;
+  if (sf < 0.66) return 52 + ((sf - 0.33) / 0.33) * 58;
+  return 85 + ((sf - 0.66) / 0.34) * 95;
 }
 
+let _E = {};
 export function startMotoEngine() {
-  const c = _ctx_(); if (!c || !_out) return;
+  const c = _c(); if (!c || !_out) return;
   if (c.state === 'suspended') c.resume();
   stopMotoEngine();
-  const t = c.currentTime;
-  const e = {};
-
-  // Master gain (fade in)
-  e.master = c.createGain();
-  e.master.gain.setValueAtTime(0, t);
-  e.master.gain.linearRampToValueAtTime(0.20, t + 0.7);
-  e.master.connect(_out);
-
-  // Filter chain: LPF → BPF resonance
-  e.lpf = c.createBiquadFilter();
-  e.lpf.type = 'lowpass'; e.lpf.frequency.value = 350; e.lpf.Q.value = 0.7;
-  e.lpf.connect(e.master);
-
-  e.bpf = c.createBiquadFilter();
-  e.bpf.type = 'peaking'; e.bpf.frequency.value = 180; e.bpf.Q.value = 3; e.bpf.gain.value = 10;
-  e.bpf.connect(e.lpf);
-
-  e.hpf = c.createBiquadFilter();
-  e.hpf.type = 'highpass'; e.hpf.frequency.value = 28; e.hpf.Q.value = 0.5;
-  e.hpf.connect(e.bpf);
-
-  // Waveshaper
-  e.dist = c.createWaveShaper();
-  e.dist.curve = _distCurve(200); e.dist.oversample = '4x';
-  e.dist.connect(e.hpf);
-
-  // Oscillators
+  const t = c.currentTime; const e = {};
+  e.master = c.createGain(); e.master.gain.setValueAtTime(0, t); e.master.gain.linearRampToValueAtTime(0.20, t + 0.7); e.master.connect(_out);
+  e.lpf = c.createBiquadFilter(); e.lpf.type = 'lowpass'; e.lpf.frequency.value = 350; e.lpf.Q.value = 0.7; e.lpf.connect(e.master);
+  e.bpf = c.createBiquadFilter(); e.bpf.type = 'peaking'; e.bpf.frequency.value = 180; e.bpf.Q.value = 3; e.bpf.gain.value = 10; e.bpf.connect(e.lpf);
+  e.hpf = c.createBiquadFilter(); e.hpf.type = 'highpass'; e.hpf.frequency.value = 28; e.hpf.Q.value = 0.5; e.hpf.connect(e.bpf);
+  e.dist = c.createWaveShaper(); e.dist.curve = _distCurve(200); e.dist.oversample = '4x'; e.dist.connect(e.hpf);
   e.osc1 = c.createOscillator(); e.osc1.type = 'sawtooth'; e.osc1.frequency.value = 32;
   e.osc2 = c.createOscillator(); e.osc2.type = 'sawtooth'; e.osc2.frequency.value = 64; e.osc2.detune.value = 12;
-  e.osc3 = c.createOscillator(); e.osc3.type = 'sine';     e.osc3.frequency.value = 16; // sub
-
-  const g2 = c.createGain(); g2.gain.value = 0.45;
-  const g3 = c.createGain(); g3.gain.value = 0.70;
-
-  // LFO → amplitude modulation of osc1 (simulates cylinder firing pulse)
-  e.lfo = c.createOscillator(); e.lfo.type = 'sine'; e.lfo.frequency.value = 64; // 2× fundamental
-  e.lfoGain = c.createGain(); e.lfoGain.gain.value = 0.30;
-  // AM: osc1 passes through a gain whose value is modulated by lfo (0.7 + 0.3·sin)
-  e.amGain = c.createGain(); e.amGain.gain.value = 0.70;
+  e.osc3 = c.createOscillator(); e.osc3.type = 'sine';     e.osc3.frequency.value = 16;
+  const g2 = _gain(0.45); const g3 = _gain(0.70);
+  e.lfo = c.createOscillator(); e.lfo.type = 'sine'; e.lfo.frequency.value = 64;
+  e.lfoGain = _gain(0.30); e.amGain = _gain(0.70);
   e.lfo.connect(e.lfoGain); e.lfoGain.connect(e.amGain.gain);
-
   e.osc1.connect(e.amGain); e.amGain.connect(e.dist);
   e.osc2.connect(g2); g2.connect(e.dist);
-  e.osc3.connect(g3); g3.connect(e.hpf); // sub bypasses distortion
-
-  // Wind noise (increases with speed²)
-  const sr = c.sampleRate;
-  const wbuf = c.createBuffer(1, sr * 3, sr);
-  const wd = wbuf.getChannelData(0);
-  for (let i = 0; i < wd.length; i++) wd[i] = Math.random() * 2 - 1;
-  e.windSrc = c.createBufferSource(); e.windSrc.buffer = wbuf; e.windSrc.loop = true;
+  e.osc3.connect(g3); g3.connect(e.hpf);
+  const nb = c.createBuffer(1, c.sampleRate * 3, c.sampleRate);
+  const nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  e.windSrc = c.createBufferSource(); e.windSrc.buffer = nb; e.windSrc.loop = true;
   e.windBpf = c.createBiquadFilter(); e.windBpf.type = 'bandpass'; e.windBpf.frequency.value = 1400; e.windBpf.Q.value = 0.5;
-  e.windGain = c.createGain(); e.windGain.gain.value = 0;
-  e.windSrc.connect(e.windBpf); e.windBpf.connect(e.windGain); e.windGain.connect(e.master);
-
+  e.windGain = _gain(0); e.windSrc.connect(e.windBpf); e.windBpf.connect(e.windGain); e.windGain.connect(e.master);
   e.osc1.start(); e.osc2.start(); e.osc3.start(); e.lfo.start(); e.windSrc.start();
-  e.prevSF = 0;
-  e.gear   = 0;  // 0, 1, 2
+  e.prevSF = 0; e.gear = 0;
   _E = e;
 }
-
 export function updateMotoEngine(sf) {
   const e = _E; if (!e.osc1 || !_ctx) return;
-  const c = _ctx_();
-  const t = c.currentTime;
-
-  // Gear detection → shift click + brief rpm dip
+  const c = _c(); const t = c.currentTime;
   const newGear = sf < 0.33 ? 0 : sf < 0.66 ? 1 : 2;
   if (newGear > e.gear && sf > e.prevSF + 0.005) {
-    e.gear = newGear;
-    motoGearClick();
-    // Brief pitch dip on upshift (engine backs off then climbs)
+    e.gear = newGear; motoGearClick();
     const dipF = _sfToFreq(sf) * 0.72;
-    e.osc1.frequency.setValueAtTime(dipF, t);
-    e.osc2.frequency.setValueAtTime(dipF * 2, t);
-    e.osc3.frequency.setValueAtTime(dipF * 0.5, t);
-    e.lfo.frequency.setValueAtTime(dipF * 2, t);
+    e.osc1.frequency.setValueAtTime(dipF, t); e.osc2.frequency.setValueAtTime(dipF * 2, t);
+    e.osc3.frequency.setValueAtTime(dipF * 0.5, t); e.lfo.frequency.setValueAtTime(dipF * 2, t);
   }
-  if (newGear < e.gear) e.gear = newGear;  // downshift — no dip
-
-  // Decel pop: throttle off at high speed
-  if (e.prevSF > 0.5 && sf < e.prevSF - 0.04) {
-    if (Math.random() < 0.4) motoDecelPop();
-  }
+  if (newGear < e.gear) e.gear = newGear;
+  if (e.prevSF > 0.5 && sf < e.prevSF - 0.04 && Math.random() < 0.4) motoDecelPop();
   e.prevSF = sf;
-
-  const F  = _sfToFreq(sf);
-  const lp = 350  + sf * 950;            // 350 → 1300 Hz — mantiene un tono grave y grueso
-  const bp = 180  + sf * 280;            // 180 → 460 Hz (resonance sweeps)
-  const vol = 0.42 + sf * 0.13;          // 0.42 → 0.55 — no sube demasiado a velocidad máxima
-  const wind = sf * sf * 0.10;           // viento: 0 → 0.10 (mucho más suave)
-  const amDepth = 0.35 - sf * 0.18;      // AM pulse: strong idle, subtler at speed
-
-  const TC = 0.06; // time constant for smooth interpolation
-  e.osc1.frequency.setTargetAtTime(F,       t, TC);
-  e.osc2.frequency.setTargetAtTime(F * 2,   t, TC);
-  e.osc3.frequency.setTargetAtTime(F * 0.5, t, TC);
-  e.lfo.frequency.setTargetAtTime(F * 2,    t, TC);
-  e.lpf.frequency.setTargetAtTime(lp,       t, TC);
-  e.bpf.frequency.setTargetAtTime(bp,       t, TC);
-  e.master.gain.setTargetAtTime(vol,         t, 0.10);
-  e.windGain.gain.setTargetAtTime(wind,      t, 0.12);
-  e.lfoGain.gain.setTargetAtTime(amDepth,    t, 0.10);
+  const F = _sfToFreq(sf); const TC = 0.06;
+  e.osc1.frequency.setTargetAtTime(F,       t, TC); e.osc2.frequency.setTargetAtTime(F * 2,   t, TC);
+  e.osc3.frequency.setTargetAtTime(F * 0.5, t, TC); e.lfo.frequency.setTargetAtTime(F * 2,    t, TC);
+  e.lpf.frequency.setTargetAtTime(350 + sf * 950, t, TC); e.bpf.frequency.setTargetAtTime(180 + sf * 280, t, TC);
+  e.master.gain.setTargetAtTime(0.42 + sf * 0.13, t, 0.10);
+  e.windGain.gain.setTargetAtTime(sf * sf * 0.10, t, 0.12);
+  e.lfoGain.gain.setTargetAtTime(0.35 - sf * 0.18, t, 0.10);
 }
-
 export function stopMotoEngine() {
   const e = _E; if (!e.osc1) return;
-  const c = _ctx_();
+  const c = _c();
   if (c && e.master) e.master.gain.setTargetAtTime(0, c.currentTime, 0.3);
   const nodes = [e.osc1, e.osc2, e.osc3, e.lfo, e.windSrc];
   _E = {};
   setTimeout(() => nodes.forEach(n => { try { n.stop(); } catch(_) {} }), 700);
 }
-
-// Gear shift — short metallic click
 export function motoGearClick() {
-  const c = _ctx_(); if (!c || !_out) return;
-  const dur = 0.07;
-  const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
-  const d   = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) {
-    const env = Math.exp(-i / (d.length * 0.12));
-    d[i] = (Math.random() * 2 - 1) * env;
-  }
+  const c = _c(); if (!c || !_out) return;
+  const buf = c.createBuffer(1, Math.floor(c.sampleRate * 0.07), c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (d.length * 0.12));
   const src = c.createBufferSource(); src.buffer = buf;
   const lpf = c.createBiquadFilter(); lpf.type = 'bandpass'; lpf.frequency.value = 3500; lpf.Q.value = 1.2;
-  const g   = c.createGain(); g.gain.value = 0.22;
-  src.connect(lpf); lpf.connect(g); g.connect(_out);
-  src.start();
+  const g = _gain(0.22); src.connect(lpf); lpf.connect(g); g.connect(_out); src.start();
 }
-
-// Decel pop — gas crackle when throttle off at high RPM
 export function motoDecelPop() {
-  const c = _ctx_(); if (!c || !_out) return;
+  const c = _c(); if (!c || !_out) return;
   const pops = 1 + Math.floor(Math.random() * 3);
   for (let p = 0; p < pops; p++) {
     const delay = p * (0.04 + Math.random() * 0.06);
-    const dur   = 0.035 + Math.random() * 0.025;
-    const buf   = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
-    const d     = buf.getChannelData(0);
+    const dur = 0.035 + Math.random() * 0.025;
+    const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
+    const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
     const src = c.createBufferSource(); src.buffer = buf;
     const bpf = c.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 600 + Math.random() * 400; bpf.Q.value = 0.8;
-    const g   = c.createGain(); g.gain.value = 0.28;
-    src.connect(bpf); bpf.connect(g); g.connect(_out);
-    src.start(c.currentTime + delay);
+    const g = _gain(0.28); src.connect(bpf); bpf.connect(g); g.connect(_out); src.start(c.currentTime + delay);
   }
 }
-
-// Tire screech — improved
 export function motoTireScreech() {
-  const c = _ctx_(); if (!c || !_out) return;
-  const dur = 0.65, sr = c.sampleRate;
-  const buf = c.createBuffer(1, Math.floor(sr * dur), sr);
-  const d   = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) {
-    const env = Math.pow(1 - i / d.length, 0.4);
-    d[i] = (Math.random() * 2 - 1) * env;
-  }
+  const c = _c(); if (!c || !_out) return;
+  const dur = 0.68; const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 0.4);
   const src = c.createBufferSource(); src.buffer = buf;
-  const bpf1 = c.createBiquadFilter(); bpf1.type = 'bandpass'; bpf1.frequency.value = 1100; bpf1.Q.value = 1.0;
-  const bpf2 = c.createBiquadFilter(); bpf2.type = 'bandpass'; bpf2.frequency.value = 2800; bpf2.Q.value = 1.5;
-  const g1 = c.createGain(); g1.gain.value = 0.30;
-  const g2 = c.createGain(); g2.gain.value = 0.15;
-  src.connect(bpf1); bpf1.connect(g1); g1.connect(_out);
-  src.connect(bpf2); bpf2.connect(g2); g2.connect(_out);
-  src.start();
+  const bp1 = c.createBiquadFilter(); bp1.type = 'bandpass'; bp1.frequency.value = 1100; bp1.Q.value = 1.0;
+  const bp2 = c.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 2800; bp2.Q.value = 1.5;
+  const g1 = _gain(0.32); const g2 = _gain(0.16);
+  src.connect(bp1); bp1.connect(g1); g1.connect(_out);
+  src.connect(bp2); bp2.connect(g2); g2.connect(_out); src.start();
 }
 
-// ── Acceso al contexto y master gain (para MusicPlayer) ──────────────────────
-export function getAudioCtx()   { _ctx_(); return _ctx; }
-export function getMasterGain() { _ctx_(); return _out; }
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MÚSICA LOBBY — GAUCHO ESPACIAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _lobbyNodes = [];
+export function startLobbyMusic() {
+  if (_lobbyNodes.length) return;
+  initAudio();
+  const c = _c(); if (!c) return;
+
+  // Drone sub-espacial (el cosmos de la pampa)
+  [[27.5, 0.062], [41.2, 0.048], [55.0, 0.035]].forEach(([f, vol], i) => {
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f + (Math.random() - 0.5) * 0.4;
+    const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.028 + i * 0.012;
+    const lfoG = _gain(0.020); lfo.connect(lfoG); lfoG.connect(o.frequency);
+    const lp = _lp(80); const g = _gain(vol);
+    o.connect(lp); lp.connect(g); _toOut(g, 0.40); o.start(); lfo.start();
+    _lobbyNodes.push({ stop: () => { try { o.stop(); lfo.stop(); } catch(e){} } });
+  });
+
+  // Melodía de charango — escala pentatónica menor criolla
+  // Mi menor pentatónica: E3 G3 A3 B3 D4 E4
+  const melody = [164.8, 196.0, 220.0, 246.9, 293.7, 329.6, 246.9, 220.0, 196.0, 164.8, 196.0, 293.7];
+  let noteIdx = 0;
+  const playMelody = () => {
+    if (!_lobbyNodes.length) return;
+    const note = melody[noteIdx % melody.length]; noteIdx++;
+    charangoPluck(note * 2); // octava alta del charango
+    const tid = setTimeout(playMelody, 600 + Math.random() * 800);
+    _lobbyNodes.push({ stop: () => clearTimeout(tid) });
+  };
+  const initTid = setTimeout(playMelody, 1500);
+  _lobbyNodes.push({ stop: () => clearTimeout(initTid) });
+
+  // Bombo leguero ocasional (marca el pulso)
+  const playBombo = () => {
+    if (!_lobbyNodes.length) return;
+    bomboHit();
+    const tid = setTimeout(playBombo, 1800 + Math.random() * 1200);
+    _lobbyNodes.push({ stop: () => clearTimeout(tid) });
+  };
+  const bomboTid = setTimeout(playBombo, 3200);
+  _lobbyNodes.push({ stop: () => clearTimeout(bomboTid) });
+
+  // Interferencia espacial muy suave (señal de satélite gauchesco)
+  const playBlip = () => {
+    if (!_lobbyNodes.length) return;
+    transmissionBlip();
+    const tid = setTimeout(playBlip, 8000 + Math.random() * 12000);
+    _lobbyNodes.push({ stop: () => clearTimeout(tid) });
+  };
+  const blipTid = setTimeout(playBlip, 6000 + Math.random() * 4000);
+  _lobbyNodes.push({ stop: () => clearTimeout(blipTid) });
+}
+export function stopLobbyMusic() { _lobbyNodes.forEach(n => n.stop?.()); _lobbyNodes = []; }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VOLUMEN + ACCESO AL CONTEXTO
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function setMasterVolume(v) { if (_out) _out.gain.value = Math.max(0, Math.min(1, v)); }
+export function getAudioCtx()   { _c(); return _ctx; }
+export function getMasterGain() { _c(); return _out; }
