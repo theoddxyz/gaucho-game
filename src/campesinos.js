@@ -750,6 +750,13 @@ export class CampesinoSystem {
     return null;
   }
 
+  getNpcHeadPos(name) {
+    const npc = this._npcs.find(n => n.name === name && !n.dead);
+    if (!npc) return null;
+    const h = npc.root._segs[0];
+    return { x: h.x, y: h.y + 2.2, z: h.z };
+  }
+
   startTalk(name) {
     const npc = this._npcs.find(n => n.name === name);
     if (npc) npc.isTalking = true;

@@ -25,6 +25,7 @@ import { CreatureSystem, wormRenderer, armadilloRenderer, condorRenderer, pumaRe
 import { SoulSystem } from './souls.js';
 import { SoulMap } from './soulmap.js';
 import { ConversationUI } from './conversation-ui.js';
+import { BubbleUI } from './bubble-ui.js';
 import { RadialMenu } from './radial-menu.js';
 import { LassoSystem } from './lasso.js';
 import { WindParticles } from './wind-particles.js';
@@ -759,6 +760,8 @@ const soulMap         = new SoulMap(soulSystem);
 const campesinoSystem = new CampesinoSystem(scene);
 const conversationUI  = new ConversationUI(soulSystem);  // sin socket aún — init() se llama en onJoined
 conversationUI.onClose = (name) => { if (name) campesinoSystem.endTalk(name); };
+const bubbleUI = new BubbleUI();
+conversationUI.setBubbleUI(bubbleUI);
 
 const _convPrompt = document.createElement('div');
 _convPrompt.style.cssText = `
@@ -2845,6 +2848,13 @@ function gameLoop() {
 
   // ── Bird flocks ────────────────────────────────────────────────────────
   birdSystem.update(dt, pos);
+
+  // ── Speech bubbles (world→screen projection) ───────────────────────────
+  if (conversationUI.isOpen()) {
+    const _bNpcName = conversationUI._current?.name;
+    const _bNpcPos  = _bNpcName ? campesinoSystem.getNpcHeadPos(_bNpcName) : null;
+    bubbleUI.update(pos, _bNpcPos, camera);
+  }
 
   // ── Story NPC walk animation + 2D label projection ───────────────────────
   if (_storyNpcs.size > 0) {
