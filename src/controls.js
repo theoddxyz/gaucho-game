@@ -188,6 +188,29 @@ export class IsoControls {
           else                     this.position.z += Math.sign(dz) * overlapZ;
         }
       }
+
+      // --- Fricción al saltar sobre cercas (fences con maxY) ---
+      // Al pasar por encima de una cerca, el cuerpo se frena — no es gratis cruzarla.
+      // La resistencia es máxima justo encima del rail y desaparece al alejarse.
+      for (const box of colliders) {
+        if (box.active === false) continue;
+        if (box.maxY === undefined) continue;           // solo cercas, no muros sólidos
+        const py = this.position.y;
+        if (py < box.maxY || py > box.maxY * 2.8) continue; // solo en la zona de cruce
+
+        const halfX = box.sx / 2 + 0.55;              // zona un poco más ancha que el collider
+        const halfZ = box.sz / 2 + 0.55;
+        const adx   = Math.abs(this.position.x - box.x);
+        const adz   = Math.abs(this.position.z - box.z);
+        if (adx >= halfX || adz >= halfZ) continue;   // fuera de la zona XZ
+
+        // Cuánto por encima del rail está: 0 = justo arriba, 1 = muy lejos
+        const fade    = Math.min(1, (py - box.maxY) / box.maxY);
+        // Fricción fuerte al ras del rail, casi nula cuando ya está lejos
+        const friction = Math.pow(0.05, dt * (1 - fade) * 3.5);
+        this._velX *= friction;
+        this._velZ *= friction;
+      }
     }
 
     // --- Jump & gravity ---

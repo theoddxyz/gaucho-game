@@ -48,7 +48,7 @@ new GLTFLoader().load('/models/CHORIPAN COLA ALDEANOS.glb', gltf => {
 }, undefined, e => console.warn('[COLA] Error cargando cola:', e));
 
 // ─── Escala de la cola (ajustable) ───────────────────────────────────────────
-const TAIL_SCALE = 28;
+const TAIL_SCALE = 12;
 
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
