@@ -202,51 +202,60 @@ export function getTerrainHeight(wx, wz) {
   return _terrainHeight(wx, wz);
 }
 
-// ─── Material de arena — normal procedural per-fragment en GLSL ──────────────
+// ─── Material de arena procedural ────────────────────────────────────────────
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness:    0.92,
-  metalness:    0.0,
+  roughness: 0.94,
+  metalness: 0.0,
   vertexColors: true,
 });
 
 TERRAIN_MAT.onBeforeCompile = (shader) => {
-  // Vertex: pasar posición mundo al fragment
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>',    '#include <common>\nvarying vec3 vWPos;')
-    .replace('#include <worldpos_vertex>',
-             '#include <worldpos_vertex>\nvWPos = worldPosition.xyz;');
+    .replace('#include <common>',           '#include <common>\nvarying vec3 vWPos;')
+    .replace('#include <worldpos_vertex>',  '#include <worldpos_vertex>\nvWPos=worldPosition.xyz;');
 
-  // Fragment: ruido suave puro, SIN sin(), 5 escalas → arena real
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
 varying vec3 vWPos;
 
-// Value noise suave — interpolación cúbica
-float sHash(float a, float b){ float s=sin(a*127.1+b*311.7)*43758.5453; return s-floor(s); }
-float sNoise(vec2 p){
+// ── Value noise básico ────────────────────────────────────────────────────────
+float _h(float a,float b){ float s=sin(a*127.1+b*311.7)*43758.5453; return s-floor(s); }
+float _n(vec2 p){
   vec2 i=floor(p), f=fract(p), u=f*f*(3.0-2.0*f);
-  return mix(mix(sHash(i.x,i.y),sHash(i.x+1.0,i.y),u.x),
-             mix(sHash(i.x,i.y+1.0),sHash(i.x+1.0,i.y+1.0),u.x),u.y);
+  return mix(mix(_h(i.x,i.y),_h(i.x+1.,i.y),u.x),
+             mix(_h(i.x,i.y+1.),_h(i.x+1.,i.y+1.),u.x),u.y);
 }
-// Altura de arena: 5 capas de ruido suave en espacio-mundo, SIN funciones periódicas
+
+// ── Altura de arena con domain warping ───────────────────────────────────────
+// Domain warp: deforma las UV con ruido antes de samplear → curvas orgánicas,
+// como hacen las dunas y ripplas de arena real. Sin sin(), sin patrones periódicos.
 float sandH(vec2 p){
-  return sNoise(p*0.008 + vec2(1.7,  9.3)) * 2.0   // dunas grandes  ~125u
-       + sNoise(p*0.022 + vec2(34.1, 7.8)) * 0.90  // lomadas        ~45u
-       + sNoise(p*0.060 + vec2(8.5, 51.2)) * 0.40  // ondas          ~17u
-       + sNoise(p*0.160 + vec2(77.3, 3.6)) * 0.16  // rugosidad       ~6u
-       + sNoise(p*0.420 + vec2(22.0,88.1)) * 0.06; // micro-grano     ~2u
+  // Warp de primer nivel: grandes deformaciones (escala ~33u)
+  vec2 w1 = vec2(_n(p*0.030 + vec2(1.7, 9.2)),
+                 _n(p*0.030 + vec2(8.3, 2.8))) * 12.0;
+  // Warp de segundo nivel sobre el primero (crea curvas dentro de curvas)
+  vec2 w2 = vec2(_n((p+w1)*0.055 + vec2(3.1, 5.4)),
+                 _n((p+w1)*0.055 + vec2(7.2, 1.9))) * 5.0;
+  vec2 pw = p + w1 + w2;   // posición final warpeada
+
+  float h = 0.0;
+  h += _n(pw*0.010 + vec2(0.5,0.3)) * 2.8;  // dunas grandes  (~100u warpeadas)
+  h += _n(pw*0.030 + vec2(4.1,6.7)) * 1.0;  // lomadas medias (~33u)
+  h += _n(pw*0.080 + vec2(2.3,8.1)) * 0.35; // ripplas pequeñas (~12u)
+  h += _n(p *0.200 + vec2(9.5,3.3)) * 0.12; // grano fino (~5u, sin warp para que no se pierda)
+  h += _n(p *0.500 + vec2(1.1,7.6)) * 0.04; // micro textura (~2u)
+  return h;
 }
 `)
     .replace('#include <normal_fragment_maps>', `
-// Normal procedural per-fragment: gradiente de sandH en coordenadas mundo
+// ── Normal procedural per-fragment ───────────────────────────────────────────
 {
-  vec2 wp  = vWPos.xz;
-  float e  = 0.4;
-  float dx = (sandH(wp+vec2(e,0.0)) - sandH(wp-vec2(e,0.0))) / (2.0*e);
-  float dz = (sandH(wp+vec2(0.0,e)) - sandH(wp-vec2(0.0,e))) / (2.0*e);
-  float str = 9.0;
-  vec3 wn  = normalize(vec3(-dx*str, 1.0, -dz*str));
-  normal   = normalize(mat3(viewMatrix) * wn);
+  vec2  wp  = vWPos.xz;
+  float e   = 0.5;
+  float dx  = (sandH(wp+vec2(e,0.))-sandH(wp-vec2(e,0.))) / (2.*e);
+  float dz  = (sandH(wp+vec2(0.,e))-sandH(wp-vec2(0.,e))) / (2.*e);
+  vec3  wn  = normalize(vec3(-dx*8., 1.0, -dz*8.));
+  normal    = normalize(mat3(viewMatrix) * wn);
 }
 `);
 };
