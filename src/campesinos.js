@@ -48,7 +48,7 @@ new GLTFLoader().load('/models/CHORIPAN COLA ALDEANOS.glb', gltf => {
 }, undefined, e => console.warn('[COLA] Error cargando cola:', e));
 
 // ─── Escala de la cola (ajustable) ───────────────────────────────────────────
-const TAIL_SCALE = 5.5;
+const TAIL_SCALE = 28;
 
 // ─── Constantes del gusano ────────────────────────────────────────────────────
 const SEG_COUNT  = 10;
@@ -142,15 +142,35 @@ function _attachTail(tailGroup) {
   clone.scale.setScalar(TAIL_SCALE);
   clone.position.copy(_tailOffset).multiplyScalar(-TAIL_SCALE);
 
-  // Reemplazar materiales con chorizo procedural
+  // Aplicar chorizo SOLO al mesh de la salchicha, no a todo el modelo
   const chorizoMat = _mkChorizo();
+  const CHORIZO_KEYS = ['chori', 'chorizo', 'salchi', 'sausage', 'meat', 'carne'];
+  let chorizoApplied = false;
+
   clone.traverse(n => {
-    if (n instanceof THREE.Mesh) {
-      n.material    = chorizoMat;
-      n.castShadow  = true;
-      n.receiveShadow = true;
+    if (!(n instanceof THREE.Mesh)) return;
+    n.castShadow    = true;
+    n.receiveShadow = true;
+    const nameLower = n.name.toLowerCase();
+    console.log('[COLA mesh]', n.name);  // log para ver los nombres exactos
+    if (CHORIZO_KEYS.some(k => nameLower.includes(k))) {
+      n.material     = chorizoMat;
+      chorizoApplied = true;
     }
   });
+
+  // Fallback: si ningún nombre coincide, aplicar al mesh más grande (por vertex count)
+  if (!chorizoApplied) {
+    console.warn('[COLA] Ningún mesh coincidió con keywords de chorizo — aplicando al más grande');
+    let biggest = null, maxV = 0;
+    clone.traverse(n => {
+      if (n instanceof THREE.Mesh) {
+        const v = n.geometry?.attributes?.position?.count ?? 0;
+        if (v > maxV) { maxV = v; biggest = n; }
+      }
+    });
+    if (biggest) biggest.material = chorizoMat;
+  }
 
   tailGroup.add(clone);
 }
