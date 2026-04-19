@@ -37,7 +37,7 @@ import { speakNpc, speakGm, stopSpeech } from './speech.js';
 import * as Audio     from './audio.js';
 import { getAudioCtx, getMasterGain } from './audio.js';
 import * as Inventory from './inventory.js';
-import { createVillage, getVillageGates } from './village.js';
+import { createVillage, getVillageGates, updateVillageAnimations } from './village.js';
 
 // ── Sleep system ──────────────────────────────────────────────────────────────
 let _isSleeping   = false;
@@ -2890,6 +2890,7 @@ function gameLoop() {
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
   stepPhysics(dt);
   updateDayNight(dt * _daySpeedMult, scene, sun, ambient, moon);
+  updateVillageAnimations(dt);  // scroll agua del río
   if (myId && !isDead) {
     updateSurvival(dt, controls.isSprinting(), horseManager?.isMounted() ?? false);
     UI.updateSurvivalUI(getHunger(), getThirst(), getTemperature());

@@ -38,8 +38,122 @@ const MAT_DOOR    = new THREE.MeshStandardMaterial({ color: 0x2a1508, roughness:
 const MAT_GOLD    = new THREE.MeshStandardMaterial({ color: 0xd4a840, roughness: 0.5, metalness: 0.5 });
 const MAT_FLAG    = new THREE.MeshStandardMaterial({ color: 0xcc2200, roughness: 0.8 });
 const MAT_BELL    = new THREE.MeshStandardMaterial({ color: 0xb08840, roughness: 0.6, metalness: 0.4 });
-const MAT_PATH    = new THREE.MeshStandardMaterial({ color: 0x8a7050, roughness: 1.00 });
-const MAT_RIVER   = new THREE.MeshStandardMaterial({ color: 0x2266aa, roughness: 0.25, metalness: 0.1 });
+// ─── Texturas procedurales ────────────────────────────────────────────────────
+function _noise2(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return (s - Math.floor(s));
+}
+function _fbm2(x, y, oct = 3) {
+  let v = 0, a = 0.5;
+  for (let i = 0; i < oct; i++) { v += _noise2(x, y) * a; x *= 2.1; y *= 2.1; a *= 0.5; }
+  return v;
+}
+
+function _buildRoadTexture() {
+  const W = 256, H = 512;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const id = ctx.createImageData(W, H); const d = id.data;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const nx = x / W;               // 0=left, 1=right (across road)
+      const ny = y / H;               // 0=near, 1=far  (along road, tiles)
+      // Base dirt con ruido FBM
+      const n  = _fbm2(nx * 6 + 3.1, ny * 12 + 7.4, 4);
+      const n2 = _fbm2(nx * 18 + 11, ny * 24 + 2.2, 2) * 0.4;
+      let r = 0.52 + n * 0.14 + n2 * 0.06;
+      let g = 0.38 + n * 0.10 + n2 * 0.04;
+      let b = 0.16 + n * 0.06 + n2 * 0.02;
+      // Rodadas (ruts) — dos líneas oscuras compactadas al 28% y 72%
+      const rutL = Math.max(0, 1 - Math.abs(nx - 0.28) / 0.045);
+      const rutR = Math.max(0, 1 - Math.abs(nx - 0.72) / 0.045);
+      const rut  = Math.max(rutL, rutR);
+      r -= rut * 0.18; g -= rut * 0.13; b -= rut * 0.05;
+      // Lomo central (bombeo de camino): más claro y seco
+      const crown = Math.max(0, 1 - Math.abs(nx - 0.5) / 0.18);
+      r += crown * 0.06; g += crown * 0.04;
+      // Bordes (cuneta): más oscuros y húmedos
+      const edge = Math.max(0, 1 - Math.min(nx, 1 - nx) / 0.10);
+      r -= edge * 0.12; g -= edge * 0.09; b -= edge * 0.02;
+      // Piedras sueltas: pequeñas manchas más oscuras/claras aleatorias
+      if (_noise2(nx * 60 + y * 0.3, ny * 90 + x * 0.1) > 0.82) {
+        r += 0.09; g += 0.07; b += 0.04;
+      }
+      if (_noise2(nx * 80 + 5, ny * 110 + 3) > 0.88) {
+        r -= 0.10; g -= 0.07;
+      }
+      d[i]   = Math.max(0, Math.min(255, r * 255));
+      d[i+1] = Math.max(0, Math.min(255, g * 255));
+      d[i+2] = Math.max(0, Math.min(255, b * 255));
+      d[i+3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.ClampToEdgeWrapping;   // no tila a lo ancho
+  tex.wrapT = THREE.RepeatWrapping;        // tila a lo largo
+  return tex;
+}
+
+function _buildRiverTexture() {
+  const W = 256, H = 256;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const id = ctx.createImageData(W, H); const d = id.data;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i  = (y * W + x) * 4;
+      const nx = x / W, ny = y / H;
+      // Base agua: azul oscuro con variación de profundidad
+      const depth = _fbm2(nx * 3 + 1.1, ny * 3 + 4.7, 3);
+      let r = 0.04 + depth * 0.06;
+      let g = 0.25 + depth * 0.10;
+      let b = 0.55 + depth * 0.14;
+      // Corriente: líneas diagonales claras que simulan flujo
+      const flow  = Math.sin((ny + nx * 0.3) * Math.PI * 6) * 0.5 + 0.5;
+      const flow2 = Math.sin((ny * 1.4 - nx * 0.2) * Math.PI * 9 + 1.2) * 0.5 + 0.5;
+      const fc = Math.pow(flow * flow2, 2.5) * 0.20;
+      r += fc * 0.8; g += fc * 0.9; b += fc;
+      // Espuma/ondas en bordes
+      const borde = Math.max(0, 1 - Math.min(nx, 1 - nx) / 0.12);
+      const foam  = _noise2(nx * 40 + ny * 12, ny * 30 + nx * 8) * borde;
+      r += foam * 0.22; g += foam * 0.24; b += foam * 0.26;
+      // Caustics puntales
+      if (_fbm2(nx * 14 + ny * 7, ny * 18 - nx * 5, 2) > 0.72) {
+        r += 0.06; g += 0.10; b += 0.14;
+      }
+      d[i]   = Math.max(0, Math.min(255, r * 255));
+      d[i+1] = Math.max(0, Math.min(255, g * 255));
+      d[i+2] = Math.max(0, Math.min(255, b * 255));
+      d[i+3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+const _roadTex  = _buildRoadTexture();
+const _riverTex = _buildRiverTexture();
+
+const MAT_PATH = new THREE.MeshStandardMaterial({
+  map: _roadTex, roughness: 0.96, metalness: 0.0,
+});
+const MAT_PATH_EDGE = new THREE.MeshStandardMaterial({ color: 0x5a3e20, roughness: 1.0 });
+const MAT_RIVER = new THREE.MeshStandardMaterial({
+  map: _riverTex, color: 0x2266aa,
+  roughness: 0.06, metalness: 0.0,
+  transparent: true, opacity: 0.82,
+});
+const MAT_RIVER_BED = new THREE.MeshStandardMaterial({ color: 0x1a3a1a, roughness: 1.0 });
+
+// Actualiza el scroll del río — llamar desde el game loop
+export function updateVillageAnimations(dt) {
+  _riverTex.offset.y -= dt * 0.10;  // fluye "hacia adelante"
+  _riverTex.offset.x += dt * 0.008; // leve deriva lateral
+}
 
 // ─── Box helper (posición con base en y=0) ───────────────────────────────────
 function sb(mat, w, h, d, x, y, z, parent) {
@@ -481,39 +595,95 @@ function buildTownHall(scene, colliders, cx, cz) {
 
 // ─── Camino de tierra ─────────────────────────────────────────────────────────
 function buildPath(scene) {
-  const segs = [
-    // Sendero del spawn (z=-69) hacia el sur hasta la entrada del pueblo (z=-100)
-    { x: 2,  z: -85,  w: 3.5, d: 32 },
-    // Calle principal N-S a través del pueblo
-    { x: 0,  z: -125, w: 4,   d: 50 },
-    // Calle transversal norte (frente casas 1-2)
-    { x: 0,  z: -118, w: 52,  d: 3.5 },
-    // Calle transversal sur (frente casas 3-4)
-    { x: 0,  z: -132, w: 52,  d: 3.5 },
-    // Plaza central (entre iglesia y ayuntamiento)
-    { x: 0,  z: -122, w: 26,  d: 18 },
+  // Usa el mismo buildRoadFromPoints para consistencia visual
+  const roads = [
+    [{ x: 2, z: -69 }, { x: 2, z: -101 }],
+    [{ x: 0, z: -101 }, { x: 0, z: -150 }],
+    [{ x: -26, z: -118 }, { x: 26, z: -118 }],
+    [{ x: -26, z: -132 }, { x: 26, z: -132 }],
   ];
-  for (const s of segs) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(s.w, 0.07, s.d), MAT_PATH);
-    m.position.set(s.x, 0.01, s.z);
-    m.receiveShadow = true;
-    scene.add(m);
-  }
+  for (const pts of roads) buildRoadFromPoints(scene, pts, 3.8);
+}
+
+// ─── Geometría coronada para un segmento de camino ──────────────────────────
+// La sección transversal tiene un leve bombeo (centro más alto que los bordes).
+function _crownedSegGeo(width, len) {
+  const hw = width / 2, hl = len / 2;
+  const crown = 0.08; // altura del bombeo central (metros)
+  // 6 vértices por cara (frente+atrás) → 2 triángulos por mitad → geo simple
+  // Sección: borde izq y=0, centro y=crown, borde der y=0
+  const pos = new Float32Array([
+    // cara -Z
+    -hw, 0,      -hl,
+      0, crown,  -hl,
+     hw, 0,      -hl,
+    // cara +Z
+    -hw, 0,       hl,
+      0, crown,   hl,
+     hw, 0,       hl,
+  ]);
+  const idx = [
+    // faldón izquierdo (2 tris)
+    0,3,1, 1,3,4,
+    // faldón derecho (2 tris)
+    1,4,2, 2,4,5,
+    // cara frente
+    2,1,0,
+    // cara atrás
+    3,4,5,
+  ];
+  const uv = new Float32Array([
+    0,0,  0.5,0,  1,0,
+    0,1,  0.5,1,  1,1,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv',       new THREE.BufferAttribute(uv,  2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 // ─── Camino (polyline de puntos) ────────────────────────────────────────────
 function buildRoadFromPoints(scene, points, width = 3.5) {
   if (!points || points.length < 2) return;
+  const edgeW = 0.55; // ancho de cuneta a cada lado
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i], b = points[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z;
     const len = Math.sqrt(dx * dx + dz * dz);
     if (len < 0.1) continue;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(width, 0.07, len + 0.12), MAT_PATH);
-    m.position.set((a.x + b.x) / 2, 0.01, (a.z + b.z) / 2);
-    m.rotation.y = Math.atan2(dx, dz);
-    m.receiveShadow = true;
-    scene.add(m);
+    const ang = Math.atan2(dx, dz);
+    const mx  = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+
+    // Superficie coronada con textura
+    const mat = MAT_PATH.clone();
+    mat.map = _roadTex.clone();
+    mat.map.wrapS = THREE.ClampToEdgeWrapping;
+    mat.map.wrapT = THREE.RepeatWrapping;
+    mat.map.repeat.set(1, len / width * 0.8);  // tila proporcional al largo
+    mat.map.needsUpdate = true;
+    const road = new THREE.Mesh(_crownedSegGeo(width, len + 0.05), mat);
+    road.position.set(mx, 0.02, mz);
+    road.rotation.y = ang;
+    road.receiveShadow = true;
+    scene.add(road);
+
+    // Cunetas (bordes oscuros, ligeramente más bajos)
+    for (const side of [-1, 1]) {
+      const edge = new THREE.Mesh(
+        new THREE.BoxGeometry(edgeW, 0.04, len + 0.10), MAT_PATH_EDGE
+      );
+      edge.position.set(mx, 0.008, mz);
+      edge.rotation.y = ang;
+      // Desplazar lateralmente (en espacio local del segmento)
+      const offX = Math.cos(ang + Math.PI / 2) * (width / 2 + edgeW / 2) * side;
+      const offZ = -Math.sin(ang + Math.PI / 2) * (width / 2 + edgeW / 2) * side;
+      edge.position.x += offX;
+      edge.position.z += offZ;
+      edge.receiveShadow = true;
+      scene.add(edge);
+    }
   }
 }
 
@@ -523,16 +693,63 @@ function buildRiverFromPoints(scene, points, width = 6) {
   const curve = new THREE.CatmullRomCurve3(
     points.map(p => new THREE.Vector3(p.x, 0, p.z))
   );
-  const N = Math.max(20, points.length * 10);
-  const cpts = curve.getPoints(N);
-  for (let i = 0; i < cpts.length - 1; i++) {
+  // Solo construir la parte cercana al pueblo (primeros ~600 unidades de río)
+  const TOTAL_LEN = curve.getLength();
+  const BUILD_LEN = Math.min(TOTAL_LEN, 600);
+  const N = Math.max(30, Math.round(BUILD_LEN / 4));
+  const tMax = BUILD_LEN / TOTAL_LEN;
+  const cpts  = curve.getPoints(N);
+  const nBuild = Math.round(N * tMax);
+
+  for (let i = 0; i < nBuild - 1; i++) {
     const a = cpts[i], b = cpts[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z;
     const len = Math.sqrt(dx * dx + dz * dz) + 0.01;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(width, 0.18, len + 0.05), MAT_RIVER);
-    m.position.set((a.x + b.x) / 2, -0.06, (a.z + b.z) / 2);
-    m.rotation.y = Math.atan2(dx, dz);
-    scene.add(m);
+    const ang = Math.atan2(dx, dz);
+    const mx  = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+    // Ancho variable: ondulación sinusoidal para meandros
+    const t = i / nBuild;
+    const wVar = width * (0.85 + Math.sin(t * Math.PI * 3.7) * 0.20);
+
+    // ── Cauce / lecho (ligeramente hundido, tierra oscura) ──────────────────
+    const bed = new THREE.Mesh(
+      new THREE.BoxGeometry(wVar + 3.2, 0.22, len + 0.05), MAT_RIVER_BED
+    );
+    bed.position.set(mx, -0.14, mz);
+    bed.rotation.y = ang;
+    scene.add(bed);
+
+    // ── Orillas (gradiente húmedo a cada lado) ─────────────────────────────
+    for (const side of [-1, 1]) {
+      const bankW = 1.6 + Math.sin(t * 7.1 + side) * 0.5; // orilla irregular
+      const bank  = new THREE.Mesh(
+        new THREE.BoxGeometry(bankW, 0.12, len + 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x2a4a1a, roughness: 0.99 })
+      );
+      bank.rotation.y = ang;
+      // Posición lateral
+      const off = (wVar / 2 + bankW / 2) * side;
+      bank.position.set(
+        mx + Math.cos(ang + Math.PI / 2) * off,
+        -0.04,
+        mz - Math.sin(ang + Math.PI / 2) * off
+      );
+      bank.receiveShadow = true;
+      scene.add(bank);
+    }
+
+    // ── Superficie de agua animada ─────────────────────────────────────────
+    const waterMat = MAT_RIVER.clone();
+    waterMat.map = _riverTex; // comparte la textura animada (offset global)
+    // Escalar UVs según longitud del segmento
+    waterMat.map.repeat.set(1, len / wVar * 0.6);
+    const water = new THREE.Mesh(
+      new THREE.PlaneGeometry(wVar, len + 0.05, 2, 4), waterMat
+    );
+    water.rotation.x = -Math.PI / 2;
+    water.rotation.z = -ang;
+    water.position.set(mx, 0.02, mz);
+    scene.add(water);
   }
 }
 
