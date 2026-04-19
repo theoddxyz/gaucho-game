@@ -17,9 +17,10 @@ export class ConversationUI {
     this._panel      = null;
     this._active     = false;
     this._current    = null;
-    this._history    = {};   // name → [{from,text}]
-    this._waiting    = false;
-    this._playerName = '?';
+    this._history      = {};   // name → [{from,text}]
+    this._waiting      = false;
+    this._translating  = false; // Piper sintetizando post-respuesta
+    this._playerName   = '?';
     this.onClose     = null;
     this._buildPanel();
   }
@@ -47,17 +48,22 @@ export class ConversationUI {
       // Fase 4: lengua real del aldeano arranca inmediatamente (unfiltered)
       speakAldeanoReal(response, ix, iy, energia);
 
-      // Fallback: mostrar texto si Piper tarda más de 5s o falla
+      // Mostrar "traduciendo..." mientras Piper sintetiza
+      this._translating = true;
+      this._renderInput();
+
+      // Fallback de último recurso: si Piper falla o tarda >20s, mostrar texto igual
       let _shown = false;
       const showText = () => {
         if (_shown) return;
         _shown = true;
+        this._translating = false;
         if (this._current?.name === name) {
           this._renderHistory();
           this._renderInput();
         }
       };
-      setTimeout(showText, 5000);
+      setTimeout(showText, 20000);
 
       // Texto aparece exactamente cuando Daniela arranca (onStart)
       speakNpc(response, { charName: name, onStart: showText });
@@ -84,8 +90,9 @@ export class ConversationUI {
   close() {
     if (!this._active) return;
     const name = this._current?.name;
-    this._active  = false;
-    this._waiting = false;
+    this._active      = false;
+    this._waiting     = false;
+    this._translating = false;
     this._panel.style.display = 'none';
     this._current = null;
     stopTheater();
@@ -158,10 +165,18 @@ export class ConversationUI {
     container.innerHTML = '';
 
     if (this._waiting) {
-      const thinking = document.createElement('div');
-      thinking.style.cssText = 'color:#4a3018;font-size:12px;text-align:center;padding:10px 0;letter-spacing:3px;';
-      thinking.textContent = 'pensando...';
-      container.appendChild(thinking);
+      const el = document.createElement('div');
+      el.style.cssText = 'color:#4a3018;font-size:12px;text-align:center;padding:10px 0;letter-spacing:3px;';
+      el.textContent = 'pensando...';
+      container.appendChild(el);
+      return;
+    }
+
+    if (this._translating) {
+      const el = document.createElement('div');
+      el.style.cssText = 'color:#3a4a18;font-size:11px;text-align:center;padding:10px 0;letter-spacing:3px;font-style:italic;';
+      el.textContent = 'traduciendo...';
+      container.appendChild(el);
       return;
     }
 

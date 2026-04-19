@@ -64,11 +64,45 @@ async function _download() {
   }
 }
 
+// ── Parche de parámetros de síntesis en el JSON de OPFS ──────────────────────
+// El wrapper de piper-tts-web lee length_scale / noise_scale / noise_w del
+// JSON del modelo almacenado en OPFS. Modificamos esos valores para obtener
+// una voz más lenta, más expresiva y más clara.
+const SYNTH_PARAMS = {
+  length_scale: 1.35,  // 35% más lento que el default (1.0) → más claro
+  noise_scale:  0.85,  // más variación de tono (default 0.667) → menos robótico
+  noise_w:      0.95,  // más variación de ritmo (default 0.8)  → más natural
+};
+
+async function _patchConfig() {
+  const jsonFile = ONNX_PATH.split('/').at(-1) + '.json';
+  try {
+    const root = await navigator.storage.getDirectory();
+    const dir  = await root.getDirectoryHandle('piper', { create: false });
+    const fh   = await dir.getFileHandle(jsonFile, { create: false });
+    const json = JSON.parse(await (await fh.getFile()).text());
+
+    let changed = false;
+    for (const [k, v] of Object.entries(SYNTH_PARAMS)) {
+      if (json.inference[k] !== v) { json.inference[k] = v; changed = true; }
+    }
+    if (!changed) return; // ya parcheado
+
+    const wr = await fh.createWritable();
+    await wr.write(JSON.stringify(json));
+    await wr.close();
+    console.log('[PIPER-WORKER] config parcheada ✓', SYNTH_PARAMS);
+  } catch (e) {
+    console.warn('[PIPER-WORKER] _patchConfig:', e.message);
+  }
+}
+
 // ── Mensajes del hilo principal ───────────────────────────────────────────────
 self.onmessage = async ({ data }) => {
   if (data.type === 'init') {
     try {
       await _download();
+      await _patchConfig();
       self.postMessage({ type: 'ready' });
     } catch (e) {
       self.postMessage({ type: 'failed', msg: e.message });

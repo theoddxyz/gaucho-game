@@ -128,23 +128,28 @@ function _buildVoice(ctx, ix, iy, energia, filtered) {
 
   // ── Filtro de dispositivo (solo para fase 2) ─────────────────────────────
   if (filtered) {
-    // LPF: corta agudos → parlante/radio
-    const lpf = ctx.createBiquadFilter();
-    lpf.type = 'lowpass'; lpf.frequency.value = 1900; lpf.Q.value = 1.1;
+    // ── Filtro de radio/dispositivo ──────────────────────────────────────────
+    // HPF: elimina bajos (como un viejo parlante)
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass'; hpf.frequency.value = 320; hpf.Q.value = 0.7;
 
-    // Distorsión suave (aliasing electrónico)
+    // BPF estrecho: banda de teléfono/radio (300-3000 Hz → centrar en 850)
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 850; bpf.Q.value = 1.8;
+
+    // Distorsión más pronunciada (claramente electrónico)
     const ws = ctx.createWaveShaper();
-    ws.curve = _distortionCurve(10);
+    ws.curve = _distortionCurve(22);
     ws.oversample = '2x';
 
-    // Tremolo rápido y sutil (~24Hz)
-    const tremGain = ctx.createGain(); tremGain.gain.value = 0.91;
-    const tremLfo  = ctx.createOscillator(); tremLfo.frequency.value = 24;
-    const tremLfoG = ctx.createGain(); tremLfoG.gain.value = 0.09;
+    // Tremolo a 18Hz (vibración de dispositivo)
+    const tremGain = ctx.createGain(); tremGain.gain.value = 0.88;
+    const tremLfo  = ctx.createOscillator(); tremLfo.frequency.value = 18;
+    const tremLfoG = ctx.createGain(); tremLfoG.gain.value = 0.12;
     tremLfo.connect(tremLfoG); tremLfoG.connect(tremGain.gain);
     oscs.push(tremLfo);
 
-    out.connect(lpf); lpf.connect(ws); ws.connect(tremGain);
+    out.connect(hpf); hpf.connect(bpf); bpf.connect(ws); ws.connect(tremGain);
     tremGain.connect(master);
   } else {
     out.connect(master);
@@ -154,74 +159,63 @@ function _buildVoice(ctx, ix, iy, energia, filtered) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FASE 1 — El traductor procesa
-// Electrónico + místico. Arpeggio de senos + drone bajo + shimmer
+// FASE 1 — El traductor procesa (electrónico industrial + toque místico)
+// Clicks irregulares de datos + sweep + drone profundo
 // ─────────────────────────────────────────────────────────────────────────────
 export function startPhase1(onDone) {
   stopTheater();
   const v = _theaterVer;
-  const DURATION_MS = 950;
+  const DURATION_MS = 900;
   try {
-    const ctx  = _getCtx();
-    const t0   = ctx.currentTime;
-    const dur  = DURATION_MS / 1000;
+    const ctx = _getCtx();
+    const t0  = ctx.currentTime;
+    const dur = DURATION_MS / 1000;
 
     const master = ctx.createGain();
-    master.gain.setValueAtTime(0, t0);
-    master.gain.linearRampToValueAtTime(0.10, t0 + 0.04);
-    master.gain.setValueAtTime(0.10, t0 + dur - 0.12);
+    master.gain.setValueAtTime(0.12, t0);
+    master.gain.setValueAtTime(0.12, t0 + dur - 0.08);
     master.gain.linearRampToValueAtTime(0, t0 + dur);
     master.connect(ctx.destination);
 
     const oscs = [];
 
-    // Arpeggio de 5 notas electrónicas (ascendente, ligeramente detuneadas)
-    const notes = [523, 698, 880, 1047, 1319]; // C5-F5-A5-C6-E6 (progresión electrónica)
-    const noteLen = dur / notes.length;
-    notes.forEach((freq, i) => {
-      const t  = t0 + i * noteLen;
-      const no = ctx.createOscillator();
-      no.type = 'sine';
-      no.frequency.value = freq * (1 + (i % 2 === 0 ? 0.003 : -0.003)); // leve detune
+    // ── Bursts de ruido cortos (datos procesándose) ────────────────────────
+    const burstTimes = [0, 0.07, 0.18, 0.22, 0.38, 0.45, 0.60, 0.72, 0.83];
+    for (const bt of burstTimes) {
+      const bufSz = Math.floor(ctx.sampleRate * 0.025);
+      const buf   = ctx.createBuffer(1, bufSz, ctx.sampleRate);
+      const data  = buf.getChannelData(0);
+      for (let i = 0; i < bufSz; i++) data[i] = Math.random() * 2 - 1;
+      const ns  = ctx.createBufferSource(); ns.buffer = buf;
+      const bpf = ctx.createBiquadFilter(); bpf.type = 'bandpass';
+      bpf.frequency.value = 1200 + bt * 2000; bpf.Q.value = 3;
+      const g = ctx.createGain(); g.gain.value = 0.55 + Math.random() * 0.3;
+      ns.connect(bpf); bpf.connect(g); g.connect(master);
+      ns.start(t0 + bt);
+    }
 
-      // Vibrato por nota (toque místico)
-      const vib = ctx.createOscillator(); vib.frequency.value = 5 + i;
-      const vG  = ctx.createGain(); vG.gain.value = freq * 0.004;
-      vib.connect(vG); vG.connect(no.frequency);
+    // ── Sweep electrónico ascendente (escaneo) ─────────────────────────────
+    const sweep = ctx.createOscillator(); sweep.type = 'sawtooth';
+    sweep.frequency.setValueAtTime(180, t0);
+    sweep.frequency.linearRampToValueAtTime(3200, t0 + dur * 0.85);
+    const sweepG = ctx.createGain(); sweepG.gain.value = 0.06;
+    const sweepF = ctx.createBiquadFilter(); sweepF.type = 'bandpass'; sweepF.Q.value = 8;
+    sweepF.frequency.setValueAtTime(180, t0);
+    sweepF.frequency.linearRampToValueAtTime(3200, t0 + dur * 0.85);
+    sweep.connect(sweepF); sweepF.connect(sweepG); sweepG.connect(master);
+    sweep.start(t0); sweep.stop(t0 + dur);
+    oscs.push(sweep);
 
-      const nGain = ctx.createGain();
-      nGain.gain.setValueAtTime(0, t);
-      nGain.gain.linearRampToValueAtTime(1, t + 0.018);
-      nGain.gain.setValueAtTime(1, t + noteLen * 0.55);
-      nGain.gain.linearRampToValueAtTime(0, t + noteLen * 0.92);
-
-      no.connect(nGain); nGain.connect(master);
-      vib.start(t); vib.stop(t + noteLen);
-      no.start(t); no.stop(t + noteLen);
-      oscs.push(no, vib);
-    });
-
-    // Drone bajo (base mística)
-    const drone = ctx.createOscillator(); drone.type = 'sine'; drone.frequency.value = 98;
-    const droneG = ctx.createGain(); droneG.gain.value = 0.25;
-    const droneV = ctx.createOscillator(); droneV.frequency.value = 0.4;
-    const droneVG = ctx.createGain(); droneVG.gain.value = 3;
-    droneV.connect(droneVG); droneVG.connect(drone.frequency);
+    // ── Drone profundo (base mística) ──────────────────────────────────────
+    const drone = ctx.createOscillator(); drone.type = 'sine'; drone.frequency.value = 55;
+    const droneG = ctx.createGain(); droneG.gain.value = 0.18;
+    const droneM = ctx.createOscillator(); droneM.frequency.value = 0.6;
+    const droneMG = ctx.createGain(); droneMG.gain.value = 0.06;
+    droneM.connect(droneMG); droneMG.connect(droneG.gain);
     drone.connect(droneG); droneG.connect(master);
     drone.start(t0); drone.stop(t0 + dur);
-    droneV.start(t0); droneV.stop(t0 + dur);
-    oscs.push(drone, droneV);
-
-    // Shimmer agudo (éter)
-    const sh = ctx.createOscillator(); sh.type = 'sine'; sh.frequency.value = 2750;
-    const shG = ctx.createGain(); shG.gain.value = 0.022;
-    const shL = ctx.createOscillator(); shL.frequency.value = 3.5;
-    const shLG = ctx.createGain(); shLG.gain.value = 0.018;
-    shL.connect(shLG); shLG.connect(shG.gain);
-    sh.connect(shG); shG.connect(master);
-    sh.start(t0); sh.stop(t0 + dur);
-    shL.start(t0); shL.stop(t0 + dur);
-    oscs.push(sh, shL);
+    droneM.start(t0); droneM.stop(t0 + dur);
+    oscs.push(drone, droneM);
 
     _theaterNodes.push({ master, oscs });
 
@@ -267,9 +261,9 @@ export function startPhase3(ix, iy) {
     const ctx = _getCtx();
     const t0  = ctx.currentTime;
 
-    // Pitch de contemplación: MATERIA = bajo, TRASCENDENCIA = alto
-    const pitch = 75 + iy * 35;
-    const vol   = 0.025 + Math.abs(iy) * 0.015 + Math.abs(ix) * 0.008;
+    // Muy silencioso — apenas una presencia
+    const pitch = 72 + iy * 28;
+    const vol   = 0.012 + Math.abs(iy) * 0.006;
 
     const master = ctx.createGain();
     master.gain.setValueAtTime(0, t0);
