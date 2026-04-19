@@ -220,14 +220,68 @@ function _heightForNormal(wx, wz) {
   return d1 + d2 + d3 + d4 + wind;
 }
 
-// ─── Materiales compartidos ──────────────────────────────────────────────────
-// Sin textura de normal map: las normales se calculan por vértice desde el ruido
-// procedural → 100% sin tiling, continuas entre cualquier par de chunks.
+// ─── Material del terreno con normal procedural per-fragment ─────────────────
+// onBeforeCompile inyecta GLSL que calcula el gradiente del ruido en cada pixel
+// usando coordenadas de mundo → resolución infinita, multi-escala, cero tiling.
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness:    0.88,
+  roughness:    0.85,
   metalness:    0.0,
   vertexColors: true,
 });
+
+TERRAIN_MAT.onBeforeCompile = (shader) => {
+  // ── Vertex: pasar posición en mundo al fragment ──────────────────────────
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>\nvarying vec3 vWPos;`)
+    .replace('#include <worldpos_vertex>',
+      `#include <worldpos_vertex>\nvWPos = worldPosition.xyz;`);
+
+  // ── Fragment: funciones de ruido + gradiente per-pixel ───────────────────
+  const noiseGLSL = /* glsl */`
+    varying vec3 vWPos;
+
+    float gHash(float px, float py) {
+      float s = sin(px * 127.1 + py * 311.7) * 43758.5453;
+      return s - floor(s);
+    }
+    float gNoise(vec2 p) {
+      vec2 i = floor(p); vec2 f = fract(p);
+      vec2 u = f*f*(3.0-2.0*f);
+      float a=gHash(i.x,i.y), b=gHash(i.x+1.0,i.y);
+      float c=gHash(i.x,i.y+1.0), d=gHash(i.x+1.0,i.y+1.0);
+      return a+(b-a)*u.x+(c-a)*u.y+(d-c-b+a)*u.x*u.y;
+    }
+    float gFbm(vec2 p) {
+      float v=0.0, a=0.55;
+      for(int i=0;i<4;i++){v+=gNoise(p)*a; p*=2.1; a*=0.5;}
+      return v;
+    }
+    // Altura multi-escala: grande + medio + fino + micro + viento
+    float gHfn(vec2 p) {
+      float d1 = gFbm(p/80.0  + vec2(5.5,2.3))  * 1.2;
+      float d2 = gNoise(p/28.0 + vec2(11.3,7.9)) * 0.7;
+      float d3 = gNoise(p/11.0 + vec2(55.1,33.4))* 0.4;
+      float d4 = gNoise(p/4.0  + vec2(190.0,120.0)) * 0.2;
+      float wind = sin((p.x*0.9-p.y*0.35)/18.0 + gNoise(p/40.0)*3.0)*0.3;
+      return d1+d2+d3+d4+wind;
+    }
+  `;
+
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>\n${noiseGLSL}`)
+    .replace('#include <normal_fragment_maps>', `
+      // Normal procedural per-fragment desde gradiente de ruido en espacio-mundo
+      {
+        vec2 wp = vWPos.xz;
+        const float EPS = 0.35;
+        const float STR = 14.0;
+        float dhx = (gHfn(wp+vec2(EPS,0.0))-gHfn(wp-vec2(EPS,0.0)))/(2.0*EPS)*STR;
+        float dhz = (gHfn(wp+vec2(0.0,EPS))-gHfn(wp-vec2(0.0,EPS)))/(2.0*EPS)*STR;
+        vec3 wn = normalize(vec3(-dhx, 1.0, -dhz));
+        normal = normalize(mat3(viewMatrix) * wn);
+      }
+    `);
+};
 
 const ROCK_MATS = [
   new THREE.MeshStandardMaterial({ color: 0x7a7a7a, roughness: 0.97 }),
@@ -355,32 +409,18 @@ export class ChunkManager {
     // ── Terreno: vertex colors + desplazamiento + normales procedurales ─────────
     const geo  = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, SUB, SUB);
     const pos  = geo.attributes.position;
-    const nrm  = geo.attributes.normal;
     const cols = new Float32Array(pos.count * 3);
-    const EPS  = 0.4;  // epsilon en unidades de mundo para el gradiente
 
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i) + ox;
-      const wz = -pos.getY(i) + oz;  // PlaneGeometry Y local → -Z mundo tras rotación
-
-      // Color del vértice
+      const wz = -pos.getY(i) + oz;
       const [r, g, b] = _terrainColor(wx, wz);
       cols[i*3] = r; cols[i*3+1] = g; cols[i*3+2] = b;
-
-      // Desplazamiento (eje Z local = eje Y mundo tras rotación)
       pos.setZ(i, _terrainHeight(wx, wz));
-
-      // ── Normal procedural desde gradiente de _heightForNormal ────────────────
-      // STRENGTH amplifica los derivados → normales más inclinadas → más contraste de luz
-      const STRENGTH = 10.0;
-      const dhx = (_heightForNormal(wx + EPS, wz) - _heightForNormal(wx - EPS, wz)) / (2 * EPS) * STRENGTH;
-      const dhz = (_heightForNormal(wx, wz + EPS) - _heightForNormal(wx, wz - EPS)) / (2 * EPS) * STRENGTH;
-      const len = Math.sqrt(dhx * dhx + dhz * dhz + 1.0);
-      nrm.setXYZ(i, -dhx / len, dhz / len, 1.0 / len);
     }
     pos.needsUpdate = true;
-    nrm.needsUpdate = true;
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    geo.computeVertexNormals();
     const ground = new THREE.Mesh(geo, TERRAIN_MAT);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(ox, 0, oz);
