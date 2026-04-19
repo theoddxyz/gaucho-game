@@ -1000,19 +1000,20 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
       : '';
     // Pedimos respuesta corta + impulso metafísico como JSON
     const prompt =
-`Sos ${name}, aldeano de la pampa argentina. Tenés carácter propio, historia, miedos y alegrías.
+`Estás interpretando a ${name}, un aldeano de la pampa argentina con carácter propio, historia, miedos y alegrías.
+TU nombre es ${name}. La persona que te habla se llama ${pName}. No confundas los nombres.
 Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
 Vecinos: ${vecinos}.${histStr}
 ${pName} te dice: "${message.trim()}"
 
-Respondé como una persona real respondería: con emoción, contexto, opinión propia. Podés hacer una pregunta de vuelta, contar algo personal, quejarte, alegrarte. Usá modismos rioplatenses, vocabulario de campo, frases cortadas. Máximo 50 palabras, mínimo 20.
+Respondé como ${name} le hablaría a ${pName}: con emoción real, opinión propia, contexto de tu vida. Contá algo tuyo, preguntá algo, quejate o alegrate. Usá modismos rioplatenses y vocabulario de campo. Entre 40 y 80 palabras. No repitas el nombre de ${pName} más de una vez.
 
 Respondé con JSON válido, sin markdown, sin texto extra:
-{"r":"tu respuesta con voz, carácter y emoción genuina","ix":0.0,"iy":0.0}
+{"r":"respuesta de ${name} dirigida a ${pName}","ix":0.0,"iy":0.0}
 
-ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0) que provoca lo que dijo el gaucho
-iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0) que provoca lo que dijo el gaucho
-Valores entre -1.0 y 1.0. Sé preciso según el contenido del mensaje.`;
+ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0)
+iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0)
+Valores entre -1.0 y 1.0.`;
     try {
       let raw;
       if (_gmModel) {

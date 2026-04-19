@@ -125,7 +125,7 @@ function _makeBursts(ctx, text, ix, iy, energia) {
 export function startPhase1(onDone) {
   stopTheater();
   const v = _theaterVer;
-  const DUR_MS = 1500;
+  const DUR_MS = 2800;   // ← 1500→2800ms: se siente como procesamiento real
   const dur    = DUR_MS / 1000;
   try {
     const ctx = _getCtx();
@@ -190,12 +190,13 @@ export function startPhase1(onDone) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function startPhase2(text, ix, iy, onDone) {
   const v = _theaterVer;
-  let durMs = 1500;
+  let durMs = 4000;
   try {
     const ctx = _getCtx();
     const t0  = ctx.currentTime;
     const { master, oscs, totalDur, volBase } = _makeBursts(ctx, text, ix, iy, 80);
-    durMs = Math.max(1500, totalDur * 1000 + 200);
+    // Mínimo 4s — el traductor tarda en "traducir", no importa cuán corto sea el mensaje
+    durMs = Math.max(4000, totalDur * 1000 + 400);
     const dur = durMs / 1000;
 
     // Envolvente del master (volumen del dispositivo: ligeramente más bajo)
@@ -239,31 +240,52 @@ export function startPhase2(text, ix, iy, onDone) {
 // FASE 3 — El aldeano piensa (casi silencio, loop hasta respuesta)
 // ─────────────────────────────────────────────────────────────────────────────
 export function startPhase3(ix, iy) {
+  // El aldeano "piensa" — audible, no silencio. Murmullos irregulares + respiración.
   try {
     const ctx = _getCtx();
     const t0  = ctx.currentTime;
-    const pitch = 68 + iy * 25;
-    const vol   = 0.010 + Math.abs(iy) * 0.005;
+    const pitch = 72 + iy * 30;
+    const vol   = 0.055 + Math.abs(iy) * 0.018;  // ← mucho más audible (era 0.010)
 
     const master = ctx.createGain();
     master.gain.setValueAtTime(0, t0);
-    master.gain.linearRampToValueAtTime(vol, t0 + 0.8);
+    master.gain.linearRampToValueAtTime(vol, t0 + 0.6);
     master.connect(ctx.destination);
 
+    // Drone de "pensamiento" — ondulante, presente
     const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = pitch;
-    const breathLfo = ctx.createOscillator(); breathLfo.frequency.value = 0.10 + iy * 0.03;
-    const breathG   = ctx.createGain(); breathG.gain.value = vol * 0.35;
+    const breathLfo = ctx.createOscillator(); breathLfo.frequency.value = 0.14 + iy * 0.04;
+    const breathG   = ctx.createGain(); breathG.gain.value = vol * 0.4;
     breathLfo.connect(breathG); breathG.connect(master.gain);
     osc.connect(master); osc.start(); breathLfo.start();
 
     const oscs = [osc, breathLfo];
 
-    if (iy > 0.3) {
-      const ot = ctx.createOscillator(); ot.type = 'sine';
-      ot.frequency.value = pitch * 2.74; // inarmónico
-      const otG = ctx.createGain(); otG.gain.value = iy * 0.006;
-      ot.connect(otG); otG.connect(master); ot.start(); oscs.push(ot);
-    }
+    // Segunda voz inarmónica — más carácter
+    const ot = ctx.createOscillator(); ot.type = 'triangle';
+    ot.frequency.value = pitch * (iy > 0 ? 2.74 : 1.52);
+    const otG = ctx.createGain(); otG.gain.value = vol * 0.25;
+    ot.connect(otG); otG.connect(master); ot.start(); oscs.push(ot);
+
+    // Bursts irregulares de "murmullo" cada ~1.5-3s
+    const _schedBurst = (delay) => {
+      const bTimer = setTimeout(() => {
+        if (!_theaterNodes.find(n => n.master === master)) return; // ya parado
+        const bt  = ctx.currentTime;
+        const bufSz = Math.floor(ctx.sampleRate * 0.045);
+        const buf   = ctx.createBuffer(1, bufSz, ctx.sampleRate);
+        const d     = buf.getChannelData(0);
+        for (let i = 0; i < bufSz; i++) d[i] = (Math.random() * 2 - 1) * 0.3;
+        const ns  = ctx.createBufferSource(); ns.buffer = buf;
+        const bpf = ctx.createBiquadFilter(); bpf.type = 'bandpass';
+        bpf.frequency.value = pitch * 3; bpf.Q.value = 4;
+        const bg  = ctx.createGain(); bg.gain.value = vol * 0.6;
+        ns.connect(bpf); bpf.connect(bg); bg.connect(master);
+        ns.start(bt);
+        _schedBurst(1400 + Math.random() * 1800);
+      }, delay);
+    };
+    _schedBurst(600 + Math.random() * 800);
 
     _theaterNodes.push({ master, oscs });
 
