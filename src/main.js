@@ -500,7 +500,7 @@ renderer.domElement.style.imageRendering = 'pixelated';
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type      = THREE.PCFSoftShadowMap;  // bordes suaves, más cinematográfico
 renderer.toneMapping         = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;  // balance — no sobreexpuesto
+renderer.toneMappingExposure = 1.45;  // más luminoso de día
 document.body.appendChild(renderer.domElement);
 
 // --- Camera (isometric) ---
@@ -1105,6 +1105,9 @@ Network.onJoined((data) => {
   conversationUI.init();
   conversationUI.setPlayerName(data.self.name || 'gaucho');
   conversationUI.requestQA(soulSystem.getContextForChat(), Math.floor(getDayProgress() * 24));
+
+  // Inicializar flecha de aldea
+  UI.initVillageArrow();
 
   controls.onEPress = () => {
     const pos = controls.getPosition();
@@ -2458,7 +2461,7 @@ function gameLoop() {
       } else {
         const left = shotsLeft();
         _reloadHud.style.display = 'block';
-        _reloadHud.textContent = `🔫 ${left}/6`;
+        _reloadHud.textContent = `[${left}/6]`;
       }
     } else {
       _reloadHud.style.display = 'none';
@@ -2828,6 +2831,7 @@ function gameLoop() {
       Network.sendCowCorralled(id);
     }
     UI.updateStableWaypoint(pos.x, pos.z);
+    UI.updateVillageArrow(pos.x, pos.z);
   }
 
   // ── Crosshair color: roja si hay blanco bajo la mira (siempre activo) ──────

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HOUSES, DEST } from './souls.js';
+import { getHousePortals } from './village.js';
 
 // ─── Cola del gusano (GLB con Empty de anclaje) ───────────────────────────────
 let _tailScene    = null;                         // scene cloneable del GLB
@@ -482,16 +483,24 @@ function makeLabel(name) {
 }
 
 // ─── Destino 3D según intención del alma ──────────────────────────────────────
+// Devuelve la posición del portal de la casa si está disponible, si no la posición de la casa.
+function _houseEntry(idx) {
+  const portals = getHousePortals();
+  const portal  = portals[idx];
+  if (portal) return portal;                                     // entrada por portal GLB
+  return { x: HOUSES[idx].pos.x, z: HOUSES[idx].pos.y };        // fallback: centro de casa
+}
+
 function _getDestForUnit(unit, idx) {
   if (unit.isSleeping || unit.intention === 'SLEEPING')
-    return { x: HOUSES[idx].pos.x, z: HOUSES[idx].pos.y };
+    return _houseEntry(idx);
   // Plan de entrega tiene prioridad
   if (unit.deliveryPlan && unit.deliveryPlan.length > 0) {
     const step = unit.deliveryPlan[0];
     if (step.label === 'OFFERING')                               return { x: DEST.OFFERING.x,    z: DEST.OFFERING.y   };
     if (step.label === 'SHARING')                                return { x: DEST.SHARING.x,     z: DEST.SHARING.y    };
     if (step.label === 'BAR')                                    return { x: DEST.BAR.x,         z: DEST.BAR.y        };
-    if (step.label === 'HOARDING' || step.label === 'CONSUMING') return { x: HOUSES[idx].pos.x,  z: HOUSES[idx].pos.y };
+    if (step.label === 'HOARDING' || step.label === 'CONSUMING') return _houseEntry(idx);
   }
   if (unit.energy < 65 || unit.intention === 'CONSUMING' || unit.inventory === 0) return { x: HOUSES[idx].farm.x, z: HOUSES[idx].farm.y };
   if (unit.intention === 'OFFERING')                      return { x: DEST.OFFERING.x,    z: DEST.OFFERING.y   };

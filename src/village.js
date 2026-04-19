@@ -7,9 +7,19 @@ import worldLayout from './data/world_layout.json';
 
 const _vLoader = new GLTFLoader();
 
+// ─── Portales de casas ────────────────────────────────────────────────────────
+// Array de {x, z} — posición del mesh "prota"/"portal" de cada casa cargada.
+// El índice corresponde al orden de aparición de 'house' en world_layout.json.
+const _housePortals = [];   // [{x,z}, ...]  — puede ser null si no se encontró
+let   _houseLoadIdx = 0;    // contador para asignar índice a cada casa cargada
+
+/** Devuelve los portales detectados al cargar los GLBs de casas. */
+export function getHousePortals() { return _housePortals; }
+
 // Intenta cargar un GLB; si carga, reemplaza el grupo procedural en la escena.
-// scale: factor de escala del GLB (ajustar según el tamaño del modelo exportado)
-function _trySwap(scene, group, glbPath, scale = 1) {
+// scale: factor de escala del GLB.
+// portalSlot: si se pasa (número), guarda la posición del mesh "prota"/"portal" en ese slot.
+function _trySwap(scene, group, glbPath, scale = 1, portalSlot = -1) {
   _vLoader.load(glbPath, g => {
     scene.remove(group);
     const m = g.scene;
@@ -18,6 +28,21 @@ function _trySwap(scene, group, glbPath, scale = 1) {
     m.scale.setScalar(scale);
     m.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
     scene.add(m);
+
+    // Detectar mesh "prota" o "portal" para saber por dónde entran los NPCs
+    if (portalSlot >= 0) {
+      let portalPos = null;
+      m.traverse(o => {
+        if (portalPos) return;
+        const n = o.name.toLowerCase();
+        if (n.includes('prota') || n.includes('portal') || n.includes('puerta') || n.includes('door')) {
+          const wp = new THREE.Vector3();
+          o.getWorldPosition(wp);
+          portalPos = { x: wp.x, z: wp.z };
+        }
+      });
+      _housePortals[portalSlot] = portalPos;  // null si no se encontró
+    }
   }, undefined, () => {});  // falla silenciosa → grupo procedural ya en escena
 }
 
@@ -769,7 +794,9 @@ function buildEditorTree(scene, cx, cz) {
 // ─── API pública ──────────────────────────────────────────────────────────────
 // El layout se lee de src/data/world_layout.json — editalo con editor.html
 export function createVillage(scene, colliders) {
-  _gates.length = 0;
+  _gates.length   = 0;
+  _houseLoadIdx   = 0;
+  _housePortals.length = 0;
 
   // ── Ríos (caminos removidos) ─────────────────────────────────────────────────
   for (const path of worldLayout.paths ?? []) {
@@ -787,7 +814,7 @@ export function createVillage(scene, colliders) {
         _trySwap(scene, buildTownHall(scene, colliders, obj.x, obj.z), '/models/nuevocityhall.glb', 0.27);
         break;
       case 'house':
-        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/nuevacasa.glb', 0.27);
+        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/nuevacasa.glb', 0.27, _houseLoadIdx++);
         break;
       case 'farm':
         _trySwap(scene, buildFarm(scene, colliders, obj.x, obj.z), '/models/farm.glb');

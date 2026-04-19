@@ -213,7 +213,7 @@ const npcSessions = new Map();
 // ─── Gemini Game Master ───────────────────────────────────────────────────────
 const _geminiKey = process.env.GEMINI_API_KEY || '';
 const _genAI     = _geminiKey ? new GoogleGenerativeAI(_geminiKey) : null;
-const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.0-flash' }) : null;
+const _gmModel      = _genAI ? _genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-04-17' }) : null;
 console.log(`[GM] Gemini ${_gmModel ? 'ACTIVO' : 'INACTIVO (sin API key)'}`);
 
 // ─── Ollama Local AI (Gemma 3 4B — pequeño, rápido) ──────────────────────────
@@ -504,11 +504,20 @@ function _checkNpcResolution(roomId) {
 }
 
 function randomSpawn() {
-  const spread = 12;
+  // Spawn lejos de la aldea (centrada en ~0,-25).
+  // 4 zonas de spawn distribuidas alrededor a ~200 unidades.
+  const zones = [
+    { x:  200, z:   0 },  // este
+    { x: -200, z:   0 },  // oeste
+    { x:    0, z:  200 },  // sur
+    { x:    0, z: -220 },  // norte
+  ];
+  const zone   = zones[Math.floor(Math.random() * zones.length)];
+  const spread = 20;
   return {
-    x: 3.8 + (Math.random() - 0.5) * spread,
+    x: zone.x + (Math.random() - 0.5) * spread,
     y: 1.0,
-    z: -69.0 + (Math.random() - 0.5) * spread,
+    z: zone.z + (Math.random() - 0.5) * spread,
   };
 }
 
@@ -1007,20 +1016,25 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
       : '';
     // Pedimos respuesta + impulso metafísico como JSON
     const prompt =
-`Eres ${name}, un gusano-aldeano${/a$/i.test(name) ? '/a' : ''} de la pampa argentina viviendo en un planeta lejano.
-La persona que te habla se llama ${pName}. No confundas los nombres.
-Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
-Vecinos: ${vecinos}.${histStr}
+`Sos ${name}, un aldeano-gusano${/a$/i.test(name) ? '/a' : ''} de la pampa argentina en un planeta lejano. Hablas español rioplatense.
+Quien te habla: ${pName}. Jamás confundas los nombres ni te llames a vos mismo por nombre.
+Tu estado — Alma: ${cuadrante}, en trayectoria ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5. Vecinos: ${vecinos}.${histStr}
 ${pName} te dice: "${message.trim()}"
 
-Respondé como ${name} le hablaría a ${pName}: con emoción real, opinión propia, contexto de tu vida. Contá algo tuyo, preguntá algo, quejate o alegrate. Entre 100 y 200 palabras. No repitas el nombre de ${pName} más de una vez.
+INSTRUCCIONES:
+- Respondé EN PERSONAJE como ${name}, con voz y actitud propias.
+- Usá español rioplatense natural (vos, che, boludo, etc.). Nada de español de España.
+- Expresá emociones reales según tu estado de ánimo. Si tenés poca energía, estás cansado. Si tenés recursos, estás contento.
+- Contá algo de tu vida cotidiana en la pampa (chacra, vecinos, el clima, animales, la aldea).
+- Podés hacer una pregunta, quejarte, alegrarte, dudar, filosofar brevemente.
+- MÁXIMO 120 palabras. Directo, sin rodeos.
 
-Respondé con JSON válido, sin markdown, sin texto extra:
-{"r":"...","ix":0.0,"iy":0.0}
+Respondé SOLO con JSON, sin markdown:
+{"r":"tu respuesta","ix":0.0,"iy":0.0}
 
-ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0)
-iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0)
-Valores entre -1.0 y 1.0.`;
+ix: impacto en INDIVIDUO(-1) ↔ COMUNIDAD(+1)
+iy: impacto en MATERIA(-1) ↔ TRASCENDENCIA(+1)
+Ambos entre -1.0 y 1.0.`;
     try {
       let raw;
       if (_gmModel) {
@@ -1116,7 +1130,7 @@ app.post('/api/ai', async (req, res) => {
           _gmModel.generateContent(fullPrompt),
           new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 35000)),
         ]);
-        return res.json({ response: r.response.text().trim(), model: 'gemini-2.0-flash', source: 'gemini' });
+        return res.json({ response: r.response.text().trim(), model: 'gemini-2.5-flash-preview-04-17', source: 'gemini' });
       }
       throw ollamaErr;
     }

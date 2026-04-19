@@ -436,3 +436,65 @@ export function showNorthCompass() {
   `;
   document.body.appendChild(_compass);
 }
+
+// ─── Village Arrow ────────────────────────────────────────────────────────────
+// Apunta hacia el centro de la aldea. Se oculta cuando el jugador ya está cerca.
+const _VILLAGE_X = 0, _VILLAGE_Z = -25;  // centro aproximado de la aldea
+const _VILLAGE_HIDE_DIST = 80;           // ocultar cuando está a menos de 80 unidades
+let _villageArrow = null;
+
+export function initVillageArrow() {
+  if (_villageArrow) return;
+  _villageArrow = document.createElement('div');
+  _villageArrow.id = 'village-arrow';
+  _villageArrow.style.cssText = `
+    position:fixed; bottom:120px; left:16px;
+    z-index:210; pointer-events:none; display:none;
+    font-family:'Share Tech Mono','Courier New',monospace;
+    text-align:center; user-select:none;
+  `;
+  _villageArrow.innerHTML = `
+    <div style="font-size:9px; color:#4a3010; letter-spacing:2px; margin-bottom:2px;">ALDEA</div>
+    <div id="village-arrow-dir" style="
+      font-size:20px; line-height:1;
+      color:rgba(200,160,60,0.75);
+      display:inline-block;
+    ">↑</div>
+    <div id="village-arrow-dist" style="
+      font-size:9px; color:#3a2808; letter-spacing:1px; margin-top:1px;
+    "></div>
+  `;
+  document.body.appendChild(_villageArrow);
+}
+
+export function updateVillageArrow(px, pz) {
+  if (!_villageArrow) return;
+  const dx   = _VILLAGE_X - px;
+  const dz   = _VILLAGE_Z - pz;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+
+  if (dist < _VILLAGE_HIDE_DIST) {
+    _villageArrow.style.display = 'none';
+    return;
+  }
+  _villageArrow.style.display = 'block';
+
+  // Ángulo en pantalla: cámara isométrica mira en dirección (+X, -Z) diagonal.
+  // La cámara está a (20,25,20) mirando a (0,0,0) → vista desde el noreste.
+  // El jugador avanza en la dirección que la cámara "enfrenta" visualmente.
+  // Para mostrar la dirección correcta de la aldea relativa a la vista:
+  // worldAngle = atan2(dx, -dz) da 0=norte, 90=este, etc.
+  // Offset -135° para alinear con la vista isométrica NE.
+  const worldAngle  = Math.atan2(dx, -dz) * 180 / Math.PI;
+  const screenAngle = worldAngle - 135;  // ajuste vista isométrica
+  const distStr     = dist > 999 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`;
+
+  const dirEl  = document.getElementById('village-arrow-dir');
+  const distEl = document.getElementById('village-arrow-dist');
+  if (dirEl)  dirEl.style.transform = `rotate(${screenAngle}deg)`;
+  if (distEl) distEl.textContent    = distStr;
+
+  // Pulsar suavemente
+  const pulse = 0.55 + 0.25 * Math.sin(Date.now() * 0.0015);
+  if (dirEl) dirEl.style.opacity = String(pulse);
+}

@@ -1,7 +1,7 @@
 // conversation-ui.js — Input mínimo + globos de diálogo via BubbleUI
 import * as Network from './network.js';
-import { speakNpc, stopSpeech } from './speech.js';
-import { startPhase1, startPhase2, startPhase3, stopTheater, speakAldeanoReal } from './aldeano-voice.js';
+import { stopSpeech } from './speech.js';
+import { stopTheater } from './aldeano-voice.js';
 
 // ── Género por nombre (termina en 'a' → femenino) ─────────────────────────────
 function _isFem(name) { return /a$/i.test((name || '').trim()); }
@@ -14,10 +14,10 @@ const MOOD_LABEL = {
   BAR:       ['suelto, desconfiado',     'suelta, desconfiada'],
 };
 
-// Estimación de duración de audio Piper basada en longitud de texto
-// ~150 palabras/min con la voz Daniela → ~2.5 chars/s (conservador)
+// Duración de animación de decodificación del globo: ~40ms por palabra
 function _estimateDurMs(text) {
-  return Math.max(3000, Math.min(12000, text.length * 55));
+  const words = (text || '').trim().split(/\s+/).length;
+  return Math.max(2000, Math.min(8000, words * 180));
 }
 
 export class ConversationUI {
@@ -179,24 +179,22 @@ export class ConversationUI {
     setTimeout(() => input.focus(), 30);
   }
 
-  // ── Enviar mensaje del jugador ────────────────────────────────────────────
+  // ── Enviar mensaje del jugador ──────────────────────────────────────────��─
   _sendCustom(message) {
     if (this._waiting) return;
     this._waiting     = true;
-    this._theaterDone = false;
+    this._theaterDone = true;   // sin fases de audio — listo para responder
     this._pendingResp = null;
 
-    const a  = this._current;
-    const ix = a.ix ?? 0;
-    const iy = a.iy ?? 0;
-
+    const a = this._current;
     (this._history[a.name] = this._history[a.name] || [])
       .push({ from: 'player', text: message });
 
     this._renderInput(); // muestra "· · ·"
 
-    // Globo PIPIP del jugador — procesando
-    this._bubbleUI?.showBeep();
+    // Mostrar mensaje del jugador en su globo brevemente
+    this._bubbleUI?.showPlayerAlien(message);
+    this._bubbleUI?.hidePlayerBubble(1200);
 
     Network.sendAldeanoChat({
       name:        a.name,
@@ -210,44 +208,20 @@ export class ConversationUI {
       historial:   (this._history[a.name] || []).slice(-6),
     });
 
-    // Fase 1 → cuando termina: globo alien del traductor + Fase 2
-    startPhase1(() => {
-      // Al terminar Phase 1: globo del jugador pasa a alien (traductor habla)
-      this._bubbleUI?.showPlayerAlien(message);
-
-      startPhase2(message, ix, iy, () => {
-        // Phase 2 terminó: ocultar globo del jugador con fade
-        this._bubbleUI?.hidePlayerBubble(800);
-
-        this._theaterDone = true;
-        if (this._pendingResp) {
-          const data = this._pendingResp;
-          this._pendingResp = null;
-          this._deliverResponse(data);
-        } else if (this._waiting) {
-          startPhase3(ix, iy);
-        }
-      });
-    });
-
-    // Timeout de seguridad: 35s
+    // Timeout de seguridad: 30s
     setTimeout(() => {
       if (!this._waiting) return;
-      this._waiting     = false;
-      this._theaterDone = true;
+      this._waiting = false;
       stopTheater();
       this._bubbleUI?.hideAll();
       this._renderInput();
-    }, 35000);
+    }, 30000);
   }
 
-  // ── Entregar respuesta del aldeano ────────────────────────────────────────
+  // ── Entregar respuesta del aldeano ───────────────────────���────────────────
   _deliverResponse({ response, impulso }) {
     if (!this._current) return;
-    const name    = this._current.name;
-    const ix      = this._current.ix    ?? 0;
-    const iy      = this._current.iy    ?? 0;
-    const energia = this._current.energia ?? 100;
+    const name = this._current.name;
 
     stopTheater();
 
@@ -255,39 +229,13 @@ export class ConversationUI {
       this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
     }
 
-    const durMs = _estimateDurMs(response);
-    let _npcStarted = false;
+    // Mostrar respuesta como texto directamente, sin audio
+    if (this._current?.name === name) {
+      const durMs = _estimateDurMs(response);
+      this._bubbleUI?.showNpcDecipher(response, durMs);
+    }
 
-    const onReady = () => {
-      // Buffer listo — mostrar globo del NPC con alien
-      if (this._current?.name === name) {
-        this._bubbleUI?.showNpcAlien(response);
-      }
-    };
-
-    const onStart = () => {
-      // Audio arrancó — iniciar descifrado alien→español en el globo NPC
-      if (_npcStarted) return;
-      _npcStarted = true;
-      if (this._current?.name === name) {
-        this._bubbleUI?.showNpcDecipher(response, durMs);
-        // Voz real del aldeano casi simultánea
-        speakAldeanoReal(response, ix, iy, energia);
-      }
-      // Rehabilitar input
-      this._renderInput();
-    };
-
-    // Fallback por si Piper falla
-    const fallbackT = setTimeout(() => {
-      onReady();
-      setTimeout(onStart, 500);
-    }, 20000);
-
-    speakNpc(response, {
-      charName: name,
-      onReady:  () => { clearTimeout(fallbackT); onReady(); },
-      onStart:  () => { clearTimeout(fallbackT); onStart(); },
-    });
+    // Rehabilitar input inmediatamente
+    this._renderInput();
   }
 }
