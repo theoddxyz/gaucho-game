@@ -5,7 +5,7 @@ import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass }     from 'three/addons/postprocessing/ShaderPass.js';
 import { IsoControls } from './controls.js';
 import { createWorld }  from './world.js';
-import { ChunkManager } from './chunk.js';
+import { ChunkManager, TERRAIN_MAT } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
 import { MotoManager } from './moto.js';
@@ -38,6 +38,7 @@ import * as Audio     from './audio.js';
 import { getAudioCtx, getMasterGain } from './audio.js';
 import * as Inventory from './inventory.js';
 import { createVillage, getVillageGates } from './village.js';
+import { LightmapManager } from './lightmap-manager.js';
 
 // ── Sleep system ──────────────────────────────────────────────────────────────
 let _isSleeping   = false;
@@ -607,6 +608,10 @@ _chunkMgr = chunkManager;
 createLandmarks(scene);
 createVillage(scene, colliders);
 const villageGates = getVillageGates();
+
+// --- Lightmap AO (baked) ---
+const lightmapMgr = new LightmapManager(TERRAIN_MAT, 1024, 1.4);
+lightmapMgr.init();  // async — loads /lightmaps/*.png silently; no-ops if missing
 
 // --- Controls ---
 const controls = new IsoControls(camera);
@@ -2890,6 +2895,7 @@ function gameLoop() {
   // ── Day/Night + Survival HUD update ──────────────────────────────────────
   stepPhysics(dt);
   updateDayNight(dt * _daySpeedMult, scene, sun, ambient, moon);
+  lightmapMgr.update(getDayProgress() * 24, dt);  // blend baked lightmaps by hour
   if (myId && !isDead) {
     updateSurvival(dt, controls.isSprinting(), horseManager?.isMounted() ?? false);
     UI.updateSurvivalUI(getHunger(), getThirst(), getTemperature());
