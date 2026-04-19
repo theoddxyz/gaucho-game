@@ -77,7 +77,7 @@ function _terrainColor(wx, wz) {
   ];
 }
 
-// ─── Textura de arena mejorada ────────────────────────────────────────────────
+// ─── (textura de arena — ya no se usa, reemplazada por shader) ───────────────
 function _buildSandTexture() {
   const SZ = 512;
   const cv = document.createElement('canvas'); cv.width = cv.height = SZ;
@@ -202,85 +202,53 @@ export function getTerrainHeight(wx, wz) {
   return _terrainHeight(wx, wz);
 }
 
-// ─── Altura de detalle para normales procedurales ────────────────────────────
-// NO afecta la geometría real — solo se usa para calcular el gradiente de normal.
-// Amplitudes grandes aquí → normales muy pronunciadas → piso visualmente rugoso.
-function _heightForNormal(wx, wz) {
-  // Dunas grandes
-  const d1 = _fbm(wx / 80 + 5.5, wz / 65 + 2.3) * 1.2;
-  // Ondas medianas
-  const d2 = _noise(wx / 28 + 11.3, wz / 24 + 7.9) * 0.7;
-  // Rugosidad fina
-  const d3 = _noise(wx / 11 + 55.1, wz / 9  + 33.4) * 0.4;
-  // Micro-grano
-  const d4 = _noise(wx / 4  + 190,  wz / 3  + 120 ) * 0.2;
-  // Rastros de viento diagonales
-  const wind = Math.sin((wx * 0.9 - wz * 0.35) / 18 +
-               _noise(wx / 40, wz / 35) * 3.0) * 0.3;
-  return d1 + d2 + d3 + d4 + wind;
-}
-
-// ─── Material del terreno con normal procedural per-fragment ─────────────────
-// onBeforeCompile inyecta GLSL que calcula el gradiente del ruido en cada pixel
-// usando coordenadas de mundo → resolución infinita, multi-escala, cero tiling.
+// ─── Material de arena — normal procedural per-fragment en GLSL ──────────────
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness:    0.85,
+  roughness:    0.92,
   metalness:    0.0,
   vertexColors: true,
 });
 
 TERRAIN_MAT.onBeforeCompile = (shader) => {
-  // ── Vertex: pasar posición en mundo al fragment ──────────────────────────
+  // Vertex: pasar posición mundo al fragment
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', `#include <common>\nvarying vec3 vWPos;`)
+    .replace('#include <common>',    '#include <common>\nvarying vec3 vWPos;')
     .replace('#include <worldpos_vertex>',
-      `#include <worldpos_vertex>\nvWPos = worldPosition.xyz;`);
+             '#include <worldpos_vertex>\nvWPos = worldPosition.xyz;');
 
-  // ── Fragment: funciones de ruido + gradiente per-pixel ───────────────────
-  const noiseGLSL = /* glsl */`
-    varying vec3 vWPos;
-
-    float gHash(float px, float py) {
-      float s = sin(px * 127.1 + py * 311.7) * 43758.5453;
-      return s - floor(s);
-    }
-    float gNoise(vec2 p) {
-      vec2 i = floor(p); vec2 f = fract(p);
-      vec2 u = f*f*(3.0-2.0*f);
-      float a=gHash(i.x,i.y), b=gHash(i.x+1.0,i.y);
-      float c=gHash(i.x,i.y+1.0), d=gHash(i.x+1.0,i.y+1.0);
-      return a+(b-a)*u.x+(c-a)*u.y+(d-c-b+a)*u.x*u.y;
-    }
-    float gFbm(vec2 p) {
-      float v=0.0, a=0.55;
-      for(int i=0;i<4;i++){v+=gNoise(p)*a; p*=2.1; a*=0.5;}
-      return v;
-    }
-    // Altura multi-escala: grande + medio + fino + micro + viento
-    float gHfn(vec2 p) {
-      float d1 = gFbm(p/80.0  + vec2(5.5,2.3))  * 1.2;
-      float d2 = gNoise(p/28.0 + vec2(11.3,7.9)) * 0.7;
-      float d3 = gNoise(p/11.0 + vec2(55.1,33.4))* 0.4;
-      float d4 = gNoise(p/4.0  + vec2(190.0,120.0)) * 0.2;
-      float wind = sin((p.x*0.9-p.y*0.35)/18.0 + gNoise(p/40.0)*3.0)*0.3;
-      return d1+d2+d3+d4+wind;
-    }
-  `;
-
+  // Fragment: ruido suave puro, SIN sin(), 5 escalas → arena real
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', `#include <common>\n${noiseGLSL}`)
+    .replace('#include <common>', `#include <common>
+varying vec3 vWPos;
+
+// Value noise suave — interpolación cúbica
+float sHash(float a, float b){ float s=sin(a*127.1+b*311.7)*43758.5453; return s-floor(s); }
+float sNoise(vec2 p){
+  vec2 i=floor(p), f=fract(p), u=f*f*(3.0-2.0*f);
+  return mix(mix(sHash(i.x,i.y),sHash(i.x+1.0,i.y),u.x),
+             mix(sHash(i.x,i.y+1.0),sHash(i.x+1.0,i.y+1.0),u.x),u.y);
+}
+// Altura de arena: 5 capas de ruido suave en espacio-mundo, SIN funciones periódicas
+float sandH(vec2 p){
+  return sNoise(p*0.008 + vec2(1.7,  9.3)) * 2.0   // dunas grandes  ~125u
+       + sNoise(p*0.022 + vec2(34.1, 7.8)) * 0.90  // lomadas        ~45u
+       + sNoise(p*0.060 + vec2(8.5, 51.2)) * 0.40  // ondas          ~17u
+       + sNoise(p*0.160 + vec2(77.3, 3.6)) * 0.16  // rugosidad       ~6u
+       + sNoise(p*0.420 + vec2(22.0,88.1)) * 0.06; // micro-grano     ~2u
+}
+`)
     .replace('#include <normal_fragment_maps>', `
-      // Normal procedural per-fragment desde gradiente de ruido en espacio-mundo
-      {
-        vec2 wp = vWPos.xz;
-        const float EPS = 0.35;
-        const float STR = 14.0;
-        float dhx = (gHfn(wp+vec2(EPS,0.0))-gHfn(wp-vec2(EPS,0.0)))/(2.0*EPS)*STR;
-        float dhz = (gHfn(wp+vec2(0.0,EPS))-gHfn(wp-vec2(0.0,EPS)))/(2.0*EPS)*STR;
-        vec3 wn = normalize(vec3(-dhx, 1.0, -dhz));
-        normal = normalize(mat3(viewMatrix) * wn);
-      }
-    `);
+// Normal procedural per-fragment: gradiente de sandH en coordenadas mundo
+{
+  vec2 wp  = vWPos.xz;
+  float e  = 0.4;
+  float dx = (sandH(wp+vec2(e,0.0)) - sandH(wp-vec2(e,0.0))) / (2.0*e);
+  float dz = (sandH(wp+vec2(0.0,e)) - sandH(wp-vec2(0.0,e))) / (2.0*e);
+  float str = 9.0;
+  vec3 wn  = normalize(vec3(-dx*str, 1.0, -dz*str));
+  normal   = normalize(mat3(viewMatrix) * wn);
+}
+`);
 };
 
 const ROCK_MATS = [
