@@ -1141,7 +1141,8 @@ http.listen(PORT, async () => {
   console.log(`\n  GAUCHO ${IS_PROD ? 'production' : 'dev'} server at http://localhost:${PORT}`);
 
   // ── IP pública + UPnP ────────────────────────────────────────────────────
-  if (!IS_PROD) {
+  // Corre siempre en local (no importa NODE_ENV), solo se saltea en Render
+  if (!process.env.RENDER_EXTERNAL_URL) {
     // 1) Obtener IP pública via HTTP plano (no depende de fetch ni https)
     const { default: http } = await import('http');
     const _getIp = () => new Promise((res, rej) => {
