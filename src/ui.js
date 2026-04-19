@@ -121,22 +121,18 @@ export function updatePlayersCount(count) {
 }
 
 // ─── Room link ────────────────────────────────────────────────────────────────
-export function setRoomLink(roomId, baseUrl) {
-  if (baseUrl) {
-    const shareUrl = `${baseUrl}?room=${roomId}`;
-    els.roomLink.textContent = shareUrl;   // muestra el link completo
-    els.roomLink.title = 'click para copiar';
-    els.roomLink.onclick = () => {
-      navigator.clipboard.writeText(shareUrl);
-      const prev = els.roomLink.textContent;
-      els.roomLink.textContent = 'copiado!';
-      setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
-    };
-  } else {
-    // Tunnel todavía no arrancó — muestra sala sin link
-    els.roomLink.textContent = `sala: ${roomId}`;
-    els.roomLink.onclick = null;
-  }
+export function setRoomLink(roomId, publicUrl) {
+  // Usar publicUrl (tunnel/Render) si está disponible, sino location.origin como fallback
+  const base = publicUrl || location.origin;
+  const shareUrl = `${base}?room=${roomId}`;
+  els.roomLink.textContent = shareUrl;
+  els.roomLink.title = 'click para copiar';
+  els.roomLink.onclick = () => {
+    navigator.clipboard.writeText(shareUrl);
+    const prev = els.roomLink.textContent;
+    els.roomLink.textContent = 'copiado!';
+    setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
+  };
 }
 
 // ─── Kill feed ────────────────────────────────────────────────────────────────
