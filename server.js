@@ -15,6 +15,12 @@ const app = express();
 const http = createServer(app);
 const io = new Server(http, { cors: { origin: '*' } });
 
+// Public URL (set once tunnel is established or from env)
+let _publicUrl = process.env.RENDER_EXTERNAL_URL || null;
+app.get('/api/public-url', (_req, res) => {
+  res.json({ url: _publicUrl });
+});
+
 if (IS_PROD) {
   // Serve static build
   const distPath = path.join(__dirname, 'dist');
@@ -1152,6 +1158,7 @@ http.listen(PORT, async () => {
       const s = data.toString();
       const m = s.match(/https:\/\/[a-z0-9\-]+\.trycloudflare\.com/);
       if (m) {
+        _publicUrl = m[0];
         console.log(`\n  ╔══════════════════════════════════════════════╗`);
         console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
         console.log(`  ║  ${m[0].padEnd(44)}║`);
@@ -1163,8 +1170,9 @@ http.listen(PORT, async () => {
   } else {
     try {
       const tunnel = await localtunnel({ port: Number(PORT) });
+      _publicUrl = tunnel.url;
       console.log(`\n  PUBLIC URL (comparte este link!):\n  ${tunnel.url}\n`);
-      tunnel.on('close', () => console.log('  Tunnel closed'));
+      tunnel.on('close', () => { _publicUrl = null; console.log('  Tunnel closed'); });
     } catch (err) {
       console.log(`\n  (tunnel no disponible: ${err.message})\n`);
     }
