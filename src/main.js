@@ -1309,8 +1309,7 @@ Network.onJoined((data) => {
 
 // El tunnel cloudflare puede tardar unos segundos — cuando llegue, actualiza el link
 Network.onPublicUrl((url) => {
-  const roomId = new URLSearchParams(location.search).get('room') || 'gaucho';
-  UI.setRoomLink(roomId, url);
+  UI.updateShareBase(url);
 });
 
 Network.onPlayerJoined((pd) => {

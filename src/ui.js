@@ -125,16 +125,25 @@ export function updatePlayersCount(count) {
 }
 
 // ─── Room link ────────────────────────────────────────────────────────────────
-let _shareUrl = '';
+let _shareRoomId = '';
+let _shareBase   = '';
 
-function _applyShareUrl(shareUrl) {
-  _shareUrl = shareUrl;
-  // Bottom-right: texto corto, click abre popup
-  els.roomLink.textContent = '[ compartir sala ]';
+function _applyShareUrl(base, roomId) {
+  _shareBase   = base;
+  _shareRoomId = roomId;
+  const shareUrl = `${base}?room=${roomId}`;
+  const isLocal  = base.includes('localhost') || base.includes('127.0.0.1');
+  els.roomLink.textContent = isLocal ? '[ esperando link... ]' : '[ compartir sala ]';
   els.roomLink.title = shareUrl;
   els.roomLink.onclick = () => _openSharePopup();
-  // Popup
   els.shareUrl.textContent = shareUrl;
+  if (isLocal) {
+    els.shareUrl.style.color = '#885530';   // naranja = advertencia
+    els.shareUrl.title = 'esperando URL pública (cloudflare)...';
+  } else {
+    els.shareUrl.style.color = '#e8c870';
+    els.shareUrl.title = '';
+  }
   els.shareCopyBtn.onclick = () => {
     navigator.clipboard.writeText(shareUrl);
     els.shareCopyBtn.textContent = '[ copiado! ]';
@@ -145,19 +154,33 @@ function _applyShareUrl(shareUrl) {
 
 function _openSharePopup() {
   els.sharePopup.style.display = 'block';
-  // Exit pointer lock so user puede seleccionar texto
   if (document.pointerLockElement) document.exitPointerLock();
 }
 
 export function setRoomLink(roomId, publicUrl) {
   const base = publicUrl || location.origin;
-  _applyShareUrl(`${base}?room=${roomId}`);
-  // Si llegó un tunnel URL mejor después, actualizar automáticamente
-  // (lo maneja onPublicUrl en main.js llamando setRoomLink de nuevo)
+  _applyShareUrl(base, roomId);
+
+  // Polling de respaldo: cada 3s pregunta al server hasta tener URL no-localhost
+  const _poll = () => {
+    if (_shareBase && !_shareBase.includes('localhost') && !_shareBase.includes('127.0.0.1')) return;
+    fetch('/api/public-url').then(r => r.json()).then(({ url }) => {
+      if (url && !url.includes('localhost')) {
+        _applyShareUrl(url, _shareRoomId);
+      } else {
+        setTimeout(_poll, 3000);
+      }
+    }).catch(() => setTimeout(_poll, 4000));
+  };
+  setTimeout(_poll, 2000);
+}
+
+export function updateShareBase(publicUrl) {
+  if (publicUrl && _shareRoomId) _applyShareUrl(publicUrl, _shareRoomId);
 }
 
 export function showSharePopup() {
-  if (_shareUrl) _openSharePopup();
+  if (_shareRoomId) _openSharePopup();
 }
 
 // ─── Kill feed ────────────────────────────────────────────────────────────────
