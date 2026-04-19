@@ -1140,44 +1140,50 @@ app.get('/api/ai/status', async (_req, res) => {
 http.listen(PORT, async () => {
   console.log(`\n  GAUCHO ${IS_PROD ? 'production' : 'dev'} server at http://localhost:${PORT}`);
 
-  // ── Tunnel público: cloudflared si está disponible, sino localtunnel ─────
-  const { spawn, spawnSync } = await import('child_process');
-  const fs = await import('fs');
+  // ── Tunnel público ─────────────────────────────────────────────���──────────
+  if (!IS_PROD) {
+    const { spawn, spawnSync } = await import('child_process');
+    const fs = await import('fs');
 
-  const cfPaths = [
-    'C:/Users/' + (process.env.USERNAME || 'Fabricio') + '/Downloads/cloudflared.exe',
-    'cloudflared',
-    'cloudflared.exe',
-  ];
-  const cfExe = cfPaths.find(p => {
-    try { return fs.existsSync(p) || spawnSync(p, ['--version'], { timeout: 1000 }).status === 0; } catch { return false; }
-  });
-
-  if (cfExe) {
-    const cf = spawn(cfExe, ['tunnel', '--url', `http://localhost:${PORT}`], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const onData = (data) => {
-      const s = data.toString();
-      const m = s.match(/https:\/\/[a-z0-9\-]+\.trycloudflare\.com/);
-      if (m && !_publicUrl) {
-        _publicUrl = m[0];
-        io.emit('publicUrl', _publicUrl);  // avisa a todos los clientes conectados
-        console.log(`\n  ╔══════════════════════════════════════════════╗`);
-        console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
-        console.log(`  ║  ${m[0].padEnd(44)}║`);
-        console.log(`  ╚══════════════════════════════════════════════╝\n`);
-      }
+    const _setTunnel = (url) => {
+      // cloudflare tiene prioridad sobre localtunnel
+      if (_publicUrl && !_publicUrl.includes('loca.lt')) return;
+      _publicUrl = url;
+      io.emit('publicUrl', url);
+      console.log(`\n  ╔══════════════════════════════════════════════╗`);
+      console.log(`  ║  LINK PARA COMPARTIR:                        ║`);
+      console.log(`  ║  ${url.slice(0, 44).padEnd(44)}║`);
+      console.log(`  ╚══════════════════════════════════════════════╝\n`);
     };
-    cf.stdout.on('data', onData);
-    cf.stderr.on('data', onData);
-  } else {
+
+    // 1) localtunnel inmediato — no necesita exe externo
     try {
-      const tunnel = await localtunnel({ port: Number(PORT) });
-      _publicUrl = tunnel.url;
-      io.emit('publicUrl', _publicUrl);
-      console.log(`\n  PUBLIC URL (comparte este link!):\n  ${tunnel.url}\n`);
-      tunnel.on('close', () => { _publicUrl = null; console.log('  Tunnel closed'); });
-    } catch (err) {
-      console.log(`\n  (tunnel no disponible: ${err.message})\n`);
+      const lt = await localtunnel({ port: Number(PORT) });
+      _setTunnel(lt.url);
+      lt.on('close', () => { if (_publicUrl === lt.url) _publicUrl = null; });
+    } catch (e) {
+      console.log('  [tunnel] localtunnel falló:', e.message);
+    }
+
+    // 2) cloudflared como upgrade (URL más limpia, sin página de bypass)
+    const cfPaths = [
+      'C:/Users/' + (process.env.USERNAME || 'Fabricio') + '/Downloads/cloudflared.exe',
+      'cloudflared', 'cloudflared.exe',
+    ];
+    const cfExe = cfPaths.find(p => {
+      try { return fs.existsSync(p) || spawnSync(p, ['--version'], { timeout: 1000 }).status === 0; }
+      catch { return false; }
+    });
+    if (cfExe) {
+      let _cfBuf = '';
+      const cf = spawn(cfExe, ['tunnel', '--url', `http://localhost:${PORT}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const onCfData = (chunk) => {
+        _cfBuf += chunk.toString();
+        const m = _cfBuf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+        if (m) { _publicUrl = null; _setTunnel(m[0]); } // forzar upgrade a cloudflare
+      };
+      cf.stdout.on('data', onCfData);
+      cf.stderr.on('data', onCfData);
     }
   }
 });

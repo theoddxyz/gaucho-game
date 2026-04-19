@@ -771,9 +771,8 @@ function buildEditorTree(scene, cx, cz) {
 export function createVillage(scene, colliders) {
   _gates.length = 0;
 
-  // ── Caminos y ríos ───────────────────────────────────────────────────────────
+  // ── Ríos (caminos removidos) ─────────────────────────────────────────────────
   for (const path of worldLayout.paths ?? []) {
-    if (path.type === 'road')  buildRoadFromPoints(scene, path.points, path.width ?? 3.5);
     if (path.type === 'river') buildRiverFromPoints(scene, path.points, path.width ?? 6);
   }
 
@@ -785,10 +784,10 @@ export function createVillage(scene, colliders) {
         _trySwap(scene, buildChurch(scene, colliders, obj.x, obj.z), '/models/church.glb');
         break;
       case 'townhall':
-        _trySwap(scene, buildTownHall(scene, colliders, obj.x, obj.z), '/models/nuevocityhall.glb', 0.194);
+        _trySwap(scene, buildTownHall(scene, colliders, obj.x, obj.z), '/models/nuevocityhall.glb', 0.4);
         break;
       case 'house':
-        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/nuevacasa.glb', 0.194);
+        _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/nuevacasa.glb', 0.4);
         break;
       case 'farm':
         _trySwap(scene, buildFarm(scene, colliders, obj.x, obj.z), '/models/farm.glb');
