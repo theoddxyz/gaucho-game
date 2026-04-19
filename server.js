@@ -1141,17 +1141,25 @@ http.listen(PORT, async () => {
   console.log(`\n  GAUCHO ${IS_PROD ? 'production' : 'dev'} server at http://localhost:${PORT}`);
 
   // ── IP pública + puerto (el otro jugador entra directo) ──────────────────
+  // Usa https.get nativo para no depender de fetch (compatible con Node < 18)
   if (!IS_PROD) {
+    const https = await import('https');
+    const _getPublicIp = () => new Promise((resolve, reject) => {
+      https.get('https://api.ipify.org', (res) => {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => resolve(data.trim()));
+      }).on('error', reject);
+    });
+
     try {
-      const res  = await fetch('https://api.ipify.org?format=json');
-      const { ip } = await res.json();
+      const ip = await _getPublicIp();
       _publicUrl = `http://${ip}:${PORT}`;
       io.emit('publicUrl', _publicUrl);
       console.log(`\n  ╔══════════════════════════════════════════════╗`);
       console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
       console.log(`  ║  ${_publicUrl.padEnd(44)}║`);
       console.log(`  ╚══════════════════════════════════════════════╝\n`);
-      console.log(`  (el otro jugador necesita poder llegar al puerto ${PORT} de tu router)\n`);
     } catch (e) {
       console.log('  [link] no se pudo obtener IP pública:', e.message);
     }
