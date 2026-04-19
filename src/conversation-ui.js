@@ -262,31 +262,42 @@ export class ConversationUI {
       this._souls.setPlayerGuardian(name, impulso.ix, impulso.iy, this._playerName, 10);
     }
 
-    // Ahora sí renderizar el mensaje del usuario (lleva el "tiempo de procesamiento")
-    this._translating = true;
-    this._renderHistory(); // muestra el mensaje del jugador por primera vez
-    this._renderInput();   // muestra "traduciendo..."
+    // Mantener "pensando..." visible mientras Piper genera el audio
+    // El texto del USUARIO aparece recién cuando el buffer de Daniela está decodificado
+    // (señal de que "terminó de procesar") — onReady callback
+    let _userShown = false;
+    let _npcShown  = false;
+    const fallbackT = setTimeout(() => {
+      showUserText();
+      showNpcText();
+    }, 20000);
 
-    // La respuesta del NPC aparece exactamente cuando Daniela arranca (onStart)
-    let _shown = false;
-    const showText = () => {
-      if (_shown) return;
-      _shown = true;
+    const showUserText = () => {
+      if (_userShown) return;
+      _userShown = true;
+      if (!this._current || this._current.name !== name) return;
+      this._translating = true;
+      this._renderHistory();   // muestra el mensaje del jugador por primera vez
+      this._renderInput();     // muestra "traduciendo..."
+    };
+
+    const showNpcText = () => {
+      if (_npcShown) return;
+      _npcShown = true;
+      clearTimeout(fallbackT);
       this._translating = false;
       if (this._current?.name === name) {
         (this._history[name] = this._history[name] || []).push({ from: 'npc', text: response });
         this._renderHistory();
         this._renderInput();
       }
-      // Voz real del aldeano arranca casi simultánea con Daniela
+      // Voz real del aldeano arranca simultánea con Daniela
       speakAldeanoReal(response, ix, iy, energia);
     };
 
-    // Fallback: si Piper tarda más de 20s, mostrar texto igual
-    setTimeout(showText, 20000);
-
-    // Texto + voz real aparecen cuando Daniela arranca
-    speakNpc(response, { charName: name, onStart: showText });
+    // onReady  → buffer decodificado → aparece el texto del usuario ("procesó")
+    // onStart  → audio arranca      → aparece la respuesta del NPC + voz aldeano
+    speakNpc(response, { charName: name, onReady: showUserText, onStart: showNpcText });
   }
 }
 

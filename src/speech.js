@@ -49,10 +49,12 @@ function _speakFallback(text, opts = {}) {
 export function speakNpc(text, opts = {}) {
   const charName = opts.charName || 'GM';
   const onStart  = opts.onStart  || null;
+  const onReady  = opts.onReady  || null;
   if (isPiperReady() || isPiperLoading()) {
-    speakPiper(text, charName, opts.volume ?? 1.0, onStart);
+    speakPiper(text, charName, opts.volume ?? 1.0, onStart, onReady);
   } else {
-    // Piper no disponible — Web Speech (onStart dispara inmediato)
+    // Piper no disponible — Web Speech (onReady + onStart disparan inmediatos)
+    if (onReady) onReady();
     if (onStart) onStart();
     _speakFallback(text, opts);
   }

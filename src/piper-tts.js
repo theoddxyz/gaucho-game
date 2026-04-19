@@ -105,7 +105,7 @@ function _cabinetCurve(k) {
 }
 
 // ── Síntesis + reproducción ───────────────────────────────────────────────────
-export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = null) {
+export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = null, onReady = null) {
   // Esperar descarga si está en progreso
   if (_state === 'loading') {
     await new Promise(r => {
@@ -142,6 +142,9 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = 
     const ctx   = _ctx();
     const audio = await ctx.decodeAudioData(buf);
     if (myId !== _current) return false;
+
+    // Buffer decodificado y listo — el texto del usuario puede aparecer ahora
+    if (onReady) onReady();
 
     const src  = ctx.createBufferSource();
     const gain = ctx.createGain();

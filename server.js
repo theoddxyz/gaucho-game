@@ -1000,13 +1000,15 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
       : '';
     // Pedimos respuesta corta + impulso metafísico como JSON
     const prompt =
-`Sos ${name}, aldeano de la pampa argentina.
+`Sos ${name}, aldeano de la pampa argentina. Tenés carácter propio, historia, miedos y alegrías.
 Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
 Vecinos: ${vecinos}.${histStr}
 ${pName} te dice: "${message.trim()}"
 
+Respondé como una persona real respondería: con emoción, contexto, opinión propia. Podés hacer una pregunta de vuelta, contar algo personal, quejarte, alegrarte. Usá modismos rioplatenses, vocabulario de campo, frases cortadas. Máximo 50 palabras, mínimo 20.
+
 Respondé con JSON válido, sin markdown, sin texto extra:
-{"r":"tu respuesta en máximo 20 palabras, estilo gaucho rioplatense, con voz y carácter","ix":0.0,"iy":0.0}
+{"r":"tu respuesta con voz, carácter y emoción genuina","ix":0.0,"iy":0.0}
 
 ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0) que provoca lo que dijo el gaucho
 iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0) que provoca lo que dijo el gaucho
