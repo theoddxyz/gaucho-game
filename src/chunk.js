@@ -7,7 +7,7 @@ import { WATER_ZONES } from './landmarks.js';
 export const CHUNK_SIZE   = 200;
 const LOAD_RADIUS         = 1;      // 3×3 = 9 chunks visibles
 const UNLOAD_DIST         = 2;
-const SUB                 = 48;     // subdivisiones del plano — más detalle de color y desplazamiento
+const SUB                 = 60;     // subdivisiones del plano — más detalle de color y desplazamiento
 const TREES_PER_CHUNK     = 4;
 const ROCKS_PER_CHUNK     = 4;
 const BUSHES_PER_CHUNK    = 8;
@@ -187,27 +187,28 @@ function _buildNormalMap() {
 }
 
 // ─── Función de desplazamiento de vértices del terreno ───────────────────────
-// Usada en _build() para añadir relieve visible de dunas y ondulaciones
+// Exportada para que controls.js pueda hacer que el jugador siga el suelo.
 function _terrainHeight(wx, wz) {
-  // Escala grande — continuidad garantizada entre chunks (frecuencias bajas)
-  const h1 = _fbm(wx / 120 + 5.5, wz / 100 + 2.3) * 0.55;   // dunas grandes ~60-120u
-  const h2 = _noise(wx / 55  + 18, wz / 45 + 9)   * 0.28;   // ondulaciones medias ~30u
-  const h3 = _noise(wx / 22  + 88, wz / 18 + 44)  * 0.12;   // variación pequeña ~10u
-  const h4 = _noise(wx / 8   + 33, wz / 7  + 77)  * 0.05;   // micro textura
-  return (h1 + h2 + h3 + h4) * 2.2;  // max ~2.2 unidades — dunas claramente visibles
+  // Solo frecuencias bajas: garantiza continuidad perfecta en bordes de chunk
+  const h1 = _fbm(wx / 120 + 5.5, wz / 100 + 2.3) * 0.55;
+  const h2 = _noise(wx / 55  + 18,  wz / 45 + 9)   * 0.28;
+  const h3 = _noise(wx / 22  + 88,  wz / 18 + 44)  * 0.12;
+  const h4 = _noise(wx / 8   + 33,  wz / 7  + 77)  * 0.05;
+  return (h1 + h2 + h3 + h4) * 1.0;  // 0–1 unidades: dunas claramente visibles
 }
 
-// _sandTex ya no se usa en el material (genera tiling visible)
-// const _sandTex = _buildSandTexture();
-const _normalTex = _buildNormalMap();
+/** Exportada para IsoControls — calcula el suelo bajo un punto del mundo */
+export function getTerrainHeight(wx, wz) {
+  return _terrainHeight(wx, wz);
+}
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
+// Sin normal map: las normales vienen de computeVertexNormals() sobre la geometría
+// desplazada → cero tiling, luz física correcta basada en la forma real del terreno.
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness:    0.85,
+  roughness:    0.92,
   metalness:    0.0,
   vertexColors: true,
-  normalMap:    _normalTex,
-  normalScale:  new THREE.Vector2(2.8, 2.8),
 });
 
 const ROCK_MATS = [

@@ -5,7 +5,7 @@ import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass }     from 'three/addons/postprocessing/ShaderPass.js';
 import { IsoControls } from './controls.js';
 import { createWorld }  from './world.js';
-import { ChunkManager } from './chunk.js';
+import { ChunkManager, getTerrainHeight } from './chunk.js';
 import { PlayerModel }  from './player.js';
 import { HorseManager } from './horses.js';
 import { MotoManager } from './moto.js';
@@ -608,8 +608,14 @@ createLandmarks(scene);
 createVillage(scene, colliders);
 const villageGates = getVillageGates();
 
+// ── Overlay negro de carga (oculta el mundo en (0,0) antes de recibir spawn) ──
+const _preJoinOverlay = document.createElement('div');
+_preJoinOverlay.style.cssText = `position:fixed;inset:0;z-index:900;background:#000;pointer-events:none;`;
+document.body.appendChild(_preJoinOverlay);
+
 // --- Controls ---
 const controls = new IsoControls(camera);
+controls.getGroundY = getTerrainHeight;   // jugador sigue la altura del terreno
 
 // Emergency brake sound — called by double-tap detection in controls.js
 controls.onEmergencyBrake = () => {
@@ -1049,7 +1055,7 @@ function _showIntroScreen(playerName) {
   overlay.id = '_intro_overlay';
   overlay.style.cssText = `
     position:fixed; inset:0; z-index:800;
-    background:rgba(0,0,0,0.92);
+    background:#000;
     display:flex; align-items:center; justify-content:center;
     flex-direction:column;
     font-family:'Share Tech Mono','Courier New',monospace;
@@ -1184,6 +1190,9 @@ Network.onJoined((data) => {
 
   // Inicializar flecha de aldea
   UI.initVillageArrow();
+
+  // ── Quitar overlay de carga — ya estamos en la posición correcta ──────────
+  _preJoinOverlay.remove();
 
   // ── Inicio durmiendo + texto introductorio ────────────────────────────────
   localPlayerModel.startSleep();

@@ -14,6 +14,8 @@ export class IsoControls {
     this.aimAngle = 0;
     this.mouseWorld = new THREE.Vector3();
     this.keys = { w: false, a: false, s: false, d: false };
+    /** Callback (wx, wz) → y: permite seguir el terreno procedural */
+    this.getGroundY = null;
     this.onEPress = null;
     this._eHeld   = false;
     this._eDownAt = 0;
@@ -214,6 +216,8 @@ export class IsoControls {
     }
 
     // --- Jump & gravity ---
+    const _gY = this.getGroundY ? this.getGroundY(this.position.x, this.position.z) : 0;
+
     if (this._jumpTrigger && this._onGround) {
       this._vy       = JUMP_VEL;
       this._onGround = false;
@@ -223,11 +227,14 @@ export class IsoControls {
     if (!this._onGround) {
       this._vy -= GRAVITY * dt;
       this.position.y += this._vy * dt;
-      if (this.position.y <= 0) {
-        this.position.y = 0;
+      if (this.position.y <= _gY) {
+        this.position.y = _gY;
         this._vy       = 0;
         this._onGround = true;
       }
+    } else {
+      // En suelo: seguir la altura del terreno suavemente
+      this.position.y = _gY;
     }
 
     // --- Recoil decay ---
@@ -304,7 +311,8 @@ export class IsoControls {
   }
 
   setPosition(x, y, z) {
-    this.position.set(x, 0, z);
+    const groundY = this.getGroundY ? this.getGroundY(x, z) : 0;
+    this.position.set(x, groundY, z);
     this._vy      = 0;
     this._onGround = true;
   }
