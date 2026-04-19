@@ -263,8 +263,8 @@ export class SoulSystem {
     const isRitualActive = hour >= 19 || hour < 12;
     const isGathering    = hour >= 19 && hour < 22;
 
-    const gMaxSpeed  = isRitualActive ? 8  : 4;
-    const gMaxForce  = isRitualActive ? 0.5 : 0.2;
+    const gMaxSpeed  = isRitualActive ? 4  : 1.2;   // más lento — movimiento pausado, metafísico
+    const gMaxForce  = isRitualActive ? 0.3 : 0.08;
     const gRepPower  = isRitualActive ? 12  : 4;
 
     // ─── Guardian AI (igual que A/B) ──────────────────────────────────────────

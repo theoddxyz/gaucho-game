@@ -65,11 +65,11 @@ function segRadius(i) {
 
 // ─── Paleta por personaje ─────────────────────────────────────────────────────
 const CHARS = [
-  { name: 'Ramón',     color: 0x2e7d32, eyeColor: 0x111111, speed: 1.4 },
-  { name: 'Ofelia',    color: 0x6a1e6e, eyeColor: 0x220022, speed: 1.3 },
-  { name: 'Facundo',   color: 0x1a4a6e, eyeColor: 0x001122, speed: 1.2 },
-  { name: 'Celestino', color: 0x7a5010, eyeColor: 0x221100, speed: 1.1 },
-  { name: 'Zulma',     color: 0x8a1a1a, eyeColor: 0x220000, speed: 1.35 },
+  { name: 'Ramón',     color: 0x2e7d32, eyeColor: 0x111111, speed: 3.2 },
+  { name: 'Ofelia',    color: 0x6a1e6e, eyeColor: 0x220022, speed: 2.8 },
+  { name: 'Facundo',   color: 0x1a4a6e, eyeColor: 0x001122, speed: 3.0 },
+  { name: 'Celestino', color: 0x7a5010, eyeColor: 0x221100, speed: 2.6 },
+  { name: 'Zulma',     color: 0x8a1a1a, eyeColor: 0x220000, speed: 3.4 },
 ];
 
 // ─── Rutas de patrulla ────────────────────────────────────────────────────────
