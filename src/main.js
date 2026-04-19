@@ -1034,6 +1034,72 @@ function startGame(name) {
   Network.joinRoom(roomId, name);
 }
 
+// ── Pantalla de intro ─────────────────────────────────────────────────────────
+function _showIntroScreen(playerName) {
+  const name = (playerName || 'gaucho').toUpperCase();
+  const INTRO_TEXT =
+    `Eres ${name}.\n\n` +
+    `Tu banda te ha dejado solo en este planeta.\n` +
+    `Dicen que lo que has hecho anoche es demasiado y necesitas una lección.\n` +
+    `Te dejaron conmigo.\n\n` +
+    `Un implante nuevo en tu brazo robótico.\n\n` +
+    `Tenemos que ponernos en marcha.`;
+
+  const overlay = document.createElement('div');
+  overlay.id = '_intro_overlay';
+  overlay.style.cssText = `
+    position:fixed; inset:0; z-index:800;
+    background:rgba(0,0,0,0.92);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column;
+    font-family:'Share Tech Mono','Courier New',monospace;
+    transition:opacity 1.2s;
+  `;
+
+  const box = document.createElement('div');
+  box.style.cssText = `
+    max-width:520px; width:88%;
+    padding:36px 40px;
+    border:1px solid #3a2808;
+    background:rgba(6,3,1,0.96);
+    color:#c8a050;
+    font-size:13px;
+    line-height:2;
+    letter-spacing:0.8px;
+    text-align:left;
+    white-space:pre-line;
+  `;
+  box.textContent = INTRO_TEXT;
+
+  const hint = document.createElement('div');
+  hint.style.cssText = `
+    margin-top:32px; font-size:10px;
+    color:#4a3010; letter-spacing:3px;
+    cursor:pointer;
+  `;
+  hint.textContent = '[ ESPACIO  O  CLICK  PARA  CONTINUAR ]';
+
+  overlay.appendChild(box);
+  overlay.appendChild(hint);
+  document.body.appendChild(overlay);
+
+  const _dismiss = () => {
+    overlay.style.opacity = '0';
+    localPlayerModel?.stopSleep();
+    setTimeout(() => overlay.remove(), 1300);
+    document.removeEventListener('keydown', _onKey);
+    overlay.removeEventListener('click', _dismiss);
+  };
+  const _onKey = (e) => {
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') _dismiss();
+  };
+  document.addEventListener('keydown', _onKey);
+  overlay.addEventListener('click', _dismiss);
+
+  // Auto-dismiss después de 18s si no hace nada
+  setTimeout(_dismiss, 18000);
+}
+
 Network.onJoined((data) => {
   myId   = data.self.id;
   myName = data.self.name || 'gaucho';
@@ -1108,6 +1174,10 @@ Network.onJoined((data) => {
 
   // Inicializar flecha de aldea
   UI.initVillageArrow();
+
+  // ── Inicio durmiendo + texto introductorio ────────────────────────────────
+  localPlayerModel.startSleep();
+  _showIntroScreen(myName);
 
   controls.onEPress = () => {
     const pos = controls.getPosition();

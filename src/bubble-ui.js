@@ -42,14 +42,16 @@ function _makeBubbleEl(tailDir = 'down') {
     color: #111;
     border: 2.5px solid #111;
     border-radius: 14px;
-    padding: 7px 11px;
-    max-width: 210px;
-    min-width: 60px;
+    padding: 6px 10px;
+    max-width: 260px;
+    min-width: 80px;
+    max-height: 80px;
+    overflow: hidden;
     font-family: 'Share Tech Mono', monospace;
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 11px;
+    line-height: 1.35;
     word-break: break-word;
-    white-space: pre-wrap;
+    white-space: normal;
     text-align: center;
   `;
 

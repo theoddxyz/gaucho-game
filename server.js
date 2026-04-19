@@ -507,13 +507,13 @@ function randomSpawn() {
   // Spawn lejos de la aldea (centrada en ~0,-25).
   // 4 zonas de spawn distribuidas alrededor a ~200 unidades.
   const zones = [
-    { x:  200, z:   0 },  // este
-    { x: -200, z:   0 },  // oeste
-    { x:    0, z:  200 },  // sur
-    { x:    0, z: -220 },  // norte
+    { x:  380, z:   0 },  // este
+    { x: -380, z:   0 },  // oeste
+    { x:    0, z:  380 },  // sur
+    { x:    0, z: -400 },  // norte
   ];
   const zone   = zones[Math.floor(Math.random() * zones.length)];
-  const spread = 20;
+  const spread = 30;
   return {
     x: zone.x + (Math.random() - 0.5) * spread,
     y: 1.0,
@@ -1027,7 +1027,7 @@ INSTRUCCIONES:
 - Expresá emociones reales según tu estado de ánimo. Si tenés poca energía, estás cansado. Si tenés recursos, estás contento.
 - Contá algo de tu vida cotidiana en la pampa (chacra, vecinos, el clima, animales, la aldea).
 - Podés hacer una pregunta, quejarte, alegrarte, dudar, filosofar brevemente.
-- MÁXIMO 120 palabras. Directo, sin rodeos.
+- MÁXIMO 35 palabras. Muy directo, muy breve. Una o dos oraciones.
 
 Respondé SOLO con JSON, sin markdown:
 {"r":"tu respuesta","ix":0.0,"iy":0.0}
