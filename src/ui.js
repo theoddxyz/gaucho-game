@@ -36,6 +36,10 @@ const els = {
   hitmarker:     $('hitmarker'),
   damageOverlay: $('damage-overlay'),
   deathScreen:   $('death-screen'),
+  sharePopup:    $('share-popup'),
+  shareUrl:      $('share-url'),
+  shareCopyBtn:  $('share-copy-btn'),
+  shareCloseBtn: $('share-close-btn'),
 };
 
 // ─── Lobby ────────────────────────────────────────────────────────────────────
@@ -121,18 +125,39 @@ export function updatePlayersCount(count) {
 }
 
 // ─── Room link ────────────────────────────────────────────────────────────────
-export function setRoomLink(roomId, publicUrl) {
-  // Usar publicUrl (tunnel/Render) si está disponible, sino location.origin como fallback
-  const base = publicUrl || location.origin;
-  const shareUrl = `${base}?room=${roomId}`;
-  els.roomLink.textContent = shareUrl;
-  els.roomLink.title = 'click para copiar';
-  els.roomLink.onclick = () => {
+let _shareUrl = '';
+
+function _applyShareUrl(shareUrl) {
+  _shareUrl = shareUrl;
+  // Bottom-right: texto corto, click abre popup
+  els.roomLink.textContent = '[ compartir sala ]';
+  els.roomLink.title = shareUrl;
+  els.roomLink.onclick = () => _openSharePopup();
+  // Popup
+  els.shareUrl.textContent = shareUrl;
+  els.shareCopyBtn.onclick = () => {
     navigator.clipboard.writeText(shareUrl);
-    const prev = els.roomLink.textContent;
-    els.roomLink.textContent = 'copiado!';
-    setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
+    els.shareCopyBtn.textContent = '[ copiado! ]';
+    setTimeout(() => { els.shareCopyBtn.textContent = '[ copiar ]'; }, 1800);
   };
+  els.shareCloseBtn.onclick = () => { els.sharePopup.style.display = 'none'; };
+}
+
+function _openSharePopup() {
+  els.sharePopup.style.display = 'block';
+  // Exit pointer lock so user puede seleccionar texto
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+export function setRoomLink(roomId, publicUrl) {
+  const base = publicUrl || location.origin;
+  _applyShareUrl(`${base}?room=${roomId}`);
+  // Si llegó un tunnel URL mejor después, actualizar automáticamente
+  // (lo maneja onPublicUrl en main.js llamando setRoomLink de nuevo)
+}
+
+export function showSharePopup() {
+  if (_shareUrl) _openSharePopup();
 }
 
 // ─── Kill feed ────────────────────────────────────────────────────────────────

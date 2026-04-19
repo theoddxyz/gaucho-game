@@ -165,6 +165,42 @@
     }
     #room-link:hover { color: #7a5820; }
 
+    /* ── Share link popup ───────────────────────────────────────────────────── */
+    #share-popup {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 500; display: none;
+      background: rgba(8,5,2,0.97); border: 1px solid #c8a050;
+      padding: 22px 32px; text-align: center;
+      font-family: 'Share Tech Mono', monospace;
+      box-shadow: 0 0 30px rgba(200,160,60,0.25);
+      min-width: 340px;
+    }
+    #share-popup h3 {
+      font-size: 11px; color: #6a5030; letter-spacing: 3px;
+      text-transform: uppercase; margin-bottom: 14px;
+    }
+    #share-url {
+      font-size: 13px; color: #e8c870; letter-spacing: 1px;
+      word-break: break-all; margin-bottom: 16px;
+      border: 1px solid #4a3010; padding: 8px 12px;
+      background: rgba(0,0,0,0.4);
+    }
+    #share-copy-btn {
+      border: 1px solid #4a3010; background: none;
+      color: #b88a3a; font-family: inherit; font-size: 11px;
+      padding: 6px 20px; cursor: pointer; letter-spacing: 3px;
+      text-transform: uppercase; transition: border-color 0.15s, color 0.15s;
+      margin-right: 10px;
+    }
+    #share-copy-btn:hover { border-color: #c8a050; color: #e8c870; }
+    #share-close-btn {
+      border: 1px solid #3a2010; background: none;
+      color: #6a5030; font-family: inherit; font-size: 11px;
+      padding: 6px 16px; cursor: pointer; letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    #share-close-btn:hover { color: #9a7040; }
+
     /* ── Coords (bottom, above room link) ──────────────────────────────────── */
     #coords-display {
       position: fixed; bottom: 32px; right: 14px;
@@ -300,12 +336,20 @@
   <!-- Room link: bottom-right -->
   <div id="room-link"></div>
 
+  <!-- Share link popup -->
+  <div id="share-popup">
+    <h3>⟶ link para compartir ⟵</h3>
+    <div id="share-url"></div>
+    <button id="share-copy-btn">[ copiar ]</button>
+    <button id="share-close-btn">cerrar</button>
+  </div>
+
   <!-- Version badge: bottom-center -->
   <div id="version-badge" style="
     position:fixed; bottom:6px; left:50%; transform:translateX(-50%);
     z-index:200; font-size:9px; color:#3a2808; letter-spacing:2px;
     pointer-events:none; user-select:none;
-  ">BUILD 2026-04-19 · v338</div>
+  ">BUILD 2026-04-19 · v339</div>
   <!-- Plant interaction hint -->
   <div id="plant-hint" style="
     display:none; position:fixed; bottom:22%; left:50%; transform:translateX(-50%);
