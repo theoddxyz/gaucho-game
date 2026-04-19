@@ -94,6 +94,16 @@ export function cancelPiper() {
   _pending.clear();
 }
 
+// ── Cabinet curve (saturación de speaker pequeño) ─────────────────────────────
+function _cabinetCurve(k) {
+  const n = 256, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    c[i] = ((Math.PI + k) * x) / (Math.PI + k * Math.abs(x));
+  }
+  return c;
+}
+
 // ── Síntesis + reproducción ───────────────────────────────────────────────────
 export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = null) {
   // Esperar descarga si está en progreso
@@ -132,8 +142,35 @@ export async function speakPiper(text, charName = 'GM', volume = 1.0, onStart = 
     src.buffer = audio;
     src.playbackRate.value = 1.0;
     gain.gain.value = Math.max(0, Math.min(1, volume));
+
+    // ── Simulación de gabinete/dispositivo de juego ───────────────────────────
+    // HPF: elimina graves (ruido de sala, bajos del personaje)
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass'; hpf.frequency.value = 160; hpf.Q.value = 0.7;
+
+    // Peaking: realza medios nasales (timbre de bocina/gabinete)
+    const mid = ctx.createBiquadFilter();
+    mid.type = 'peaking'; mid.frequency.value = 900;
+    mid.Q.value = 1.2; mid.gain.value = 7;
+
+    // LPF: recorta agudos (papel de cartón, no digital nítido)
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 3800; lpf.Q.value = 0.8;
+
+    // WaveShaper: saturación suave (cono de speaker empujado)
+    const ws = ctx.createWaveShaper();
+    ws.curve = _cabinetCurve(12); ws.oversample = '2x';
+
+    // Compresor: nivela la dinámica (como un speaker pequeño saturado)
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 10;
+    comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
+
     src.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(hpf); hpf.connect(mid); mid.connect(lpf);
+    lpf.connect(ws); ws.connect(comp); comp.connect(ctx.destination);
+    // ─────────────────────────────────────────────────────────────────────────
+
     _currentSrc = src;
     src.onended = () => { if (_currentSrc === src) _currentSrc = null; };
     src.start();

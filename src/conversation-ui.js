@@ -45,9 +45,6 @@ export class ConversationUI {
       const hist = (this._history[name] = this._history[name] || []);
       hist.push({ from: 'npc', text: response });
 
-      // Fase 4: lengua real del aldeano arranca inmediatamente (unfiltered)
-      speakAldeanoReal(response, ix, iy, energia);
-
       // Mostrar "traduciendo..." mientras Piper sintetiza
       this._translating = true;
       this._renderInput();
@@ -62,10 +59,12 @@ export class ConversationUI {
           this._renderHistory();
           this._renderInput();
         }
+        // Fase 4: voz real del aldeano arranca casi simultánea con Daniela
+        speakAldeanoReal(response, ix, iy, energia);
       };
       setTimeout(showText, 20000);
 
-      // Texto aparece exactamente cuando Daniela arranca (onStart)
+      // Texto + voz real aparecen exactamente cuando Daniela arranca (onStart)
       speakNpc(response, { charName: name, onStart: showText });
     });
   }

@@ -1,17 +1,13 @@
-// aldeano-voice.js — Síntesis procedural de la voz de los aldeanos
+// aldeano-voice.js — Voz procedural estilo videojuego (Animalese/bursts)
+//
+// Cada "sílaba" = un burst breve (60ms) con ataque rápido y decay exponencial.
+// Esto es lo que hace que suene a habla de videojuego, no a un tono continuo.
 //
 // La voz está determinada por la posición metafísica real del alma:
 //   ix: -1 = INDIVIDUO  ↔  +1 = COMUNIDAD
 //   iy: -1 = MATERIA    ↔  +1 = TRASCENDENCIA
-//
-// Flujo teatral:
-//   Fase 1 — "el traductor procesa"  (electrónico + místico, ~1s)
-//   Fase 2 — "el traductor transmite" (lengua del aldeano, filtrada/dispositivo, ~1.5s)
-//   Fase 3 — "el aldeano piensa"     (ambiente continuo hasta que llega respuesta)
-//   Fase 4 — speakAldeanoReal()      (lengua real, sin filtro, cuando responde)
 
 let _actx = null;
-
 function _getCtx() {
   if (!_actx || _actx.state === 'closed') {
     _actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -20,21 +16,19 @@ function _getCtx() {
   return _actx;
 }
 
-// ── Control de fases (versión = guard de cancelación) ────────────────────────
+// ── Control de fases ──────────────────────────────────────────────────────────
 let _theaterVer  = 0;
-const _theaterNodes = [];  // { master: GainNode, oscs: OscillatorNode[] }[]
+const _theaterNodes = [];
 
-/** Detiene cualquier sonido teatral en curso con fade corto */
 export function stopTheater() {
   _theaterVer++;
-  _fadeAndStop(_theaterNodes.splice(0));
+  _fade(_theaterNodes.splice(0));
 }
 
-function _fadeAndStop(nodes, ms = 130) {
+function _fade(nodes, ms = 120) {
   for (const { master, oscs } of nodes) {
     try {
-      const ctx = _getCtx();
-      const now = ctx.currentTime;
+      const ctx = _getCtx(), now = ctx.currentTime;
       master.gain.cancelScheduledValues(now);
       master.gain.setValueAtTime(master.gain.value, now);
       master.gain.linearRampToValueAtTime(0, now + ms / 1000);
@@ -43,267 +37,232 @@ function _fadeAndStop(nodes, ms = 130) {
   }
 }
 
-// ── Curva de distorsión suave (WaveShaper) ────────────────────────────────────
-function _distortionCurve(amount) {
-  const n = 256;
-  const c = new Float32Array(n);
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function _sylCount(text) {
+  const words = (text || '').toLowerCase().split(/\s+/).filter(Boolean);
+  let n = 0;
+  for (const w of words) {
+    const v = w.match(/[aeiouáéíóú]/g);
+    n += Math.max(1, v ? v.length : 1);
+  }
+  return Math.max(2, n);
+}
+
+// Forma de onda según posición metafísica del alma
+function _wave(ix, iy) {
+  if (iy >  0.3)              return 'sine';      // TRASCENDENCIA: suave, etéreo
+  if (iy < -0.2 && ix < -0.1) return 'sawtooth';  // MATERIA+INDIVIDUO: crudo, terroso
+  if (ix >  0.3)              return 'square';    // COMUNIDAD: cálido, resonante
+  return 'triangle';                              // resto: hueco, neutro
+}
+
+function _distCurve(k) {
+  const n = 256, c = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = (i * 2) / n - 1;
-    c[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+    c[i] = ((Math.PI + k) * x) / (Math.PI + k * Math.abs(x));
   }
   return c;
 }
 
-// ── Constructor base de voz ───────────────────────────────────────────────────
-// Devuelve { master (GainNode, gain=0, no conectado), oscs (array) }
-// El caller configura la envolvente de master y llama start()/stop() en los oscs.
-function _buildVoice(ctx, ix, iy, energia, filtered) {
+// ─────────────────────────────────────────────────────────────────────────────
+// NÚCLEO: genera los bursts de habla estilo videojuego
+// Devuelve { master (GainNode, gain=0, sin conectar), oscs, totalDur, volBase }
+// ─────────────────────────────────────────────────────────────────────────────
+function _makeBursts(ctx, text, ix, iy, energia) {
+  const ef        = 0.55 + (Math.min(100, Math.max(0, energia)) / 100) * 0.9;
+  const syllables = _sylCount(text);
+  const basePitch = (115 + iy * 68) * ef;   // MATERIA≈50Hz, TRASCENDENCIA≈180Hz × ef
+  const wave      = _wave(ix, iy);
+  const volBase   = 0.22 + iy * 0.06 + ix * 0.04;
+
+  // 60ms burst + 82ms silencio = 142ms/sílaba ≈ 7 bursts/seg (habla natural de juego)
+  const BURST  = 0.060;
+  const PERIOD = 0.142;
+  const totalDur = syllables * PERIOD;
+
+  const master = ctx.createGain();
+  master.gain.value = 0;
+
   const oscs = [];
+  const t0   = ctx.currentTime;
 
-  // Normalizar energía
-  const ef  = 0.5 + (Math.min(100, Math.max(0, energia)) / 100) * 1.0;
+  for (let i = 0; i < syllables; i++) {
+    const t = t0 + i * PERIOD;
 
-  // ── Parámetros desde posición metafísica ────────────────────────────────────
-  // Pitch: MATERIA = grave, TRASCENDENCIA = agudo
-  const pitch    = (120 + iy * 65) * ef;                      // 55–185 Hz × ef
+    // Entonación quasi-melódica (no random — determinista, suena a "idioma")
+    const pMult = 1.0 + Math.sin(i * 2.1) * 0.09 + Math.sin(i * 1.37) * 0.04;
+    const freq  = basePitch * pMult;
 
-  // Ritmo silábico: COMUNIDAD/TRASCENDENCIA = más rápido
-  const sylRate  = 3.5 + iy * 1.5 + Math.max(0, ix) * 1.0;   // ~2–6 Hz
+    const osc = ctx.createOscillator();
+    osc.type  = wave;
+    osc.frequency.value = freq;
 
-  // Formante 1: INDIVIDUO = más cerrado (baja F1), COMUNIDAD = más abierto
-  const f1Freq   = 520 + ix * 140;                             // 380–660 Hz
+    // Envelope percusivo: ataque 4ms, decay exponencial hasta silencio
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(1.0, t + 0.004);
+    env.gain.exponentialRampToValueAtTime(0.001, t + BURST);
 
-  // Formante 2: combinación de ambos ejes
-  const f2Freq   = 1100 + ix * 430 + iy * 160;                // ~510–1690 Hz
+    // Filtro formántico (timbre vocal del personaje)
+    const f1 = ctx.createBiquadFilter();
+    f1.type = 'bandpass';
+    f1.frequency.value = 480 + ix * 170;   // INDIVIDUO=310Hz, COMUNIDAD=650Hz
+    f1.Q.value = 5;
 
-  // Jitter: INDIVIDUO = más inestable, COMUNIDAD = más estable
-  const jitter   = pitch * (0.016 - Math.abs(ix) * 0.006);
-
-  // Volumen base
-  const volBase  = 0.13 + iy * 0.04 + ix * 0.03;
-
-  // ── Fuente glotal (diente de sierra) ────────────────────────────────────────
-  const osc = ctx.createOscillator();
-  osc.type = 'sawtooth';
-  osc.frequency.value = pitch;
-  oscs.push(osc);
-
-  const jLfo  = ctx.createOscillator();
-  jLfo.frequency.value = 6.5 + Math.abs(ix) * 2;
-  const jGain = ctx.createGain();
-  jGain.gain.value = jitter;
-  jLfo.connect(jGain);
-  jGain.connect(osc.frequency);
-  oscs.push(jLfo);
-
-  // ── Formantes ────────────────────────────────────────────────────────────────
-  const f1 = ctx.createBiquadFilter();
-  f1.type = 'bandpass'; f1.frequency.value = f1Freq; f1.Q.value = 3.5;
-  const f2 = ctx.createBiquadFilter();
-  f2.type = 'bandpass'; f2.frequency.value = f2Freq; f2.Q.value = 5.0;
-
-  // Tercer formante sutil: TRASCENDENCIA = más brillo
-  const f3 = ctx.createBiquadFilter();
-  f3.type = 'bandpass';
-  f3.frequency.value = 2400 + iy * 800;
-  f3.Q.value = 7;
-  const f3Vol = ctx.createGain();
-  f3Vol.gain.value = Math.max(0, iy) * 0.3;
-
-  const fMix = ctx.createGain(); fMix.gain.value = 1.0;
-  osc.connect(f1); osc.connect(f2); osc.connect(f3);
-  f1.connect(fMix); f2.connect(fMix);
-  f3.connect(f3Vol); f3Vol.connect(fMix);
-
-  // ── Modulación de amplitud (ritmo silábico) ───────────────────────────────
-  const amGain = ctx.createGain(); amGain.gain.value = 0.65;
-  const amLfo  = ctx.createOscillator(); amLfo.type = 'sine'; amLfo.frequency.value = sylRate;
-  const amLfoG = ctx.createGain(); amLfoG.gain.value = 0.35;
-  amLfo.connect(amLfoG); amLfoG.connect(amGain.gain);
-  fMix.connect(amGain);
-  oscs.push(amLfo);
-
-  let out = amGain;
-  const master = ctx.createGain(); master.gain.value = 0;
-
-  // ── Filtro de dispositivo (solo para fase 2) ─────────────────────────────
-  if (filtered) {
-    // ── Filtro de radio/dispositivo ──────────────────────────────────────────
-    // HPF: elimina bajos (como un viejo parlante)
-    const hpf = ctx.createBiquadFilter();
-    hpf.type = 'highpass'; hpf.frequency.value = 320; hpf.Q.value = 0.7;
-
-    // BPF estrecho: banda de teléfono/radio (300-3000 Hz → centrar en 850)
-    const bpf = ctx.createBiquadFilter();
-    bpf.type = 'bandpass'; bpf.frequency.value = 850; bpf.Q.value = 1.8;
-
-    // Distorsión más pronunciada (claramente electrónico)
-    const ws = ctx.createWaveShaper();
-    ws.curve = _distortionCurve(22);
-    ws.oversample = '2x';
-
-    // Tremolo a 18Hz (vibración de dispositivo)
-    const tremGain = ctx.createGain(); tremGain.gain.value = 0.88;
-    const tremLfo  = ctx.createOscillator(); tremLfo.frequency.value = 18;
-    const tremLfoG = ctx.createGain(); tremLfoG.gain.value = 0.12;
-    tremLfo.connect(tremLfoG); tremLfoG.connect(tremGain.gain);
-    oscs.push(tremLfo);
-
-    out.connect(hpf); hpf.connect(bpf); bpf.connect(ws); ws.connect(tremGain);
-    tremGain.connect(master);
-  } else {
-    out.connect(master);
+    osc.connect(f1); f1.connect(env); env.connect(master);
+    osc.start(t); osc.stop(t + BURST + 0.008);
+    oscs.push(osc);
   }
 
-  return { master, oscs, volBase };
+  return { master, oscs, totalDur, volBase };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FASE 1 — El traductor procesa (electrónico industrial + toque místico)
-// Clicks irregulares de datos + sweep + drone profundo
+// FASE 1 — El traductor procesa el texto del usuario
+// Industrial/electrónico: ruido de datos + sweep + drone profundo (1.5s)
 // ─────────────────────────────────────────────────────────────────────────────
 export function startPhase1(onDone) {
   stopTheater();
   const v = _theaterVer;
-  const DURATION_MS = 900;
+  const DUR_MS = 1500;
+  const dur    = DUR_MS / 1000;
   try {
     const ctx = _getCtx();
     const t0  = ctx.currentTime;
-    const dur = DURATION_MS / 1000;
 
     const master = ctx.createGain();
-    master.gain.setValueAtTime(0.12, t0);
-    master.gain.setValueAtTime(0.12, t0 + dur - 0.08);
+    master.gain.setValueAtTime(0.13, t0);
+    master.gain.setValueAtTime(0.13, t0 + dur - 0.10);
     master.gain.linearRampToValueAtTime(0, t0 + dur);
     master.connect(ctx.destination);
 
     const oscs = [];
 
-    // ── Bursts de ruido cortos (datos procesándose) ────────────────────────
-    const burstTimes = [0, 0.07, 0.18, 0.22, 0.38, 0.45, 0.60, 0.72, 0.83];
-    for (const bt of burstTimes) {
-      const bufSz = Math.floor(ctx.sampleRate * 0.025);
+    // ── Bursts de ruido (paquetes de datos) ───────────────────────────────
+    const burstTs = [0, 0.06, 0.15, 0.19, 0.32, 0.41, 0.54, 0.68, 0.80, 0.96, 1.10, 1.28, 1.40];
+    for (const bt of burstTs) {
+      const bufSz = Math.floor(ctx.sampleRate * 0.022);
       const buf   = ctx.createBuffer(1, bufSz, ctx.sampleRate);
-      const data  = buf.getChannelData(0);
-      for (let i = 0; i < bufSz; i++) data[i] = Math.random() * 2 - 1;
+      const d     = buf.getChannelData(0);
+      for (let i = 0; i < bufSz; i++) d[i] = Math.random() * 2 - 1;
       const ns  = ctx.createBufferSource(); ns.buffer = buf;
       const bpf = ctx.createBiquadFilter(); bpf.type = 'bandpass';
-      bpf.frequency.value = 1200 + bt * 2000; bpf.Q.value = 3;
-      const g = ctx.createGain(); g.gain.value = 0.55 + Math.random() * 0.3;
+      bpf.frequency.value = 900 + bt * 1400; bpf.Q.value = 3.5;
+      const g   = ctx.createGain(); g.gain.value = 0.45 + Math.random() * 0.35;
       ns.connect(bpf); bpf.connect(g); g.connect(master);
       ns.start(t0 + bt);
     }
 
-    // ── Sweep electrónico ascendente (escaneo) ─────────────────────────────
+    // ── Sweep electrónico ascendente (escaneo) ────────────────────────────
     const sweep = ctx.createOscillator(); sweep.type = 'sawtooth';
-    sweep.frequency.setValueAtTime(180, t0);
-    sweep.frequency.linearRampToValueAtTime(3200, t0 + dur * 0.85);
-    const sweepG = ctx.createGain(); sweepG.gain.value = 0.06;
-    const sweepF = ctx.createBiquadFilter(); sweepF.type = 'bandpass'; sweepF.Q.value = 8;
-    sweepF.frequency.setValueAtTime(180, t0);
-    sweepF.frequency.linearRampToValueAtTime(3200, t0 + dur * 0.85);
-    sweep.connect(sweepF); sweepF.connect(sweepG); sweepG.connect(master);
+    sweep.frequency.setValueAtTime(120, t0);
+    sweep.frequency.linearRampToValueAtTime(4000, t0 + dur * 0.88);
+    const swF = ctx.createBiquadFilter(); swF.type = 'bandpass'; swF.Q.value = 10;
+    swF.frequency.setValueAtTime(120, t0);
+    swF.frequency.linearRampToValueAtTime(4000, t0 + dur * 0.88);
+    const swG = ctx.createGain(); swG.gain.value = 0.055;
+    sweep.connect(swF); swF.connect(swG); swG.connect(master);
     sweep.start(t0); sweep.stop(t0 + dur);
     oscs.push(sweep);
 
-    // ── Drone profundo (base mística) ──────────────────────────────────────
-    const drone = ctx.createOscillator(); drone.type = 'sine'; drone.frequency.value = 55;
-    const droneG = ctx.createGain(); droneG.gain.value = 0.18;
-    const droneM = ctx.createOscillator(); droneM.frequency.value = 0.6;
-    const droneMG = ctx.createGain(); droneMG.gain.value = 0.06;
-    droneM.connect(droneMG); droneMG.connect(droneG.gain);
-    drone.connect(droneG); droneG.connect(master);
+    // ── Drone profundo (presencia mística) ───────────────────────────────
+    const drone = ctx.createOscillator(); drone.type = 'sine'; drone.frequency.value = 52;
+    const dG  = ctx.createGain(); dG.gain.value = 0.20;
+    const dLfo = ctx.createOscillator(); dLfo.frequency.value = 0.5;
+    const dLG  = ctx.createGain(); dLG.gain.value = 0.05;
+    dLfo.connect(dLG); dLG.connect(dG.gain);
+    drone.connect(dG); dG.connect(master);
     drone.start(t0); drone.stop(t0 + dur);
-    droneM.start(t0); droneM.stop(t0 + dur);
-    oscs.push(drone, droneM);
+    dLfo.start(t0);  dLfo.stop(t0 + dur);
+    oscs.push(drone, dLfo);
 
     _theaterNodes.push({ master, oscs });
 
   } catch (e) { console.warn('[aldeano-voice] phase1:', e); }
 
-  setTimeout(() => { if (_theaterVer === v && onDone) onDone(); }, DURATION_MS);
+  setTimeout(() => { if (_theaterVer === v && onDone) onDone(); }, DUR_MS);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FASE 2 — El traductor transmite (lengua real filtrada)
+// FASE 2 — El traductor transmite (voz del aldeano filtrada por el dispositivo)
+// Mismos bursts que la voz real, pero a través de cadena radio/dispositivo
 // ─────────────────────────────────────────────────────────────────────────────
 export function startPhase2(text, ix, iy, onDone) {
   const v = _theaterVer;
-  const wordCount  = (text || '').split(/\s+/).filter(Boolean).length;
-  const durationMs = Math.min(900 + wordCount * 80, 2400);
+  let durMs = 1500;
   try {
-    const ctx  = _getCtx();
-    const t0   = ctx.currentTime;
-    const dur  = durationMs / 1000;
-    const { master, oscs, volBase } = _buildVoice(ctx, ix, iy, 75, true);
-    const vol = volBase * 0.65; // más tenue: viene de un dispositivo
+    const ctx = _getCtx();
+    const t0  = ctx.currentTime;
+    const { master, oscs, totalDur, volBase } = _makeBursts(ctx, text, ix, iy, 80);
+    durMs = Math.max(1500, totalDur * 1000 + 200);
+    const dur = durMs / 1000;
 
+    // Envolvente del master (volumen del dispositivo: ligeramente más bajo)
+    const vol = volBase * 0.60;
     master.gain.setValueAtTime(0, t0);
-    master.gain.linearRampToValueAtTime(vol, t0 + 0.06);
-    master.gain.setValueAtTime(vol, t0 + dur - 0.18);
+    master.gain.linearRampToValueAtTime(vol, t0 + 0.04);
+    master.gain.setValueAtTime(vol, t0 + dur - 0.12);
     master.gain.linearRampToValueAtTime(0, t0 + dur);
-    master.connect(ctx.destination);
 
-    for (const o of oscs) { o.start(t0); o.stop(t0 + dur); }
+    // ── Cadena de filtro radio/dispositivo ────────────────────────────────
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass'; hpf.frequency.value = 340; hpf.Q.value = 0.8;
+
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 880; bpf.Q.value = 2.0;
+
+    const ws = ctx.createWaveShaper();
+    ws.curve = _distCurve(24); ws.oversample = '2x';
+
+    const tremGain = ctx.createGain(); tremGain.gain.value = 0.87;
+    const tremLfo  = ctx.createOscillator(); tremLfo.frequency.value = 19;
+    const tremLfoG = ctx.createGain(); tremLfoG.gain.value = 0.13;
+    tremLfo.connect(tremLfoG); tremLfoG.connect(tremGain.gain);
+    tremLfo.start(t0); tremLfo.stop(t0 + dur);
+    oscs.push(tremLfo);
+
+    master.connect(hpf);
+    hpf.connect(bpf);
+    bpf.connect(ws);
+    ws.connect(tremGain);
+    tremGain.connect(ctx.destination);
+
     _theaterNodes.push({ master, oscs });
 
   } catch (e) { console.warn('[aldeano-voice] phase2:', e); }
 
-  setTimeout(() => { if (_theaterVer === v && onDone) onDone(); }, durationMs);
+  setTimeout(() => { if (_theaterVer === v && onDone) onDone(); }, durMs);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FASE 3 — El aldeano piensa (loop continuo hasta respuesta)
-// Muy suave; ix/iy determinan la cualidad del silencio
+// FASE 3 — El aldeano piensa (casi silencio, loop hasta respuesta)
 // ─────────────────────────────────────────────────────────────────────────────
 export function startPhase3(ix, iy) {
   try {
     const ctx = _getCtx();
     const t0  = ctx.currentTime;
-
-    // Muy silencioso — apenas una presencia
-    const pitch = 72 + iy * 28;
-    const vol   = 0.012 + Math.abs(iy) * 0.006;
+    const pitch = 68 + iy * 25;
+    const vol   = 0.010 + Math.abs(iy) * 0.005;
 
     const master = ctx.createGain();
     master.gain.setValueAtTime(0, t0);
-    master.gain.linearRampToValueAtTime(vol, t0 + 0.6);
+    master.gain.linearRampToValueAtTime(vol, t0 + 0.8);
     master.connect(ctx.destination);
 
     const osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = pitch;
-
-    // Respiración lenta
-    const breathLfo = ctx.createOscillator(); breathLfo.frequency.value = 0.12 + iy * 0.04;
-    const breathG   = ctx.createGain(); breathG.gain.value = vol * 0.4;
+    const breathLfo = ctx.createOscillator(); breathLfo.frequency.value = 0.10 + iy * 0.03;
+    const breathG   = ctx.createGain(); breathG.gain.value = vol * 0.35;
     breathLfo.connect(breathG); breathG.connect(master.gain);
-
     osc.connect(master); osc.start(); breathLfo.start();
 
     const oscs = [osc, breathLfo];
 
-    // Tono inarmónico para TRASCENDENCIA (sensación etérea)
-    if (iy > 0.2) {
-      const ot = ctx.createOscillator(); ot.type = 'sine'; ot.frequency.value = pitch * 2.72;
-      const otG = ctx.createGain(); otG.gain.value = iy * 0.008;
-      ot.connect(otG); otG.connect(master);
-      ot.start(); oscs.push(ot);
-    }
-
-    // Ruido muy tenue para INDIVIDUO (tensión, soledad)
-    if (ix < -0.2) {
-      const bufSz = ctx.sampleRate;
-      const nBuf  = ctx.createBuffer(1, bufSz, ctx.sampleRate);
-      const nd    = nBuf.getChannelData(0);
-      for (let i = 0; i < bufSz; i++) nd[i] = (Math.random() * 2 - 1) * 0.12;
-      const noise = ctx.createBufferSource(); noise.buffer = nBuf; noise.loop = true;
-      const noiseF = ctx.createBiquadFilter(); noiseF.type = 'bandpass'; noiseF.frequency.value = 400; noiseF.Q.value = 0.8;
-      const noiseG = ctx.createGain(); noiseG.gain.value = Math.abs(ix) * 0.008;
-      noise.connect(noiseF); noiseF.connect(noiseG); noiseG.connect(master);
-      noise.start();
-      // Para el ruido necesitamos guardarlo especialmente (no es OscillatorNode)
-      // Usamos _fadeAndStop con un wrapper
-      _theaterNodes.push({ master: noiseG, oscs: [] });
-      setTimeout(() => { try { noise.stop(); } catch(_) {} }, 120000);
+    if (iy > 0.3) {
+      const ot = ctx.createOscillator(); ot.type = 'sine';
+      ot.frequency.value = pitch * 2.74; // inarmónico
+      const otG = ctx.createGain(); otG.gain.value = iy * 0.006;
+      ot.connect(otG); otG.connect(master); ot.start(); oscs.push(ot);
     }
 
     _theaterNodes.push({ master, oscs });
@@ -312,26 +271,22 @@ export function startPhase3(ix, iy) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FASE 4 — El aldeano responde (lengua real, sin filtro)
+// FASE 4 — El aldeano responde (bursts sin filtro, voz real)
+// Llamar desde onStart de Daniela para que sean casi simultáneos
 // ─────────────────────────────────────────────────────────────────────────────
 export function speakAldeanoReal(text, ix, iy, energia) {
   try {
-    const ctx  = _getCtx();
-    const t0   = ctx.currentTime;
-    const { master, oscs, volBase } = _buildVoice(ctx, ix, iy, energia, false);
-
-    const wordCount = (text || '').split(/\s+/).filter(Boolean).length;
-    const dur       = Math.min(1.3 + wordCount * 0.10, 3.8);
+    const ctx = _getCtx();
+    const t0  = ctx.currentTime;
+    const { master, oscs, totalDur, volBase } = _makeBursts(ctx, text, ix, iy, energia);
 
     master.gain.setValueAtTime(0, t0);
-    master.gain.linearRampToValueAtTime(volBase, t0 + 0.07);
-    master.gain.setValueAtTime(volBase, t0 + dur - 0.22);
-    master.gain.linearRampToValueAtTime(0, t0 + dur);
+    master.gain.linearRampToValueAtTime(volBase, t0 + 0.04);
+    master.gain.setValueAtTime(volBase, t0 + totalDur - 0.12);
+    master.gain.linearRampToValueAtTime(0, t0 + totalDur);
     master.connect(ctx.destination);
 
-    for (const o of oscs) { o.start(t0); o.stop(t0 + dur); }
-
-    return dur;
+    return totalDur;
   } catch (e) {
     console.warn('[aldeano-voice] speakAldeanoReal:', e);
     return 0;
