@@ -218,8 +218,12 @@ TERRAIN_MAT.onBeforeCompile = (shader) => {
     .replace('#include <common>', `#include <common>
 varying vec3 vWPos;
 
-// ── Value noise básico ────────────────────────────────────────────────────────
-float _h(float a,float b){ float s=sin(a*127.1+b*311.7)*43758.5453; return s-floor(s); }
+// ── Value noise — hash SIN sin() (evita bandas periódicas) ───────────────────
+float _h(float a, float b){
+  vec2 p = fract(vec2(a,b) * vec2(0.1031, 0.1030));
+  p += dot(p, p.yx + 33.33);
+  return fract((p.x + p.y) * p.x);
+}
 float _n(vec2 p){
   vec2 i=floor(p), f=fract(p), u=f*f*(3.0-2.0*f);
   return mix(mix(_h(i.x,i.y),_h(i.x+1.,i.y),u.x),
