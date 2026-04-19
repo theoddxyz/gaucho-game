@@ -123,31 +123,26 @@ export function updatePlayersCount(count) {
 // ─── Room link ────────────────────────────────────────────────────────────────
 export function setRoomLink(roomId) {
   els.roomLink.textContent = `sala: ${roomId}`;
-  els.roomLink.title = 'click para copiar link';
 
-  // Resolve the best shareable base URL from the server (tunnel or Render URL)
-  fetch('/api/public-url')
-    .then(r => r.json())
-    .then(({ url: base }) => {
-      const shareBase = base || location.origin;
-      const shareUrl = `${shareBase}?room=${roomId}`;
-      els.roomLink.onclick = () => {
-        navigator.clipboard.writeText(shareUrl);
-        const prev = els.roomLink.textContent;
-        els.roomLink.textContent = 'copiado!';
-        setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
-      };
-    })
-    .catch(() => {
-      // Fallback: use current origin
-      const shareUrl = `${location.origin}?room=${roomId}`;
-      els.roomLink.onclick = () => {
-        navigator.clipboard.writeText(shareUrl);
-        const prev = els.roomLink.textContent;
-        els.roomLink.textContent = 'copiado!';
-        setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
-      };
-    });
+  // Poll /api/public-url until the tunnel URL is ready (cloudflare takes a few secs)
+  const _poll = () => {
+    fetch('/api/public-url')
+      .then(r => r.json())
+      .then(({ url: base }) => {
+        if (!base) { setTimeout(_poll, 2000); return; } // todavía no está listo
+        const shareUrl = `${base}?room=${roomId}`;
+        els.roomLink.textContent = `sala: ${roomId}`;
+        els.roomLink.title = shareUrl;
+        els.roomLink.onclick = () => {
+          navigator.clipboard.writeText(shareUrl);
+          const prev = els.roomLink.textContent;
+          els.roomLink.textContent = 'copiado!';
+          setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
+        };
+      })
+      .catch(() => setTimeout(_poll, 3000));
+  };
+  _poll();
 }
 
 // ─── Kill feed ────────────────────────────────────────────────────────────────
