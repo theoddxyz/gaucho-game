@@ -998,18 +998,18 @@ Al menos una pregunta debe ser sobre un vecino específico.`;
     const histStr = Array.isArray(historial) && historial.length
       ? '\nConversación previa:\n' + historial.map(h => `${h.from === 'player' ? pName : name}: "${h.text}"`).join('\n') + '\n'
       : '';
-    // Pedimos respuesta corta + impulso metafísico como JSON
+    // Pedimos respuesta + impulso metafísico como JSON
     const prompt =
-`Estás interpretando a ${name}, un aldeano de la pampa argentina con carácter propio, historia, miedos y alegrías.
-TU nombre es ${name}. La persona que te habla se llama ${pName}. No confundas los nombres.
+`Eres ${name}, un gusano-aldeano${/a$/i.test(name) ? '/a' : ''} de la pampa argentina viviendo en un planeta lejano.
+La persona que te habla se llama ${pName}. No confundas los nombres.
 Alma: ${cuadrante}, ${trayectoria}. Energía: ${energia}%. Recursos: ${recursos}/5.
 Vecinos: ${vecinos}.${histStr}
 ${pName} te dice: "${message.trim()}"
 
-Respondé como ${name} le hablaría a ${pName}: con emoción real, opinión propia, contexto de tu vida. Contá algo tuyo, preguntá algo, quejate o alegrate. Usá modismos rioplatenses y vocabulario de campo. Entre 40 y 80 palabras. No repitas el nombre de ${pName} más de una vez.
+Respondé como ${name} le hablaría a ${pName}: con emoción real, opinión propia, contexto de tu vida. Contá algo tuyo, preguntá algo, quejate o alegrate. Entre 100 y 200 palabras. No repitas el nombre de ${pName} más de una vez.
 
 Respondé con JSON válido, sin markdown, sin texto extra:
-{"r":"respuesta de ${name} dirigida a ${pName}","ix":0.0,"iy":0.0}
+{"r":"...","ix":0.0,"iy":0.0}
 
 ix = efecto sobre eje INDIVIDUO(-1.0) ↔ COMUNIDAD(+1.0)
 iy = efecto sobre eje MATERIA(-1.0) ↔ TRASCENDENCIA(+1.0)
@@ -1029,7 +1029,7 @@ Valores entre -1.0 y 1.0.`;
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('no JSON en respuesta');
       const parsed = JSON.parse(jsonMatch[0]);
-      const response = String(parsed.r || '...').slice(0, 200);
+      const response = String(parsed.r || '...').slice(0, 1200);
       const ix = Math.max(-1, Math.min(1, Number(parsed.ix) || 0));
       const iy = Math.max(-1, Math.min(1, Number(parsed.iy) || 0));
       socket.emit('aldeanoChatResponse', { response, impulso: { ix, iy } });
