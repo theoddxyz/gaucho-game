@@ -1140,28 +1140,44 @@ app.get('/api/ai/status', async (_req, res) => {
 http.listen(PORT, async () => {
   console.log(`\n  GAUCHO ${IS_PROD ? 'production' : 'dev'} server at http://localhost:${PORT}`);
 
-  // ── IP pública + puerto (el otro jugador entra directo) ──────────────────
-  // Usa https.get nativo para no depender de fetch (compatible con Node < 18)
+  // ── UPnP: abre el puerto en el router automáticamente ───────────────────
   if (!IS_PROD) {
-    const https = await import('https');
-    const _getPublicIp = () => new Promise((resolve, reject) => {
-      https.get('https://api.ipify.org', (res) => {
-        let data = '';
-        res.on('data', d => data += d);
-        res.on('end', () => resolve(data.trim()));
-      }).on('error', reject);
-    });
-
     try {
-      const ip = await _getPublicIp();
-      _publicUrl = `http://${ip}:${PORT}`;
+      const { default: natUpnp } = await import('nat-upnp');
+      const upnp = natUpnp.createClient();
+
+      // Solicitar apertura de puerto al router via UPnP
+      await new Promise((res, rej) => {
+        upnp.portMapping({ public: Number(PORT), private: Number(PORT), ttl: 0 },
+          err => err ? rej(err) : res());
+      });
+
+      // Obtener IP pública del router
+      const externalIp = await new Promise((res, rej) => {
+        upnp.externalIp((err, ip) => err ? rej(err) : res(ip));
+      });
+
+      _publicUrl = `http://${externalIp}:${PORT}`;
       io.emit('publicUrl', _publicUrl);
       console.log(`\n  ╔══════════════════════════════════════════════╗`);
-      console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
+      console.log(`  ║  LINK PARA EL OTRO JUGADOR (UPnP OK):        ║`);
       console.log(`  ║  ${_publicUrl.padEnd(44)}║`);
       console.log(`  ╚══════════════════════════════════════════════╝\n`);
+      upnp.close();
     } catch (e) {
-      console.log('  [link] no se pudo obtener IP pública:', e.message);
+      console.log(`  [UPnP] no disponible (${e.message}) — abrí el puerto ${PORT} en tu router manualmente`);
+      // Fallback: al menos mostrar IP pública sin garantía de puerto abierto
+      try {
+        const https = await import('https');
+        const ip = await new Promise((res, rej) => {
+          https.get('https://api.ipify.org', r => {
+            let d = ''; r.on('data', c => d += c); r.on('end', () => res(d.trim()));
+          }).on('error', rej);
+        });
+        _publicUrl = `http://${ip}:${PORT}`;
+        io.emit('publicUrl', _publicUrl);
+        console.log(`  IP pública: ${_publicUrl} (necesitás port forwarding en el router)\n`);
+      } catch (_) {}
     }
   }
 });
