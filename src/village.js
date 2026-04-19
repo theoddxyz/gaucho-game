@@ -605,87 +605,63 @@ function buildPath(scene) {
   for (const pts of roads) buildRoadFromPoints(scene, pts, 3.8);
 }
 
-// ─── Geometría coronada para un segmento de camino ──────────────────────────
-// La sección transversal tiene un leve bombeo (centro más alto que los bordes).
-function _crownedSegGeo(width, len) {
-  const hw = width / 2, hl = len / 2;
-  const crown = 0.08; // altura del bombeo central (metros)
-  // 6 vértices por cara (frente+atrás) → 2 triángulos por mitad → geo simple
-  // Sección: borde izq y=0, centro y=crown, borde der y=0
-  const pos = new Float32Array([
-    // cara -Z
-    -hw, 0,      -hl,
-      0, crown,  -hl,
-     hw, 0,      -hl,
-    // cara +Z
-    -hw, 0,       hl,
-      0, crown,   hl,
-     hw, 0,       hl,
-  ]);
-  const idx = [
-    // faldón izquierdo (2 tris)
-    0,3,1, 1,3,4,
-    // faldón derecho (2 tris)
-    1,4,2, 2,4,5,
-    // cara frente
-    2,1,0,
-    // cara atrás
-    3,4,5,
-  ];
-  const uv = new Float32Array([
-    0,0,  0.5,0,  1,0,
-    0,1,  0.5,1,  1,1,
-  ]);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv',       new THREE.BufferAttribute(uv,  2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+// ─── Helper: cuaternión para objeto plano orientado en XZ ────────────────────
+// Evita el problema de Euler compuesto (rotation.x + rotation.y/z).
+// Aplica: primero aplanar (Rx -90°), luego rotar en XZ (Ry ang).
+const _qFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+const _qTmp  = new THREE.Quaternion();
+const _vUp   = new THREE.Vector3(0, 1, 0);
+function _flatQuat(ang) {
+  _qTmp.setFromAxisAngle(_vUp, ang);
+  return _qTmp.clone().multiply(_qFlat);
+}
+
+// Perpendicular a la derecha de un segmento (ang = atan2(dx, dz))
+// Forward = (sin ang, 0, cos ang) → Right = (cos ang, 0, -sin ang)
+function _perpRight(ang, dist, side) {
+  return { x: Math.cos(ang) * dist * side, z: -Math.sin(ang) * dist * side };
 }
 
 // ─── Camino (polyline de puntos) ────────────────────────────────────────────
 function buildRoadFromPoints(scene, points, width = 3.5) {
   if (!points || points.length < 2) return;
-  const edgeW = 0.55; // ancho de cuneta a cada lado
+  const edgeW = 0.55;
+
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i], b = points[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z;
     const len = Math.sqrt(dx * dx + dz * dz);
     if (len < 0.1) continue;
     const ang = Math.atan2(dx, dz);
-    const mx  = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+    const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
 
-    // Superficie coronada con textura
-    const mat = MAT_PATH.clone();
-    mat.map = _roadTex.clone();
-    mat.map.wrapS = THREE.ClampToEdgeWrapping;
-    mat.map.wrapT = THREE.RepeatWrapping;
-    mat.map.repeat.set(1, len / width * 0.8);  // tila proporcional al largo
-    mat.map.needsUpdate = true;
-    const road = new THREE.Mesh(_crownedSegGeo(width, len + 0.05), mat);
-    road.position.set(mx, 0.02, mz);
-    road.rotation.y = ang;
+    // ── Superficie del camino: PlaneGeometry con UVs escaladas ──────────────
+    const geo = new THREE.PlaneGeometry(width, len + 0.08, 1, 1);
+    // Escalar V para que la textura tile proporcional al largo real
+    const uv = geo.attributes.uv;
+    const vScale = (len / width) * 0.75;
+    for (let j = 0; j < uv.count; j++) uv.setY(j, uv.getY(j) * vScale);
+    uv.needsUpdate = true;
+
+    const road = new THREE.Mesh(geo, MAT_PATH);
+    road.quaternion.copy(_flatQuat(ang));
+    road.position.set(mx, 0.022, mz);
     road.receiveShadow = true;
     scene.add(road);
 
-    // Cunetas (bordes oscuros, ligeramente más bajos)
+    // ── Cunetas laterales ────────────────────────────────────────────────────
     for (const side of [-1, 1]) {
-      const edge = new THREE.Mesh(
-        new THREE.BoxGeometry(edgeW, 0.04, len + 0.10), MAT_PATH_EDGE
-      );
-      edge.position.set(mx, 0.008, mz);
-      edge.rotation.y = ang;
-      // Desplazar lateralmente (en espacio local del segmento)
-      const offX = Math.cos(ang + Math.PI / 2) * (width / 2 + edgeW / 2) * side;
-      const offZ = -Math.sin(ang + Math.PI / 2) * (width / 2 + edgeW / 2) * side;
-      edge.position.x += offX;
-      edge.position.z += offZ;
-      edge.receiveShadow = true;
+      const off = _perpRight(ang, width / 2 + edgeW / 2, side);
+      const egeo = new THREE.PlaneGeometry(edgeW, len + 0.08);
+      const edge = new THREE.Mesh(egeo, MAT_PATH_EDGE);
+      edge.quaternion.copy(_flatQuat(ang));
+      edge.position.set(mx + off.x, 0.010, mz + off.z);
       scene.add(edge);
     }
   }
 }
+
+const MAT_BANK = new THREE.MeshStandardMaterial({ color: 0x2a3a14, roughness: 1.0 });
 
 // ─── Río (curva Catmull-Rom suavizada) ───────────────────────────────────────
 function buildRiverFromPoints(scene, points, width = 6) {
@@ -693,62 +669,56 @@ function buildRiverFromPoints(scene, points, width = 6) {
   const curve = new THREE.CatmullRomCurve3(
     points.map(p => new THREE.Vector3(p.x, 0, p.z))
   );
-  // Solo construir la parte cercana al pueblo (primeros ~600 unidades de río)
-  const TOTAL_LEN = curve.getLength();
-  const BUILD_LEN = Math.min(TOTAL_LEN, 600);
-  const N = Math.max(30, Math.round(BUILD_LEN / 4));
-  const tMax = BUILD_LEN / TOTAL_LEN;
-  const cpts  = curve.getPoints(N);
-  const nBuild = Math.round(N * tMax);
+  // Sólo construir la parte cercana al pueblo
+  const TOTAL_LEN  = curve.getLength();
+  const BUILD_LEN  = Math.min(TOTAL_LEN, 500);
+  const N          = Math.round(BUILD_LEN / 5);   // segmentos cada ~5 unidades
+  const tMax       = BUILD_LEN / TOTAL_LEN;
+  const cpts       = curve.getPoints(N);
+  const nBuild     = Math.round(N * tMax);
 
   for (let i = 0; i < nBuild - 1; i++) {
     const a = cpts[i], b = cpts[i + 1];
     const dx = b.x - a.x, dz = b.z - a.z;
     const len = Math.sqrt(dx * dx + dz * dz) + 0.01;
+    if (len < 0.5) continue;
     const ang = Math.atan2(dx, dz);
     const mx  = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
-    // Ancho variable: ondulación sinusoidal para meandros
-    const t = i / nBuild;
-    const wVar = width * (0.85 + Math.sin(t * Math.PI * 3.7) * 0.20);
+    const t   = i / nBuild;
+    // Ancho levemente variable (meandros)
+    const wVar = width * (0.88 + Math.sin(t * Math.PI * 4.3) * 0.15);
 
-    // ── Cauce / lecho (ligeramente hundido, tierra oscura) ──────────────────
+    // ── Cauce (tierra húmeda oscura, más ancho que el agua) ─────────────────
     const bed = new THREE.Mesh(
-      new THREE.BoxGeometry(wVar + 3.2, 0.22, len + 0.05), MAT_RIVER_BED
+      new THREE.BoxGeometry(wVar + 2.8, 0.20, len + 0.1), MAT_RIVER_BED
     );
-    bed.position.set(mx, -0.14, mz);
+    bed.position.set(mx, -0.12, mz);
     bed.rotation.y = ang;
     scene.add(bed);
 
-    // ── Orillas (gradiente húmedo a cada lado) ─────────────────────────────
+    // ── Orillas a cada lado (BoxGeometry: rotation.y = ang funciona directo) ─
     for (const side of [-1, 1]) {
-      const bankW = 1.6 + Math.sin(t * 7.1 + side) * 0.5; // orilla irregular
+      const bankW = 1.4 + Math.sin(t * 6.3 + side * 1.7) * 0.4;
+      const off   = _perpRight(ang, wVar / 2 + bankW / 2, side);
       const bank  = new THREE.Mesh(
-        new THREE.BoxGeometry(bankW, 0.12, len + 0.05),
-        new THREE.MeshStandardMaterial({ color: 0x2a4a1a, roughness: 0.99 })
+        new THREE.BoxGeometry(bankW, 0.10, len + 0.1), MAT_BANK
       );
+      bank.position.set(mx + off.x, -0.03, mz + off.z);
       bank.rotation.y = ang;
-      // Posición lateral
-      const off = (wVar / 2 + bankW / 2) * side;
-      bank.position.set(
-        mx + Math.cos(ang + Math.PI / 2) * off,
-        -0.04,
-        mz - Math.sin(ang + Math.PI / 2) * off
-      );
-      bank.receiveShadow = true;
       scene.add(bank);
     }
 
-    // ── Superficie de agua animada ─────────────────────────────────────────
-    const waterMat = MAT_RIVER.clone();
-    waterMat.map = _riverTex; // comparte la textura animada (offset global)
-    // Escalar UVs según longitud del segmento
-    waterMat.map.repeat.set(1, len / wVar * 0.6);
-    const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(wVar, len + 0.05, 2, 4), waterMat
-    );
-    water.rotation.x = -Math.PI / 2;
-    water.rotation.z = -ang;
-    water.position.set(mx, 0.02, mz);
+    // ── Superficie de agua: PlaneGeometry con quaternion correcto ────────────
+    const wgeo = new THREE.PlaneGeometry(wVar, len + 0.1, 1, 1);
+    // Escalar UVs para que la animación de flujo se vea correcta
+    const uv = wgeo.attributes.uv;
+    const vs = len / wVar * 0.5;
+    for (let j = 0; j < uv.count; j++) uv.setY(j, uv.getY(j) * vs);
+    uv.needsUpdate = true;
+
+    const water = new THREE.Mesh(wgeo, MAT_RIVER);
+    water.quaternion.copy(_flatQuat(ang));
+    water.position.set(mx, 0.018, mz);
     scene.add(water);
   }
 }
