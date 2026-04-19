@@ -254,6 +254,7 @@ function buildWorm(char, npcIdx) {
 
   root._segs         = segs;
   root._segVels      = segVels;
+  root._segFenceY    = new Array(SEG_COUNT).fill(0);  // elevación extra por cerca
   root._tube         = tube;
   root._head         = head;
   root._fruit        = fruit;
@@ -379,7 +380,11 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
     const tSin = Math.sin(t * Math.PI);
     const amp  = tSin * BASE_R * 0.55;
     const minY = BASE_R * (1.05 + tSin); // asegura fondo del tubo ≥ 0
-    curr.y = Math.max(minY, BASE_R * 1.0 + amp * Math.sin(wt * 3.5 - i * 0.55));
+    const baseY = Math.max(minY, BASE_R * 1.0 + amp * Math.sin(wt * 3.5 - i * 0.55));
+    // Elevación extra por cerca — decae con gravedad
+    const fy = root._segFenceY;
+    fy[i] = Math.max(0, fy[i] - dt * 6.5);
+    curr.y = baseY + fy[i];
   }
 
   // Actualizar posición de la mesh de cabeza
@@ -425,15 +430,13 @@ function _updateTail(root) {
 }
 
 // ─── Empujar segmentos del gusano fuera de colliders AABB ────────────────────
-function _pushWormColliders(segs, colliders) {
+function _pushWormColliders(segs, fenceY, colliders) {
   for (let i = 0; i < segs.length; i++) {
     const seg = segs[i];
     const sr  = i === 0 ? HEAD_R : segRadius(i);
 
     for (const box of colliders) {
       if (box.active === false) continue;
-      // Cercas con maxY: solo bloquean si el segmento está por debajo del rail
-      if (box.maxY !== undefined && seg.y >= box.maxY) continue;
 
       const halfX = box.sx / 2 + sr;
       const halfZ = box.sz / 2 + sr;
@@ -443,9 +446,16 @@ function _pushWormColliders(segs, colliders) {
       const ovZ   = halfZ - Math.abs(dz);
 
       if (ovX > 0 && ovZ > 0) {
-        // Empujar por el eje de menor solapamiento
-        if (ovX < ovZ) seg.x += Math.sign(dx) * ovX;
-        else           seg.z += Math.sign(dz) * ovZ;
+        if (box.maxY !== undefined) {
+          // Cerca: elevar el segmento (acumular en _segFenceY para que persista)
+          const needed = box.maxY * 1.2 - (seg.y);
+          if (needed > fenceY[i]) fenceY[i] = needed;
+        } else {
+          // Muro sólido: bloqueo horizontal (solo si no está elevado sobre él)
+          if (seg.y > 1.0) continue;
+          if (ovX < ovZ) seg.x += Math.sign(dx) * ovX;
+          else           seg.z += Math.sign(dz) * ovZ;
+        }
       }
     }
   }
@@ -712,7 +722,7 @@ export class CampesinoSystem {
       }
 
       updateWorm(root, targetX, targetZ, dt, speed, isWalking);
-      if (colliders?.length) _pushWormColliders(root._segs, colliders);
+      if (colliders?.length) _pushWormColliders(root._segs, root._segFenceY, colliders);
     }
   }
 
