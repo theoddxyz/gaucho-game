@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { WATER_ZONES } from './landmarks.js';
-import { LM_CENTER_X, LM_CENTER_Z, LM_COVER_W, LM_COVER_H, worldToUV } from './lightmap-config.js';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 export const CHUNK_SIZE   = 200;
@@ -109,7 +108,7 @@ function _buildSandTexture() {
 const _sandTex = _buildSandTexture();
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
-export const TERRAIN_MAT = new THREE.MeshStandardMaterial({
+const TERRAIN_MAT = new THREE.MeshStandardMaterial({
   roughness: 0.87, metalness: 0.0,  // menos matte → responde más a la dirección de luz
   vertexColors: true,
   map: _sandTex,
@@ -247,18 +246,6 @@ export class ChunkManager {
       cols[i*3] = r; cols[i*3+1] = g; cols[i*3+2] = b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-
-    // ── UV2 (uv1): world-space projection for lightmap / aoMap ───────────────
-    // PlaneGeometry vertices are in XY before rotation.x = -π/2:
-    //   worldX = pos.getX(i) + ox,  worldZ = -pos.getY(i) + oz
-    const uv1s = new Float32Array(pos.count * 2);
-    for (let i = 0; i < pos.count; i++) {
-      const [u, v] = worldToUV(pos.getX(i) + ox, -pos.getY(i) + oz);
-      uv1s[i * 2    ] = u;
-      uv1s[i * 2 + 1] = v;
-    }
-    geo.setAttribute('uv1', new THREE.BufferAttribute(uv1s, 2));
-
     const ground = new THREE.Mesh(geo, TERRAIN_MAT);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(ox, 0, oz);
