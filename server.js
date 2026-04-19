@@ -1140,44 +1140,44 @@ app.get('/api/ai/status', async (_req, res) => {
 http.listen(PORT, async () => {
   console.log(`\n  GAUCHO ${IS_PROD ? 'production' : 'dev'} server at http://localhost:${PORT}`);
 
-  // ── UPnP: abre el puerto en el router automáticamente ───────────────────
+  // ── IP pública + UPnP ────────────────────────────────────────────────────
   if (!IS_PROD) {
-    try {
-      const { default: natUpnp } = await import('nat-upnp');
-      const upnp = natUpnp.createClient();
-
-      // Solicitar apertura de puerto al router via UPnP
-      await new Promise((res, rej) => {
-        upnp.portMapping({ public: Number(PORT), private: Number(PORT), ttl: 0 },
-          err => err ? rej(err) : res());
+    // 1) Obtener IP pública via HTTP plano (no depende de fetch ni https)
+    const { default: http } = await import('http');
+    const _getIp = () => new Promise((res, rej) => {
+      const req = http.get('http://api.ipify.org', r => {
+        let d = ''; r.on('data', c => d += c); r.on('end', () => res(d.trim()));
       });
+      req.on('error', rej);
+      req.setTimeout(5000, () => { req.destroy(); rej(new Error('timeout')); });
+    });
 
-      // Obtener IP pública del router
-      const externalIp = await new Promise((res, rej) => {
-        upnp.externalIp((err, ip) => err ? rej(err) : res(ip));
-      });
-
-      _publicUrl = `http://${externalIp}:${PORT}`;
-      io.emit('publicUrl', _publicUrl);
+    const _announce = (url) => {
+      _publicUrl = url;
+      io.emit('publicUrl', url);
       console.log(`\n  ╔══════════════════════════════════════════════╗`);
-      console.log(`  ║  LINK PARA EL OTRO JUGADOR (UPnP OK):        ║`);
-      console.log(`  ║  ${_publicUrl.padEnd(44)}║`);
+      console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
+      console.log(`  ║  ${url.padEnd(44)}║`);
       console.log(`  ╚══════════════════════════════════════════════╝\n`);
-      upnp.close();
-    } catch (e) {
-      console.log(`  [UPnP] no disponible (${e.message}) — abrí el puerto ${PORT} en tu router manualmente`);
-      // Fallback: al menos mostrar IP pública sin garantía de puerto abierto
+    };
+
+    // 2) Intentar UPnP para abrir puerto automáticamente
+    let ip = null;
+    try { ip = await _getIp(); } catch(e) { console.log('  [IP] error:', e.message); }
+
+    if (ip) {
       try {
-        const https = await import('https');
-        const ip = await new Promise((res, rej) => {
-          https.get('https://api.ipify.org', r => {
-            let d = ''; r.on('data', c => d += c); r.on('end', () => res(d.trim()));
-          }).on('error', rej);
-        });
-        _publicUrl = `http://${ip}:${PORT}`;
-        io.emit('publicUrl', _publicUrl);
-        console.log(`  IP pública: ${_publicUrl} (necesitás port forwarding en el router)\n`);
-      } catch (_) {}
+        const { default: natUpnp } = await import('nat-upnp');
+        const upnp = natUpnp.createClient();
+        await new Promise((res, rej) =>
+          upnp.portMapping({ public: Number(PORT), private: Number(PORT), ttl: 0 },
+            err => err ? rej(err) : res()));
+        upnp.close();
+        console.log(`  [UPnP] puerto ${PORT} abierto en el router`);
+      } catch(e) {
+        console.log(`  [UPnP] no disponible — abrí el puerto ${PORT} manualmente en tu router`);
+      }
+      _announce(`http://${ip}:${PORT}`);
     }
   }
 });
