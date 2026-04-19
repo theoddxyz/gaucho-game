@@ -157,12 +157,13 @@ function fence(parent, x0, z0, x1, z1, h = 1.4) {
 }
 
 // ─── Granja ──────────────────────────────────────────────────────────────────
-function buildFarm(scene, cx, cz, fw = 18, fd = 14) {
+function buildFarm(scene, colliders, cx, cz, fw = 18, fd = 14) {
   const g = new THREE.Group();
   g.position.set(cx, 0, cz);
   scene.add(g);
 
   const hw = fw / 2, hd = fd / 2;
+  const fh = 1.4;
 
   // Suelo tierra
   sb(MAT_DIRT, fw, 0.10, fd, 0, 0, 0, g);
@@ -178,12 +179,22 @@ function buildFarm(scene, cx, cz, fw = 18, fd = 14) {
     g.add(crop);
   }
 
-  // Cerco perimetral (con hueco al sur = portón)
-  fence(g, -hw, -hd, -2.2,  -hd);
-  fence(g,  2.2, -hd,  hw,  -hd);
-  fence(g, -hw,  hd,   hw,   hd);
-  fence(g, -hw, -hd,  -hw,   hd);
-  fence(g,  hw, -hd,   hw,   hd);
+  // Cerco perimetral (hueco al norte = portón 4.4u)
+  fence(g, -hw, -hd, -2.2,  -hd, fh);
+  fence(g,  2.2, -hd,  hw,  -hd, fh);
+  fence(g, -hw,  hd,   hw,   hd, fh);
+  fence(g, -hw, -hd,  -hw,   hd, fh);
+  fence(g,  hw, -hd,   hw,   hd, fh);
+
+  // Colliders de cerca (con maxY para poder saltar)
+  _fenceCol(colliders, cx, cz, -hw, -hd, -2.2, -hd, fh);  // norte izq
+  _fenceCol(colliders, cx, cz,  2.2, -hd,  hw, -hd, fh);  // norte der
+  _fenceCol(colliders, cx, cz, -hw,  hd,   hw,  hd, fh);  // sur
+  _fenceCol(colliders, cx, cz, -hw, -hd,  -hw,  hd, fh);  // oeste
+  _fenceCol(colliders, cx, cz,  hw, -hd,   hw,  hd, fh);  // este
+
+  // Portón (activo = bloqueado, se puede extender a gate animado después)
+  colliders.push({ x: cx, z: cz - hd, sx: 4.4, sz: 0.22, maxY: fh + 0.1, active: true });
 
   // Poste de portón
   const gpost = (ox) => {
@@ -593,7 +604,7 @@ export function createVillage(scene, colliders) {
         _trySwap(scene, buildHouse(scene, colliders, obj.x, obj.z, ryRad), '/models/house.glb');
         break;
       case 'farm':
-        _trySwap(scene, buildFarm(scene, obj.x, obj.z), '/models/farm.glb');
+        _trySwap(scene, buildFarm(scene, colliders, obj.x, obj.z), '/models/farm.glb');
         break;
       case 'corral':
         _trySwap(scene, buildCorral(scene, colliders, obj.x, obj.z), '/models/corral.glb');
