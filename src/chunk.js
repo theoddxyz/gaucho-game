@@ -157,7 +157,7 @@ function _buildNormalMap() {
     return d1 + d2 + d3 + d4 + wind;
   }
 
-  const STRENGTH = 5.5;  // fuerza del efecto normal (mayor = relieves más pronunciados)
+  const STRENGTH = 9.0;  // fuerza del efecto normal (mayor = relieves más pronunciados)
   const eps = 1.0;
 
   for (let y = 0; y < SZ; y++) {
@@ -181,31 +181,33 @@ function _buildNormalMap() {
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(4, 4);   // cubre ~50u por tile — escala de duna
+  // Repeat no entero → los tiles no se alinean en cuadrícula, elimina la "grilla" visible
+  tex.repeat.set(2.7, 3.1);
   return tex;
 }
 
 // ─── Función de desplazamiento de vértices del terreno ───────────────────────
-// Usada en _build() para añadir micro-relieve (dunas suaves, 0-0.25 unidades)
+// Usada en _build() para añadir relieve visible de dunas y ondulaciones
 function _terrainHeight(wx, wz) {
-  // Solo ruido de gran escala — no queremos discontinuidades en bordes de chunk
-  const h1 = _fbm(wx / 80 + 5.5, wz / 65 + 2.3) * 0.55;
-  const h2 = _noise(wx / 35 + 18, wz / 30 + 9)  * 0.30;
-  const h3 = _noise(wx / 14 + 88, wz / 11 + 44)  * 0.15;
-  return (h1 + h2 + h3) * 0.28;  // max ~0.28 unidades de elevación
+  // Escala grande — continuidad garantizada entre chunks (frecuencias bajas)
+  const h1 = _fbm(wx / 120 + 5.5, wz / 100 + 2.3) * 0.55;   // dunas grandes ~60-120u
+  const h2 = _noise(wx / 55  + 18, wz / 45 + 9)   * 0.28;   // ondulaciones medias ~30u
+  const h3 = _noise(wx / 22  + 88, wz / 18 + 44)  * 0.12;   // variación pequeña ~10u
+  const h4 = _noise(wx / 8   + 33, wz / 7  + 77)  * 0.05;   // micro textura
+  return (h1 + h2 + h3 + h4) * 2.2;  // max ~2.2 unidades — dunas claramente visibles
 }
 
-const _sandTex   = _buildSandTexture();
+// _sandTex ya no se usa en el material (genera tiling visible)
+// const _sandTex = _buildSandTexture();
 const _normalTex = _buildNormalMap();
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness:   0.82,
-  metalness:   0.0,
+  roughness:    0.85,
+  metalness:    0.0,
   vertexColors: true,
-  map:         _sandTex,
-  normalMap:   _normalTex,
-  normalScale: new THREE.Vector2(0.9, 0.9),
+  normalMap:    _normalTex,
+  normalScale:  new THREE.Vector2(2.8, 2.8),
 });
 
 const ROCK_MATS = [

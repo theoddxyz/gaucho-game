@@ -116,31 +116,43 @@ function _satCurve(k = 120) {
 //  MOVIMIENTO
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Paso de gaucho en tierra seca de pampa — polvo + gravilla
+// Paso en arena seca de pampa — suave, apagado, sin impacto duro
 export function footstep(surface = 'sand', pitchArg = null, volume = 0.06) {
   const c = _c(); if (!c) return;
   const t = _t();
-  const p = pitchArg ?? (0.88 + Math.random() * 0.24);
+  const p = pitchArg ?? (0.82 + Math.random() * 0.22);
 
-  // Thud grave (suelo)
-  const o = c.createOscillator(); o.type = 'sine';
-  const f0 = surface === 'grass' ? 52 : 62;
-  o.frequency.setValueAtTime(f0 * p, t);
-  o.frequency.exponentialRampToValueAtTime(22 * p, t + 0.10);
-  const g = _gain(); g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(volume * 1.4, t + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-  const lp = _lp(200); o.connect(lp); lp.connect(g); _toOut(g, 0.03);
-  o.start(t); o.stop(t + 0.14);
+  if (surface === 'grass') {
+    // Pasto: crujido más agudo (sin cambios, rara vez se usa)
+    const ns = _mkNoise(0.12); if (!ns) return;
+    const bp = _bp(700, 1.1);
+    const gn = _gain(); gn.gain.setValueAtTime(0.0001, t);
+    gn.gain.linearRampToValueAtTime(volume * 0.65, t + 0.007);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+    ns.connect(bp); bp.connect(gn); _toOut(gn, 0.025); ns.start(t);
+    return;
+  }
 
-  // Crujido de tierra / pasto
-  const ns = _mkNoise(0.10); if (!ns) return;
-  const fq = surface === 'grass' ? 800 : 420;
-  const bp = _bp(fq, surface === 'grass' ? 1.2 : 0.8);
-  const gn = _gain(); gn.gain.setValueAtTime(0.0001, t);
-  gn.gain.linearRampToValueAtTime(volume * 0.7, t + 0.006);
-  gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
-  ns.connect(bp); bp.connect(gn); _toOut(gn, 0.02); ns.start(t);
+  // Arena: solo ruido suave filtrado bajo — como un "shff" sordo
+  // Capa 1: ruido bajo filtrado (arena desplazándose)
+  const ns1 = _mkNoise(0.18); if (!ns1) return;
+  const lp1 = _lp(280);                   // muy apagado, sin agudos
+  const gn1 = _gain();
+  gn1.gain.setValueAtTime(0.0001, t);
+  gn1.gain.linearRampToValueAtTime(volume * 0.9, t + 0.010);
+  gn1.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);  // cola larga — la arena se asienta
+  ns1.connect(lp1); lp1.connect(gn1); _toOut(gn1, 0.03);
+  ns1.start(t); ns1.stop(t + 0.22);
+
+  // Capa 2: crepitar muy leve de granos (micro noise mid-range, casi inaudible)
+  const ns2 = _mkNoise(0.06); if (!ns2) return;
+  const bp2 = _bp(380 * p, 0.6);
+  const gn2 = _gain();
+  gn2.gain.setValueAtTime(0.0001, t);
+  gn2.gain.linearRampToValueAtTime(volume * 0.35, t + 0.008);
+  gn2.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
+  ns2.connect(bp2); bp2.connect(gn2); _toOut(gn2, 0.015);
+  ns2.start(t); ns2.stop(t + 0.14);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

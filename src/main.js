@@ -1069,7 +1069,16 @@ function _showIntroScreen(playerName) {
     text-align:left;
     white-space:pre-line;
   `;
-  box.textContent = INTRO_TEXT;
+  // Máquina de escribir: un carácter cada ~38ms (~26 cps)
+  box.textContent = '';
+  let _charIdx = 0;
+  const _twInterval = setInterval(() => {
+    if (_charIdx < INTRO_TEXT.length) {
+      box.textContent += INTRO_TEXT[_charIdx++];
+    } else {
+      clearInterval(_twInterval);
+    }
+  }, 38);
 
   const hint = document.createElement('div');
   hint.style.cssText = `
@@ -1084,6 +1093,7 @@ function _showIntroScreen(playerName) {
   document.body.appendChild(overlay);
 
   const _dismiss = () => {
+    clearInterval(_twInterval);
     overlay.style.opacity = '0';
     localPlayerModel?.stopSleep();
     setTimeout(() => overlay.remove(), 1300);
