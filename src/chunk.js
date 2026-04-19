@@ -7,7 +7,7 @@ import { WATER_ZONES } from './landmarks.js';
 export const CHUNK_SIZE   = 200;
 const LOAD_RADIUS         = 1;      // 3×3 = 9 chunks visibles
 const UNLOAD_DIST         = 2;
-const SUB                 = 20;     // subdivisiones del plano — más detalle de color
+const SUB                 = 48;     // subdivisiones del plano — más detalle de color y desplazamiento
 const TREES_PER_CHUNK     = 4;
 const ROCKS_PER_CHUNK     = 4;
 const BUSHES_PER_CHUNK    = 8;
@@ -77,41 +77,135 @@ function _terrainColor(wx, wz) {
   ];
 }
 
-// ─── Textura procedural de arena (canvas noise) ──────────────────────────────
+// ─── Textura de arena mejorada ────────────────────────────────────────────────
 function _buildSandTexture() {
   const SZ = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = SZ;
-  const ctx = canvas.getContext('2d');
+  const cv = document.createElement('canvas'); cv.width = cv.height = SZ;
+  const ctx = cv.getContext('2d');
   const img = ctx.createImageData(SZ, SZ);
   const d   = img.data;
-  for (let i = 0; i < SZ * SZ; i++) {
-    const x = i % SZ, y = Math.floor(i / SZ);
-    // 3 octavas de ruido para granulado de arena fino
-    const n1 = _noise(x / 14 + 3.1,  y / 14 + 9.7);
-    const n2 = _noise(x / 5  + 71.3, y / 5  + 33.1) * 0.4;
-    const n3 = _noise(x / 2  + 130,  y / 2.5 + 55 ) * 0.15;
-    const v  = (n1 + n2 + n3) / 1.55;  // ~0..1
-    // Tono cálido arena: ligeramente más R que G que B
-    const base = Math.floor(185 + v * 55);
-    d[i*4]   = Math.min(255, base + 18);
-    d[i*4+1] = Math.min(255, base +  4);
-    d[i*4+2] = Math.max(  0, base - 22);
-    d[i*4+3] = 255;
+
+  for (let y = 0; y < SZ; y++) {
+    for (let x = 0; x < SZ; x++) {
+      const i = (y * SZ + x) * 4;
+
+      // Grano fino: 4 octavas con distorsión diagonal (simula viento)
+      const wx = x + _noise(x / 8, y / 8) * 18;  // warping horizontal
+      const wy = y + _noise(x / 8 + 40, y / 8 + 40) * 12;
+      const n1 = _noise(wx / 18 + 3.1,  wy / 18 + 9.7);
+      const n2 = _noise(wx / 7  + 71.3, wy / 6  + 33.1) * 0.38;
+      const n3 = _noise(wx / 3  + 130,  wy / 2.5 + 55 ) * 0.14;
+      const n4 = _noise(wx / 1.2 + 200, wy / 1.4 + 90 ) * 0.06;
+      const v  = (n1 + n2 + n3 + n4) / 1.58;
+
+      // Grietas de tierra seca (ridges altos + umbral brusco)
+      const crack1 = _noise(wx / 28 + 7, wy / 22 + 3.5);
+      const crack2 = _noise(wx / 15 + 55, wy / 18 + 80);
+      // Una "grieta" es un valor muy cercano a 0.5 → franja oscura
+      const crackA = Math.max(0, 1 - Math.abs(crack1 - 0.50) / 0.045) * 0.55;
+      const crackB = Math.max(0, 1 - Math.abs(crack2 - 0.50) / 0.060) * 0.35;
+      const crackMask = Math.min(1, crackA + crackB);
+
+      // Color base: arena cálida
+      let r = 190 + v * 58;
+      let g = 160 + v * 42;
+      let b = 100 + v * 28;
+
+      // Zonas más rojizas (tierra seca) vs más amarillentas (arena)
+      const zone = _noise(x / 200 + 5, y / 160 + 9);
+      if (zone < 0.42) {
+        r += 22; g -= 8; b -= 14;   // tierra roja ocre
+      } else if (zone > 0.68) {
+        r -= 5; g += 8; b += 6;    // arena más clara/verde seco
+      }
+
+      // Grietas oscurecen
+      r = Math.max(0, r - crackMask * 55);
+      g = Math.max(0, g - crackMask * 40);
+      b = Math.max(0, b - crackMask * 22);
+
+      d[i]   = Math.min(255, Math.round(r));
+      d[i+1] = Math.min(255, Math.round(g));
+      d[i+2] = Math.min(255, Math.round(b));
+      d[i+3] = 255;
+    }
   }
   ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
+  const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(12, 12);  // grano fino repetido
+  tex.repeat.set(8, 8);   // algo más grande para ver las grietas
   return tex;
 }
-const _sandTex = _buildSandTexture();
+
+// ─── Normal map procedural (simula dunas y rugosidad para interactuar con la luz)
+function _buildNormalMap() {
+  const SZ = 512;
+  const cv = document.createElement('canvas'); cv.width = cv.height = SZ;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(SZ, SZ);
+  const d   = img.data;
+
+  // Función de altura multi-escala: ondas de duna grandes + rugosidad media + micro
+  function hgt(u, v) {
+    const warp = _noise(u / 60 + 11, v / 50 + 7) * 0.5;  // warping suave
+    const d1 = _noise(u / 95 + 3.7   + warp, v / 70 + 1.1  + warp) * 0.52;  // dunas ~50u
+    const d2 = _noise(u / 32 + 11.3,          v / 28 + 7.9         ) * 0.26;  // ondas medias
+    const d3 = _noise(u / 12 + 55.1,          v / 10 + 33.4        ) * 0.14;  // rugosidad
+    const d4 = _noise(u / 4  + 190,           v / 3  + 120         ) * 0.08;  // micro-grano
+    // Bandas de viento diagonales (rastros de arena)
+    const wind = Math.sin((u * 0.8 - v * 0.3) / 22 + _noise(u / 40, v / 40) * 3) * 0.04;
+    return d1 + d2 + d3 + d4 + wind;
+  }
+
+  const STRENGTH = 5.5;  // fuerza del efecto normal (mayor = relieves más pronunciados)
+  const eps = 1.0;
+
+  for (let y = 0; y < SZ; y++) {
+    for (let x = 0; x < SZ; x++) {
+      // Gradiente central
+      const dx = (hgt(x + eps, y) - hgt(x - eps, y)) * STRENGTH;
+      const dz = (hgt(x, y + eps) - hgt(x, y - eps)) * STRENGTH;
+      // Normal desde gradiente, normalizada
+      const len = Math.sqrt(dx * dx + dz * dz + 1.0);
+      const nx = -dx / len;
+      const ny = -dz / len;
+      const nz =  1.0 / len;
+
+      const i = (y * SZ + x) * 4;
+      d[i]   = Math.round((nx * 0.5 + 0.5) * 255);
+      d[i+1] = Math.round((ny * 0.5 + 0.5) * 255);
+      d[i+2] = Math.round((nz * 0.5 + 0.5) * 255);
+      d[i+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);   // cubre ~50u por tile — escala de duna
+  return tex;
+}
+
+// ─── Función de desplazamiento de vértices del terreno ───────────────────────
+// Usada en _build() para añadir micro-relieve (dunas suaves, 0-0.25 unidades)
+function _terrainHeight(wx, wz) {
+  // Solo ruido de gran escala — no queremos discontinuidades en bordes de chunk
+  const h1 = _fbm(wx / 80 + 5.5, wz / 65 + 2.3) * 0.55;
+  const h2 = _noise(wx / 35 + 18, wz / 30 + 9)  * 0.30;
+  const h3 = _noise(wx / 14 + 88, wz / 11 + 44)  * 0.15;
+  return (h1 + h2 + h3) * 0.28;  // max ~0.28 unidades de elevación
+}
+
+const _sandTex   = _buildSandTexture();
+const _normalTex = _buildNormalMap();
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness: 0.87, metalness: 0.0,  // menos matte → responde más a la dirección de luz
+  roughness:   0.82,
+  metalness:   0.0,
   vertexColors: true,
-  map: _sandTex,
+  map:         _sandTex,
+  normalMap:   _normalTex,
+  normalScale: new THREE.Vector2(0.9, 0.9),
 });
 
 const ROCK_MATS = [
@@ -237,15 +331,21 @@ export class ChunkManager {
     const objects  = [];
     const ownColl  = [];
 
-    // ── Terreno con vertex colors ─────────────────────────────────────────────
+    // ── Terreno con vertex colors + micro-desplazamiento ─────────────────────
     const geo  = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, SUB, SUB);
     const pos  = geo.attributes.position;
     const cols = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
-      const [r, g, b] = _terrainColor(pos.getX(i) + ox, -pos.getY(i) + oz);
+      const wx = pos.getX(i) + ox;
+      const wz = -pos.getY(i) + oz;   // PlaneGeometry: Y local → -Z mundo tras rotación
+      const [r, g, b] = _terrainColor(wx, wz);
       cols[i*3] = r; cols[i*3+1] = g; cols[i*3+2] = b;
+      // Desplazamiento suave en Z local (= Y mundo tras rotación -PI/2)
+      pos.setZ(i, _terrainHeight(wx, wz));
     }
+    pos.needsUpdate = true;
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    geo.computeVertexNormals();   // recalcular normales tras desplazamiento
     const ground = new THREE.Mesh(geo, TERRAIN_MAT);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(ox, 0, oz);
