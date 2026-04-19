@@ -334,7 +334,10 @@ function updateWorm(root, targetX, targetZ, dt, speed, isWalking) {
     return;
   }
 
-  root._walkT += dt * (isWalking ? speed * 3.5 : 1.0);
+  // Animación desacoplada del speed: la ondulación siempre a ritmo fijo,
+  // independientemente de cuán rápido se desplace el gusano.
+  const ANIM_RATE = 1.3;
+  root._walkT += dt * (isWalking ? ANIM_RATE * 3.5 : 1.0);
   const wt = root._walkT;
 
   // Aplicar velocidades de impacto a cada segmento + decaimiento
@@ -518,9 +521,9 @@ export class CampesinoSystem {
     CHARS.forEach((char, i) => {
       const patrol = PATROLS[i];
       const root   = buildWorm(char, i);
-      // Empezar en la casa del personaje (no en la zona de patrulla)
-      const startX = HOUSES[i].pos.x;
-      const startZ = HOUSES[i].pos.y;  // souls.js: .y = 3D z
+      // Spawnear en la chacra (afuera), no dentro de la casa
+      const startX = HOUSES[i].farm.x;
+      const startZ = HOUSES[i].farm.y;  // souls.js: .y = 3D z
 
       root.position.set(startX, 0, startZ);
 
