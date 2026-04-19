@@ -1140,45 +1140,43 @@ app.get('/api/ai/status', async (_req, res) => {
 http.listen(PORT, async () => {
   console.log(`\n  GAUCHO ${IS_PROD ? 'production' : 'dev'} server at http://localhost:${PORT}`);
 
-  // ── IP pública + UPnP ────────────────────────────────────────────────────
-  // Corre siempre en local (no importa NODE_ENV), solo se saltea en Render
+  // ── Cloudflare tunnel (URL pública auto) ─────────────────────────────────
+  // Corre siempre en local, se saltea en Render
   if (!process.env.RENDER_EXTERNAL_URL) {
-    // 1) Obtener IP pública via HTTP plano (no depende de fetch ni https)
-    const { default: http } = await import('http');
-    const _getIp = () => new Promise((res, rej) => {
-      const req = http.get('http://api.ipify.org', r => {
-        let d = ''; r.on('data', c => d += c); r.on('end', () => res(d.trim()));
-      });
-      req.on('error', rej);
-      req.setTimeout(5000, () => { req.destroy(); rej(new Error('timeout')); });
+    const { spawn, spawnSync } = await import('child_process');
+    const { default: fs }      = await import('fs');
+
+    const cfPaths = [
+      'C:/Users/' + (process.env.USERNAME || 'Fabricio') + '/Downloads/cloudflared.exe',
+      'cloudflared', 'cloudflared.exe',
+    ];
+    const cfExe = cfPaths.find(p => {
+      try { return fs.existsSync(p) || spawnSync(p, ['--version'], { timeout: 1500 }).status === 0; }
+      catch { return false; }
     });
 
-    const _announce = (url) => {
-      _publicUrl = url;
-      io.emit('publicUrl', url);
-      console.log(`\n  ╔══════════════════════════════════════════════╗`);
-      console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
-      console.log(`  ║  ${url.padEnd(44)}║`);
-      console.log(`  ╚══════════════════════════════════════════════╝\n`);
-    };
-
-    // 2) Intentar UPnP para abrir puerto automáticamente
-    let ip = null;
-    try { ip = await _getIp(); } catch(e) { console.log('  [IP] error:', e.message); }
-
-    if (ip) {
-      try {
-        const { default: natUpnp } = await import('nat-upnp');
-        const upnp = natUpnp.createClient();
-        await new Promise((res, rej) =>
-          upnp.portMapping({ public: Number(PORT), private: Number(PORT), ttl: 0 },
-            err => err ? rej(err) : res()));
-        upnp.close();
-        console.log(`  [UPnP] puerto ${PORT} abierto en el router`);
-      } catch(e) {
-        console.log(`  [UPnP] no disponible — abrí el puerto ${PORT} manualmente en tu router`);
-      }
-      _announce(`http://${ip}:${PORT}`);
+    if (cfExe) {
+      console.log(`  [cloudflared] iniciando tunnel desde ${cfExe}...`);
+      const cf = spawn(cfExe, ['tunnel', '--url', `http://localhost:${PORT}`],
+        { stdio: ['ignore', 'pipe', 'pipe'] });
+      let buf = '';
+      const onData = (chunk) => {
+        buf += chunk.toString();
+        const m = buf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+        if (m && _publicUrl !== m[0]) {
+          _publicUrl = m[0];
+          io.emit('publicUrl', _publicUrl);
+          console.log(`\n  ╔══════════════════════════════════════════════╗`);
+          console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
+          console.log(`  ║  ${m[0].padEnd(44)}║`);
+          console.log(`  ╚══════════════════════════════════════════════╝\n`);
+        }
+      };
+      cf.stdout.on('data', onData);
+      cf.stderr.on('data', onData);
+      cf.on('exit', code => console.log(`  [cloudflared] proceso terminó (code ${code})`));
+    } else {
+      console.log(`  [cloudflared] no encontrado — instalalo para tener link compartible`);
     }
   }
 });
