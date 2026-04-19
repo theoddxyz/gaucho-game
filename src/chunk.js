@@ -188,12 +188,13 @@ function _buildNormalMap() {
 // ─── Función de desplazamiento de vértices del terreno ───────────────────────
 // Exportada para que controls.js pueda hacer que el jugador siga el suelo.
 function _terrainHeight(wx, wz) {
-  // Solo frecuencias bajas: garantiza continuidad perfecta en bordes de chunk
+  // Solo frecuencias bajas: continuidad perfecta en bordes de chunk
+  // Amplitud pequeña (max ~0.30u) → no entierra animales ni edificios
   const h1 = _fbm(wx / 120 + 5.5, wz / 100 + 2.3) * 0.55;
   const h2 = _noise(wx / 55  + 18,  wz / 45 + 9)   * 0.28;
   const h3 = _noise(wx / 22  + 88,  wz / 18 + 44)  * 0.12;
   const h4 = _noise(wx / 8   + 33,  wz / 7  + 77)  * 0.05;
-  return (h1 + h2 + h3 + h4) * 1.0;  // 0–1 unidades: dunas claramente visibles
+  return (h1 + h2 + h3 + h4) * 0.30;
 }
 
 /** Exportada para IsoControls — calcula el suelo bajo un punto del mundo */
@@ -202,16 +203,21 @@ export function getTerrainHeight(wx, wz) {
 }
 
 // ─── Altura de detalle para normales procedurales ────────────────────────────
-// Combina el desplazamiento real + micro-ruido fino → normales ricas sin textura
+// NO afecta la geometría real — solo se usa para calcular el gradiente de normal.
+// Amplitudes grandes aquí → normales muy pronunciadas → piso visualmente rugoso.
 function _heightForNormal(wx, wz) {
-  const base = _terrainHeight(wx, wz);
-  // Micro-detalle multi-escala: ondas de viento + rugosidad de grano
-  const d1 = _noise(wx / 20 + 3.1,  wz / 17 + 9.7) * 0.18;
-  const d2 = _noise(wx / 8  + 55.2, wz / 7  + 22.1) * 0.10;
-  const d3 = _noise(wx / 3  + 100,  wz / 2.5 + 80 ) * 0.05;
-  const wind = Math.sin((wx * 0.9 - wz * 0.35) / 14 +
-               _noise(wx / 35, wz / 30) * 2.5) * 0.06;
-  return base + d1 + d2 + d3 + wind;
+  // Dunas grandes
+  const d1 = _fbm(wx / 80 + 5.5, wz / 65 + 2.3) * 1.2;
+  // Ondas medianas
+  const d2 = _noise(wx / 28 + 11.3, wz / 24 + 7.9) * 0.7;
+  // Rugosidad fina
+  const d3 = _noise(wx / 11 + 55.1, wz / 9  + 33.4) * 0.4;
+  // Micro-grano
+  const d4 = _noise(wx / 4  + 190,  wz / 3  + 120 ) * 0.2;
+  // Rastros de viento diagonales
+  const wind = Math.sin((wx * 0.9 - wz * 0.35) / 18 +
+               _noise(wx / 40, wz / 35) * 3.0) * 0.3;
+  return d1 + d2 + d3 + d4 + wind;
 }
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
@@ -365,12 +371,10 @@ export class ChunkManager {
       pos.setZ(i, _terrainHeight(wx, wz));
 
       // ── Normal procedural desde gradiente de _heightForNormal ────────────────
-      // En espacio local (antes de rotation.x = -PI/2):
-      //   tangente X → (1, 0, dh/dwx)
-      //   tangente Y → (0, 1, -dh/dwz)   (local Y = -mundo Z)
-      //   normal     = cruz = (-dh/dwx,  dh/dwz, 1)  normalizada
-      const dhx = (_heightForNormal(wx + EPS, wz) - _heightForNormal(wx - EPS, wz)) / (2 * EPS);
-      const dhz = (_heightForNormal(wx, wz + EPS) - _heightForNormal(wx, wz - EPS)) / (2 * EPS);
+      // STRENGTH amplifica los derivados → normales más inclinadas → más contraste de luz
+      const STRENGTH = 10.0;
+      const dhx = (_heightForNormal(wx + EPS, wz) - _heightForNormal(wx - EPS, wz)) / (2 * EPS) * STRENGTH;
+      const dhz = (_heightForNormal(wx, wz + EPS) - _heightForNormal(wx, wz - EPS)) / (2 * EPS) * STRENGTH;
       const len = Math.sqrt(dhx * dhx + dhz * dhz + 1.0);
       nrm.setXYZ(i, -dhx / len, dhz / len, 1.0 / len);
     }
