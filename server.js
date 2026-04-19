@@ -559,6 +559,7 @@ io.on('connection', (socket) => {
       creatureSeed: meta.seed,
       roomAge: (Date.now() - meta.createdAt) / 1000,
       isHost: roomHosts.get(currentRoom) === socket.id,
+      publicUrl: _publicUrl,   // null si el tunnel todavía no arrancó
     });
 
     // Enviar estado actual de cultivos al nuevo jugador
@@ -1157,8 +1158,9 @@ http.listen(PORT, async () => {
     const onData = (data) => {
       const s = data.toString();
       const m = s.match(/https:\/\/[a-z0-9\-]+\.trycloudflare\.com/);
-      if (m) {
+      if (m && !_publicUrl) {
         _publicUrl = m[0];
+        io.emit('publicUrl', _publicUrl);  // avisa a todos los clientes conectados
         console.log(`\n  ╔══════════════════════════════════════════════╗`);
         console.log(`  ║  LINK PARA EL OTRO JUGADOR:                  ║`);
         console.log(`  ║  ${m[0].padEnd(44)}║`);
@@ -1171,6 +1173,7 @@ http.listen(PORT, async () => {
     try {
       const tunnel = await localtunnel({ port: Number(PORT) });
       _publicUrl = tunnel.url;
+      io.emit('publicUrl', _publicUrl);
       console.log(`\n  PUBLIC URL (comparte este link!):\n  ${tunnel.url}\n`);
       tunnel.on('close', () => { _publicUrl = null; console.log('  Tunnel closed'); });
     } catch (err) {

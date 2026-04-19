@@ -98,6 +98,8 @@ export function onAldeanoChatResponse(cb)     { socket.on('aldeanoChatResponse',
 export function sendCarrosaMoved(x, z, ry) { socket.volatile.emit('carrosaMoved', { x, z, ry }); }
 export function onCarrosaMoved(cb)         { socket.on('carrosaMoved', cb); }
 
+export function onPublicUrl(cb) { socket.on('publicUrl', cb); }
+
 // Reliable mount/dismount events so remote clients update immediately
 export function sendCarrossaMount()              { socket.emit('carrossaMount'); }
 export function sendCarrossaDismount()           { socket.emit('carrossaDismount'); }

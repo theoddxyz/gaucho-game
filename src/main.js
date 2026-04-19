@@ -1299,12 +1299,18 @@ Network.onJoined((data) => {
   UI.showGame();
   UI.updateHP(myData.hp);
   UI.updateScore(myData.kills, myData.deaths);
-  UI.setRoomLink(data.roomId);
+  UI.setRoomLink(data.roomId, data.publicUrl);
 
   for (const [id, pd] of Object.entries(data.players)) {
     if (id !== myId) remotePlayers.set(id, new PlayerModel(scene, pd));
   }
   UI.updatePlayersCount(remotePlayers.size + 1);
+});
+
+// El tunnel cloudflare puede tardar unos segundos — cuando llegue, actualiza el link
+Network.onPublicUrl((url) => {
+  const roomId = new URLSearchParams(location.search).get('room') || 'gaucho';
+  UI.setRoomLink(roomId, url);
 });
 
 Network.onPlayerJoined((pd) => {

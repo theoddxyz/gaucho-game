@@ -121,28 +121,22 @@ export function updatePlayersCount(count) {
 }
 
 // ─── Room link ────────────────────────────────────────────────────────────────
-export function setRoomLink(roomId) {
-  els.roomLink.textContent = `sala: ${roomId}`;
-
-  // Poll /api/public-url until the tunnel URL is ready (cloudflare takes a few secs)
-  const _poll = () => {
-    fetch('/api/public-url')
-      .then(r => r.json())
-      .then(({ url: base }) => {
-        if (!base) { setTimeout(_poll, 2000); return; } // todavía no está listo
-        const shareUrl = `${base}?room=${roomId}`;
-        els.roomLink.textContent = `sala: ${roomId}`;
-        els.roomLink.title = shareUrl;
-        els.roomLink.onclick = () => {
-          navigator.clipboard.writeText(shareUrl);
-          const prev = els.roomLink.textContent;
-          els.roomLink.textContent = 'copiado!';
-          setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
-        };
-      })
-      .catch(() => setTimeout(_poll, 3000));
-  };
-  _poll();
+export function setRoomLink(roomId, baseUrl) {
+  if (baseUrl) {
+    const shareUrl = `${baseUrl}?room=${roomId}`;
+    els.roomLink.textContent = shareUrl;   // muestra el link completo
+    els.roomLink.title = 'click para copiar';
+    els.roomLink.onclick = () => {
+      navigator.clipboard.writeText(shareUrl);
+      const prev = els.roomLink.textContent;
+      els.roomLink.textContent = 'copiado!';
+      setTimeout(() => { els.roomLink.textContent = prev; }, 1800);
+    };
+  } else {
+    // Tunnel todavía no arrancó — muestra sala sin link
+    els.roomLink.textContent = `sala: ${roomId}`;
+    els.roomLink.onclick = null;
+  }
 }
 
 // ─── Kill feed ────────────────────────────────────────────────────────────────
