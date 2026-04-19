@@ -2581,7 +2581,7 @@ function gameLoop() {
   // ── Almas + campesinos ───────────────────────────────────────────────────
   const _hour = Math.floor(getDayProgress() * 24);
   soulSystem.update(dt, _hour);
-  campesinoSystem.update(dt, pos, soulSystem.units);
+  campesinoSystem.update(dt, pos, soulSystem.units, colliders);
 
   // Sincronizar posición real del gusano → terraPos del alma (1 frame de lag, imperceptible)
   if (soulSystem && campesinoSystem) {

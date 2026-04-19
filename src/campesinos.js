@@ -424,6 +424,33 @@ function _updateTail(root) {
   }
 }
 
+// ─── Empujar segmentos del gusano fuera de colliders AABB ────────────────────
+function _pushWormColliders(segs, colliders) {
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    const sr  = i === 0 ? HEAD_R : segRadius(i);
+
+    for (const box of colliders) {
+      if (box.active === false) continue;
+      // Cercas con maxY: solo bloquean si el segmento está por debajo del rail
+      if (box.maxY !== undefined && seg.y >= box.maxY) continue;
+
+      const halfX = box.sx / 2 + sr;
+      const halfZ = box.sz / 2 + sr;
+      const dx    = seg.x - box.x;
+      const dz    = seg.z - box.z;
+      const ovX   = halfX - Math.abs(dx);
+      const ovZ   = halfZ - Math.abs(dz);
+
+      if (ovX > 0 && ovZ > 0) {
+        // Empujar por el eje de menor solapamiento
+        if (ovX < ovZ) seg.x += Math.sign(dx) * ovX;
+        else           seg.z += Math.sign(dz) * ovZ;
+      }
+    }
+  }
+}
+
 // ─── Nombre flotante ──────────────────────────────────────────────────────────
 function makeLabel(name) {
   const canvas = document.createElement('canvas');
@@ -595,7 +622,7 @@ export class CampesinoSystem {
     return { vx: repelX, vz: repelZ };
   }
 
-  update(dt, playerPos, units) {
+  update(dt, playerPos, units, colliders) {
     const now = performance.now();
     for (let i = 0; i < this._npcs.length; i++) {
       const npc  = this._npcs[i];
@@ -685,6 +712,7 @@ export class CampesinoSystem {
       }
 
       updateWorm(root, targetX, targetZ, dt, speed, isWalking);
+      if (colliders?.length) _pushWormColliders(root._segs, colliders);
     }
   }
 
