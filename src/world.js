@@ -6,7 +6,7 @@ export function createWorld(scene) {
 
   // --- Lighting ---
   // Warm late-afternoon ambient — enough to keep terrain texture readable
-  const ambient = new THREE.AmbientLight(0xffe8cc, 0.55);
+  const ambient = new THREE.AmbientLight(0xffe8cc, 0.28);  // bajado para mejor separación luz/sombra
   scene.add(ambient);
 
   // Moon — noche americana: iluminación fuerte azul-plateada, hace sombras nítidas
@@ -25,7 +25,7 @@ export function createWorld(scene) {
   scene.add(moon.target);  // target must be in scene so position updates propagate
 
   // Sun low on the western horizon — sunset angle, warm gold
-  const sun = new THREE.DirectionalLight(0xffcc77, 1.3);
+  const sun = new THREE.DirectionalLight(0xffbb55, 1.55);  // más dorado, compensa ambient bajado
   sun.position.set(90, 22, 25);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
@@ -35,7 +35,8 @@ export function createWorld(scene) {
   sun.shadow.camera.right  =  80;
   sun.shadow.camera.top    =  80;
   sun.shadow.camera.bottom = -80;
-  sun.shadow.bias          = -0.0003;  // evita shadow acne en suelo plano
+  sun.shadow.bias          = -0.0003;
+  sun.shadow.radius        = 2;  // penumbra suave con PCFSoftShadowMap
   scene.add(sun);
   scene.add(sun.target); // target must be in scene for updates to work
 

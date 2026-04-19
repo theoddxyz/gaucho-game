@@ -497,9 +497,9 @@ renderer.domElement.style.width  = '100vw';
 renderer.domElement.style.height = '100vh';
 renderer.domElement.style.imageRendering = 'pixelated';
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type    = THREE.PCFShadowMap;
-renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.shadowMap.type      = THREE.PCFSoftShadowMap;  // bordes suaves, más cinematográfico
+renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.30;  // más rango dinámico con el ambient bajado
 document.body.appendChild(renderer.domElement);
 
 // --- Camera (isometric) ---
@@ -551,21 +551,23 @@ const _westernShader = {
     }
 
     vec3 colorGrade(vec3 c) {
-      // Lift shadows warm brown
-      c += vec3(0.04, 0.02, -0.02) * smoothstep(0.0, 0.3, 1.0 - dot(c, vec3(0.299,0.587,0.114)));
-      // Push highlights yellow
       float lum = dot(c, vec3(0.299, 0.587, 0.114));
-      c = mix(c, c * vec3(1.06, 1.02, 0.88), smoothstep(0.5, 1.0, lum));
-      // Slight desaturation midtones (dusty)
-      c = mix(vec3(lum), c, mix(1.0, 0.82, smoothstep(0.25, 0.75, lum) * 0.4));
+      // Lift shadows: más terroso, seco — pampa bajo sol aplastante
+      c += vec3(0.06, 0.025, -0.035) * smoothstep(0.0, 0.3, 1.0 - lum);
+      // Push highlights: amarillo polvoriento, luz directa más legible
+      lum = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(c, c * vec3(1.13, 1.04, 0.80), smoothstep(0.5, 1.0, lum));
+      // Desaturación medios: polvo y calor más presentes
+      lum = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(vec3(lum), c, mix(1.0, 0.82, smoothstep(0.25, 0.75, lum) * 0.65));
       // Day-for-night blend
       if (nightMix > 0.01) {
         c = mix(c, dayForNight(c), nightMix);
       }
-      // Vignette (stronger at night)
+      // Vignette cinematográfica: arranque suave desde centro (14.0 en vez de 18.0)
       vec2 u = vUv * (1.0 - vUv.yx);
-      float vigStr = mix(0.45, 0.65, nightMix);
-      c *= mix(1.0, pow(u.x * u.y * 18.0, 0.35), vigStr);
+      float vigStr = mix(0.48, 0.68, nightMix);
+      c *= mix(1.0, pow(u.x * u.y * 14.0, 0.37), vigStr);
       return c;
     }
     void main() {
@@ -574,11 +576,7 @@ const _westernShader = {
       float g = texture2D(tDiffuse, vUv).g;
       float b = texture2D(tDiffuse, vUv - vec2(ab, 0.0)).b;
       vec3 col = colorGrade(vec3(r, g, b));
-      if (aberration > 0.01) {
-        vec2 u = vUv * (1.0 - vUv.yx);
-        float edge = 1.0 - pow(u.x * u.y * 15.0, 0.3);
-        col = mix(col, vec3(0.8, 0.0, 0.0), edge * aberration * 0.55);
-      }
+      // Aberración cromática: solo el split óptico, sin tinte rojo duro en bordes
       gl_FragColor = vec4(col, 1.0);
     }
   `,

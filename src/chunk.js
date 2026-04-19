@@ -109,9 +109,9 @@ const _sandTex = _buildSandTexture();
 
 // ─── Materiales compartidos ──────────────────────────────────────────────────
 const TERRAIN_MAT = new THREE.MeshStandardMaterial({
-  roughness: 0.94, metalness: 0.0,
+  roughness: 0.87, metalness: 0.0,  // menos matte → responde más a la dirección de luz
   vertexColors: true,
-  map: _sandTex,       // textura de arena multiplica sobre vertex colors
+  map: _sandTex,
 });
 
 const ROCK_MATS = [
